@@ -1,0 +1,15 @@
+{
+  "name": "netdiag-uitest",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dev-only Playwright + axe-core visual and flow harness for web/ (never embedded or required by netdiag)",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "shots": "playwright test shots.spec.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.64.0"
+  }
+}

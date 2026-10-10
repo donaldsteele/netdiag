@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"netdiag/internal/model"
 )
@@ -32,6 +33,26 @@ func TestEnvDir(t *testing.T) {
 	s, err := Open("")
 	if err != nil || s.Dir() != d {
 		t.Fatalf("%v %v", s, err)
+	}
+}
+
+func TestOpenRemovesStaleTemps(t *testing.T) {
+	d := t.TempDir()
+	hist := filepath.Join(d, "history")
+	os.MkdirAll(hist, 0o755)
+	old, fresh := filepath.Join(hist, ".tmp-1"), filepath.Join(hist, ".tmp-2")
+	os.WriteFile(old, []byte("x"), 0o644)
+	os.WriteFile(fresh, []byte("x"), 0o644)
+	past := time.Now().Add(-time.Hour)
+	os.Chtimes(old, past, past)
+	if _, err := Open(d); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatal("stale temp kept")
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatal("fresh temp removed")
 	}
 }
 

@@ -1,21 +1,99 @@
+let tileRaf = 0;
+let tileCur = {}; // non-reactive copy of the tile values, so tweening does not retrigger its own effect
 document.addEventListener('alpine:init', () => {
   Alpine.data('app', () => ({
     ifaces: [], ifaceName: '', cidr: '', community: 'public',
     scanId: '', running: false, es: null,
     hosts: [], gateway: '', warnings: [], state: '',
     stage: '', done: 0, total: 0, error: '', quitted: false,
-    filter: 'all', sortKey: 'ip', sortDir: 1, open: {},
+    filter: 'all', sortKey: 'ip', sortDir: 1, drawerIP: '', search: '',
     live: true, liveStatus: null, nowMs: Date.now(), announce: '', announced: {}, liveSynced: false,
-    view: 'hosts', health: null, healthOpen: true, healthBusy: false, healthMsg: '',
+    theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
+    view: 'devices', navOpen: false, views: ['devices', 'health', 'activity', 'history'], health: null, healthOpen: true, healthBusy: false, healthMsg: '',
     conflicts: [], banners: [], seenNotices: {},
     settings: null, draft: null, settingsError: '', storeDown: false, desktopNote: '', audio: null,
     history: [], historyError: '', baseId: '', currentId: '', diff: null, diffError: '', diffBusy: false,
+    shown: {},
+    log: [], logSeq: 0, logHidden: {}, logStick: true, logSeen: {},
+    logKinds: [{id: 'scan', label: 'Scan'}, {id: 'host', label: 'New host'}, {id: 'offline', label: 'Offline'}, {id: 'online', label: 'Online'},
+               {id: 'conflict', label: 'Conflict'}, {id: 'health', label: 'Health'}, {id: 'notice', label: 'Notice'}, {id: 'error', label: 'Error'}],
+    logPush(kind, text, ip) {
+      this.log.push({id: ++this.logSeq, t: new Date().toISOString(), kind: kind, ip: ip || '', text: text});
+      if (this.log.length > 500) this.log.splice(0, this.log.length - 500);
+    },
+    logShown() { return this.log.filter(e => !this.logHidden[e.kind]); },
+    logToggle(k) { this.logHidden[k] = !this.logHidden[k]; },
+    logTime(e) { return new Date(e.t).toTimeString().slice(0, 8); },
+    logLine(e) { return this.logTime(e) + '  ' + e.kind.toUpperCase().padEnd(8) + ' ' + e.text; },
+    logText() { return this.logShown().map(e => this.logLine(e)).join('\n'); },
+    logRecent() { return this.log.slice(-3); },
+    logOnScroll(el) { this.logStick = el.scrollTop + el.clientHeight >= el.scrollHeight - 8; },
+    logFollow(el) { if (el && this.logStick) this.$nextTick(() => { el.scrollTop = el.scrollHeight; }); },
+    logHealth(prev, cur) {
+      if (!prev || !cur) return;
+      const old = {};
+      (prev.checks || []).forEach(c => { old[c.id] = c.status; });
+      (cur.checks || []).forEach(c => {
+        if (old[c.id] !== undefined && old[c.id] !== c.status) this.logPush('health', (c.label || c.id) + ': ' + old[c.id] + ' -> ' + c.status);
+      });
+    },
+    tileDefs: [
+      {id: 'alive', label: 'Alive', filter: 'alive'}, {id: 'printers', label: 'Printers', filter: 'printers'},
+      {id: 'web', label: 'Web', filter: 'web'}, {id: 'mdns', label: 'mDNS', filter: 'mdns'},
+      {id: 'offline', label: 'Offline', filter: 'offline'}, {id: 'conflicts', label: 'Conflicts', filter: 'conflicts'}],
+    tileCounts() {
+      const c = {alive: 0, printers: 0, web: 0, mdns: 0, offline: 0, conflicts: 0};
+      for (const h of this.hosts) {
+        if (h.alive) c.alive++;
+        if (h.isPrinter) c.printers++;
+        if ((h.web || []).length) c.web++;
+        if (h.mdns) c.mdns++;
+        if (this.isOffline(h)) c.offline++;
+        if (this.hasConflict(h)) c.conflicts++;
+      }
+      return c;
+    },
+    tileTone(t) {
+      const n = this.shown[t.id] || 0;
+      if (t.id === 'conflicts' && n > 0) return 'tone-bad';
+      if (t.id === 'offline' && n > 0) return 'tone-warn';
+      return '';
+    },
+    tileClick(t) { this.filter = this.filter === t.filter ? 'all' : t.filter; },
+    tweenTiles(target) {
+      let reduce = false;
+      try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+      cancelAnimationFrame(tileRaf);
+      const from = {...tileCur}, t0 = performance.now(), dur = 350;
+      const same = Object.keys(target).every(k => from[k] === target[k]);
+      if (reduce || same) { tileCur = {...target}; this.shown = {...target}; return; }
+      const step = (now) => {
+        const p = Math.min(1, (now - t0) / dur), o = {};
+        for (const k in target) o[k] = Math.round((from[k] || 0) + (target[k] - (from[k] || 0)) * p);
+        tileCur = o; this.shown = o;
+        if (p < 1) tileRaf = requestAnimationFrame(step);
+      };
+      tileRaf = requestAnimationFrame(step);
+    },
+    healthStrip() {
+      const by = {};
+      for (const c of ((this.health || {}).checks || [])) by[c.id] = c;
+      const ids = [['gateway', 'Gateway'], ['dhcp', 'DHCP'], ['dns', 'DNS'], ['internet', 'Internet'], ['wifi', 'Wi-Fi'], ['webserver', 'Event web']];
+      return ids.map(([id, label]) => {
+        const c = by[id];
+        if (!c) return {id, label, status: 'unavailable', value: 'not checked'};
+        const lat = this.healthLatency(c);
+        return {id, label, status: c.status, value: this.healthStatusText(c.status) + (lat ? ' ' + lat : '')};
+      });
+    },
     tabs: [{id: 'all', label: 'All'}, {id: 'printers', label: 'Printers'},
            {id: 'web', label: 'Web'}, {id: 'problems', label: 'Problems'}, {id: 'new', label: 'New'},
            {id: 'offline', label: 'Offline'}, {id: 'conflicts', label: 'Conflicts'}],
 
     async init() {
       try { const v = localStorage.getItem('netdiag.live'); if (v !== null) this.live = v === '1'; } catch (e) {}
+      try { const sv = localStorage.getItem('netdiag.view'); if (this.views.includes(sv)) this.view = sv; } catch (e) {}
+      if (this.view === 'history') this.loadHistory();
       setInterval(() => { this.nowMs = Date.now(); }, 1000);
       try {
         const r = await fetch('/api/interfaces');
@@ -123,6 +201,7 @@ document.addEventListener('alpine:init', () => {
       const key = (scanId || '') + ':' + n.id;
       if (this.seenNotices[key]) return;
       this.seenNotices[key] = true;
+      this.logPush('notice', (n.title || 'Notice') + (n.message ? ': ' + n.message : ''), n.ip);
       this.banners.unshift(Object.assign({}, n, {bid: key}));
       if (this.banners.length > 50) this.banners.length = 50;
       if (this.soundOn()) this.beep(n.severity);
@@ -166,6 +245,12 @@ document.addEventListener('alpine:init', () => {
       const id = ev.conflict.id;
       this.conflicts = this.conflicts.filter(c => c.id !== id);
       if (!ev.resolved) this.conflicts.push(ev.conflict);
+      const k = id + (ev.resolved ? ':r' : '');
+      if (!this.logSeen[k]) {
+        this.logSeen[k] = true;
+        const c = ev.conflict;
+        this.logPush('conflict', (ev.resolved ? 'Conflict resolved: ' : 'Conflict: ') + (c.detail || c.kind), (c.ips || [])[0]);
+      }
     },
     async ignoreMac(mac) {
       try {
@@ -180,7 +265,10 @@ document.addEventListener('alpine:init', () => {
 
     // ---- history & compare ----
     async showView(v) {
+      if (!this.views.includes(v)) v = 'devices';
       this.view = v;
+      this.navOpen = false;
+      try { localStorage.setItem('netdiag.view', v); } catch (e) {}
       if (v === 'history') await this.loadHistory();
     },
     async loadHistory() {
@@ -237,6 +325,12 @@ document.addEventListener('alpine:init', () => {
     changeText(c) { return c.field + ': ' + (c.from || '(none)') + ' → ' + (c.to || '(none)'); },
     statsText(s) { s = s || {}; return (s.alive || 0) + ' alive, ' + (s.printers || 0) + ' printers, ' + (s.web || 0) + ' web'; },
     saveLive() { try { localStorage.setItem('netdiag.live', this.live ? '1' : '0'); } catch (e) {} },
+    toggleTheme() {
+      this.theme = this.theme === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', this.theme);
+      try { localStorage.setItem('netdiag.theme', this.theme); } catch (e) {}
+    },
+    ifaceTitle() { const i = this.ifaces.find(x => x.name === this.ifaceName); return i ? i.name + ' - ' + i.ip : 'Custom target'; },
     pickIface() {
       const i = this.ifaces.find(x => x.name === this.ifaceName);
       if (i) this.cidr = i.suggested || i.cidr;
@@ -246,15 +340,16 @@ document.addEventListener('alpine:init', () => {
                          body: body === undefined ? undefined : JSON.stringify(body)});
     },
     async start() {
-      this.error = ''; this.hosts = []; this.warnings = []; this.open = {};
+      this.error = ''; this.hosts = []; this.warnings = []; this.drawerIP = '';
       this.stage = ''; this.done = 0; this.total = 0; this.state = ''; this.gateway = '';
       this.liveStatus = null; this.announce = ''; this.announced = {}; this.conflicts = [];
-      this.seenNotices = {};
+      this.seenNotices = {}; this.logSeen = {};
       try {
         const r = await this.post('/api/scans', {cidr: this.cidr.trim(), interface: this.ifaceName, community: this.community, live: !!this.live});
         const j = await r.json();
         if (!r.ok) { this.error = j.error || ('Scan failed (HTTP ' + r.status + ')'); return; }
         this.scanId = j.id; this.running = true; this.state = 'running';
+        this.logPush('scan', 'Scan started: ' + this.cidr.trim() + (this.live ? ' (live)' : ''));
         this.listen(j.id);
       } catch (e) { this.error = 'Could not start scan: ' + e.message; }
     },
@@ -263,12 +358,18 @@ document.addEventListener('alpine:init', () => {
       const es = new EventSource('/api/scans/' + id + '/events');
       this.es = es; this.liveSynced = false;
       const on = (t, fn) => es.addEventListener(t, ev => { try { fn(JSON.parse(ev.data)); } catch (e) {} });
-      on('host', h => this.upsert(h));
-      on('health', r => { this.health = r; });
+      on('host', h => {
+        if (h.isNew && !this.logSeen['h:' + h.ip]) {
+          this.logSeen['h:' + h.ip] = true;
+          if (this.liveSynced) this.logPush('host', 'New device: ' + (h.ip + ' ' + (h.vendor || '')).trim(), h.ip);
+        }
+        this.upsert(h);
+      });
+      on('health', r => { this.logHealth(this.health, r); this.health = r; });
       on('conflict', ev => this.onConflict(ev));
       on('notice', n => this.onNotice(n, id));
       on('progress', p => { this.stage = p.stage; this.done = p.done; this.total = p.total; });
-      on('stage', s => { this.stage = s.stage; this.done = 0; this.total = 0; });
+      on('stage', s => { this.stage = s.stage; this.done = 0; this.total = 0; this.logPush('scan', 'Stage: ' + s.stage); });
       on('snapshot', r => {
         this.gateway = r.gateway || ''; this.warnings = r.warnings || []; this.state = r.state;
         if (r.health) this.health = r.health;
@@ -283,12 +384,14 @@ document.addEventListener('alpine:init', () => {
         if (this.liveSynced && fresh.length) {
           this.announce = fresh.map(h => ('New device: ' + h.ip + ' ' + (h.vendor || '')).trim()).join('. ');
         }
+        if (!this.liveSynced) this.logPush('scan', 'Live monitoring started');
         this.liveSynced = true;
       });
       // Presence events are live-only (never replayed), so a reconnect does
       // not re-announce old transitions.
       on('presence', p => {
         const h = this.hosts.find(x => x.ip === p.ip) || {};
+        this.logPush(p.online ? 'online' : 'offline', p.online ? 'Back online: ' + p.ip : ('Went offline: ' + p.ip + ' ' + (h.vendor || '')).trim() + (p.reason ? ' (' + p.reason + ')' : ''), p.ip);
         this.announce = p.online ? 'Device back online: ' + p.ip
                                  : ('Device went offline: ' + p.ip + ' ' + (h.vendor || '')).trim();
       });
@@ -298,9 +401,10 @@ document.addEventListener('alpine:init', () => {
         if (r.conflicts) this.conflicts = r.conflicts;
         this.hosts = r.hosts || this.hosts; this.gateway = r.gateway || ''; this.warnings = r.warnings || [];
         this.state = r.state; this.running = false; this.stage = 'finished';
+        this.logPush('scan', 'Scan ' + (r.state === 'cancelled' ? 'cancelled' : 'finished') + ': ' + this.hosts.length + ' hosts');
         es.close(); this.es = null;
       });
-      on('error', m => { this.error = (m && m.message) || 'Scan error'; });
+      on('error', m => { this.error = (m && m.message) || 'Scan error'; this.logPush('error', this.error); });
       es.onerror = () => { if (es.readyState === EventSource.CLOSED) this.running = false; };
     },
     upsert(h) {
@@ -348,7 +452,7 @@ document.addEventListener('alpine:init', () => {
       if (this.running) return 'Scanning... hosts will appear as they are found.';
       if (this.state === 'done' && this.hosts.length) return 'No hosts match this filter.';
       if (this.state === 'done') return 'No hosts found.';
-      return 'Choose a target and press Scan.';
+      return '> no scan yet - pick a target and press Scan';
     },
 
     isOffline(h) { return !!h.alive && h.online === false && !h.isSelf; },
@@ -372,6 +476,8 @@ document.addEventListener('alpine:init', () => {
       return (h.web || []).some(w => w.error || !w.status || w.status >= 400);
     },
     matches(h, f) {
+      if (f === 'alive') return !!h.alive;
+      if (f === 'mdns') return !!h.mdns;
       if (f === 'printers') return h.isPrinter;
       if (f === 'web') return (h.web || []).length > 0;
       if (f === 'problems') return this.isProblem(h);
@@ -379,6 +485,9 @@ document.addEventListener('alpine:init', () => {
       if (f === 'conflicts') return this.hasConflict(h);
       if (f === 'offline') return this.isOffline(h);
       return true;
+    },
+    hostText(h) {
+      return [h.ip, h.hostname, this.mdnsName(h), h.mac, h.vendor].filter(Boolean).join(" ").toLowerCase();
     },
     count(f) { return this.hosts.filter(h => this.matches(h, f)).length; },
     ipNum(ip) { return ip.split('.').reduce((a, o) => a * 256 + (+o || 0), 0); },
@@ -389,7 +498,8 @@ document.addEventListener('alpine:init', () => {
     },
     visible() {
       const k = this.sortDir;
-      return this.hosts.filter(h => this.matches(h, this.filter)).sort((a, b) => {
+      const q = this.search.trim().toLowerCase();
+      return this.hosts.filter(h => this.matches(h, this.filter) && (!q || this.hostText(h).includes(q))).sort((a, b) => {
         const x = this.sortVal(a), y = this.sortVal(b);
         return (x < y ? -1 : x > y ? 1 : this.ipNum(a.ip) - this.ipNum(b.ip)) * k;
       });
@@ -404,13 +514,53 @@ document.addEventListener('alpine:init', () => {
       let last = 'first check pending';
       if (st.lastCheckAt) {
         const s = Math.max(0, Math.round((this.nowMs - Date.parse(st.lastCheckAt)) / 1000));
-        last = 'last check ' + s + 's ago';
+        last = 'checked ' + s + 's ago';
       }
-      return 'Live · watching ' + (st.unseen || 0) + ' addresses · ' + last + ' · ' + (st.newHosts || 0) + ' new' +
-        ' · ' + (st.offline || 0) + ' offline';
+      return 'Live · ' + (st.newHosts || 0) + ' new · ' + (st.offline || 0) + ' offline' + ' · ' + last +
+        ' · watching ' + (st.unseen || 0) + ' addresses';
     },
-    isOpen(ip) { return !!this.open[ip]; },
-    toggle(ip) { this.open[ip] = !this.open[ip]; },
+    typeOf(h) {
+      if (h.isPrinter) return {icon: "printer", label: "Printer"};
+      if (h.ip === this.gateway) return {icon: "router", label: "Gateway"};
+      if (h.isSelf) return {icon: "computer", label: "This computer"};
+      if ((h.web || []).length) return {icon: "web", label: "Web server"};
+      return {icon: "device", label: "Device"};
+    },
+    hostName(h) { return h.hostname || this.mdnsName(h); },
+    dotClass(h) { return this.isOffline(h) ? "st-off" : h.alive ? "st-up" : "st-down"; },
+    dotText(h) { return this.isOffline(h) ? "Offline" : h.alive ? "Up" : "No ping"; },
+    drawerHost() { return this.hosts.find(h => h.ip === this.drawerIP) || null; },
+    drawerHosts() { const h = this.drawerHost(); return h ? [h] : []; },
+    rowClick(ev, ip) {
+      if (ev.target.closest("a, button, input")) return;
+      this.openDrawer(ip);
+    },
+    openDrawer(ip) {
+      this.drawerIP = ip;
+      this.$nextTick(() => { const b = this.$refs.drawerClose; if (b) b.focus(); });
+    },
+    closeDrawer(noFocus) {
+      const ip = this.drawerIP;
+      if (!ip) return;
+      this.drawerIP = "";
+      if (noFocus) return;
+      this.$nextTick(() => {
+        const rows = document.querySelectorAll("#hosts button.rowbtn");
+        for (const b of rows) { if (b.dataset.ip === ip) { b.focus(); return; } }
+        const m = document.getElementById("main"); if (m) m.focus();
+      });
+    },
+    async copy(text, what) {
+      try { await navigator.clipboard.writeText(text); }
+      catch (e) {
+        const t = document.createElement("textarea");
+        t.value = text; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
+        document.body.appendChild(t); t.select();
+        try { document.execCommand("copy"); } catch (e2) { /* ignore */ }
+        document.body.removeChild(t);
+      }
+      this.announce = "Copied " + what + " " + text;
+    },
 
     printerSource(p) {
       return {ipp: 'via IPP', snmp: 'via SNMP', 'snmp+ipp': 'via SNMP + IPP'}[p && p.source] || '';

@@ -1,22 +1,37 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark light">
 <title>netdiag - network diagnostics</title>
+<script src="theme.js"></script>
 <link rel="stylesheet" href="styles.css">
 <script src="app.js" defer></script>
 <script src="vendor/alpine.min.js" defer></script>
 </head>
 <body>
-<a class="skip" href="#hosts">Skip to results</a>
-<div x-data="app()" x-init="init()">
-  <header class="bar" role="banner">
-    <h1>netdiag</h1>
+<a class="skip" href="#main">Skip to results</a>
+<div class="shell" :class="{navopen: navOpen}" x-data="app()" x-init="init()" @keydown.escape.window="drawerIP && !$refs.dlg.open && closeDrawer()">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand mono" aria-hidden="true">netdiag</div>
+    <nav aria-label="Main">
+      <ul class="plain navlist">
+        <li><button type="button" class="navitem" id="tab-devices" :aria-current="view === 'devices' ? 'page' : null" title="Devices" @click="showView('devices')"><span class="ico" aria-hidden="true">&#9638;</span><span class="lbl">Devices</span></button></li>
+        <li><button type="button" class="navitem" id="tab-health" :aria-current="view === 'health' ? 'page' : null" title="Health" @click="showView('health')"><span class="ico" aria-hidden="true">&#9829;</span><span class="lbl">Health</span></button></li>
+        <li><button type="button" class="navitem" id="tab-activity" :aria-current="view === 'activity' ? 'page' : null" title="Activity" @click="showView('activity')"><span class="ico" aria-hidden="true">&#8811;</span><span class="lbl">Activity</span></button></li>
+        <li><button type="button" class="navitem" id="tab-history" :aria-current="view === 'history' ? 'page' : null" title="History" @click="showView('history')"><span class="ico" aria-hidden="true">&#9719;</span><span class="lbl">History</span></button></li>
+        <li><button type="button" class="navitem" id="nav-settings" title="Settings" @click="openSettings()"><span class="ico" aria-hidden="true">&#9881;</span><span class="lbl">Settings</span></button></li>
+      </ul>
+    </nav>
+  </aside>
+  <div class="content">
+  <header class="topbar bar" role="banner">
+    <button type="button" class="menubtn" :aria-expanded="navOpen" aria-controls="sidebar" @click="navOpen = !navOpen">Menu</button>
+    <h1 class="mono">netdiag</h1>
     <form class="controls" @submit.prevent="start()" aria-label="Scan settings">
       <label>Interface
-        <select x-model="ifaceName" @change="pickIface()">
+        <select x-model="ifaceName" @change="pickIface()" :title="ifaceTitle()">
           <option value="">(custom)</option>
           <template x-for="i in ifaces" :key="i.name + i.ip">
             <option :value="i.name" x-text="i.name + ' - ' + i.ip + (i.isDefault ? ' (default)' : '')"></option>
@@ -24,7 +39,7 @@
         </select>
       </label>
       <label>Target (CIDR or range)
-        <input type="text" x-model="cidr" placeholder="192.168.1.0/24" spellcheck="false" autocomplete="off">
+        <input type="text" class="mono" x-model="cidr" placeholder="192.168.1.0/24" spellcheck="false" autocomplete="off">
       </label>
       <label>SNMP community
         <input type="text" x-model="community" spellcheck="false" autocomplete="off">
@@ -34,17 +49,25 @@
       <button type="submit" class="primary" x-show="!running" :disabled="!cidr.trim()">Scan</button>
       <button type="button" x-show="running && state !== 'live'" @click="cancel()">Cancel</button>
       <button type="button" x-show="state === 'live'" @click="cancel()">Stop live</button>
-      <button type="button" @click="exportAs('json')" :disabled="!scanId">Export JSON</button>
-      <button type="button" @click="exportAs('csv')" :disabled="!scanId">Export CSV</button>
+      <details class="menu" @keydown.escape="$el.open = false">
+        <summary>Export</summary>
+        <div class="menupop">
+          <button type="button" @click="exportAs('json'); $el.closest('details').open = false" :disabled="!scanId">Export JSON</button>
+          <button type="button" @click="exportAs('csv'); $el.closest('details').open = false" :disabled="!scanId">Export CSV</button>
+        </div>
+      </details>
       <button type="button" class="danger" @click="quit()">Quit</button>
     </form>
     <div class="hdrtools">
+      <span class="livepill" x-show="state === 'live'" x-text="liveText()" :title="liveText()"></span>
       <button type="button" class="chipbtn" :class="'h-' + (healthSummary().includes('fail') ? 'fail' : healthSummary().includes('warn') ? 'warn' : 'ok')"
-              @click="healthOpen = true; $nextTick(() => $refs.healthPanel && $refs.healthPanel.focus())" x-text="healthSummary()"></button>
-      <button type="button" :aria-pressed="!soundOn()" @click="toggleSound()" :disabled="!settings"
-              x-text="soundOn() ? 'Mute alerts' : 'Unmute alerts'"></button>
-      <button type="button" @click="enableDesktop()" x-show="desktopState() !== 'granted'">Enable desktop alerts</button>
-      <button type="button" @click="openSettings()">Settings</button>
+              @click="showView('health'); $nextTick(() => $refs.healthPanel && $refs.healthPanel.focus())" x-text="healthSummary()"></button>
+      <button type="button" class="iconbtn tool" :aria-pressed="!soundOn()" @click="toggleSound()" :disabled="!settings" title="Mute alerts">
+        <svg class="ico" aria-hidden="true" focusable="false"><use :href="soundOn() ? 'icons.svg#i-bell' : 'icons.svg#i-bell-off'"></use></svg><span class="sr">Mute alerts</span></button>
+      <button type="button" class="iconbtn tool" @click="enableDesktop()" x-show="desktopState() !== 'granted'" title="Enable desktop alerts">
+        <svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-notify"></use></svg><span class="sr">Enable desktop alerts</span></button>
+      <button type="button" class="iconbtn tool themebtn" :aria-pressed="theme === 'light'" @click="toggleTheme()" title="Light theme">
+        <svg class="ico" aria-hidden="true" focusable="false"><use :href="theme === 'light' ? 'icons.svg#i-sun' : 'icons.svg#i-moon'"></use></svg><span class="sr">Light theme</span></button>
     </div>
   </header>
   <section id="alerts" class="banners" aria-label="Alerts">
@@ -63,22 +86,43 @@
     <p class="sub" role="status" x-show="desktopNote" x-text="desktopNote"></p>
   </section>
 
-  <main>
+  <main id="main" tabindex="-1">
     <div class="alert error" role="alert" x-show="error" x-text="error"></div>
     <div class="alert warn" x-show="quitted" role="status">netdiag has stopped. You can close this tab.</div>
 
-    <section class="progress" aria-label="Scan progress">
-      <div class="stage" x-text="stageLabel()"></div>
+    <section class="progress" aria-label="Scan progress" x-show="view === 'devices'">
+      <div class="stage mono" x-text="stageLabel()"></div>
       <div class="track" role="progressbar" aria-label="Scan progress" aria-valuemin="0" aria-valuemax="100"
            :aria-valuenow="percent()" :aria-valuetext="stageLabel()">
         <div class="fill" :style="'width:' + percent() + '%'"></div>
       </div>
-      <div class="chips" aria-live="polite" aria-atomic="true">
-        <span class="chip">Alive <b x-text="stats().alive"></b></span>
-        <span class="chip">Printers <b x-text="stats().printers"></b></span>
-        <span class="chip">Web <b x-text="stats().web"></b></span>
+    </section>
+
+    <button type="button" id="ticker" class="ticker mono" x-show="view === 'devices' && log.length" @click="showView('activity')" aria-label="Recent activity, open the Activity view">
+      <template x-for="e in logRecent()" :key="e.id"><span class="tick"><span class="lt" x-text="logTime(e)"></span> <span class="lk" :class="'k-' + e.kind" x-text="e.kind.toUpperCase()"></span> <span x-text="e.text"></span></span></template>
+    </button>
+
+    <section class="dash" aria-label="Network summary" x-show="view === 'devices'">
+      <div class="tiles" role="group" aria-label="Device counts. Select one to filter the table." x-effect="tweenTiles(tileCounts())">
+        <template x-for="t in tileDefs" :key="t.id">
+          <button type="button" class="tile" :class="'t-' + t.id + ' ' + tileTone(t)" :id="'tile-' + t.id"
+                  :aria-pressed="filter === t.filter" @click="tileClick(t)">
+            <span class="tl" x-text="t.label"></span>
+            <span class="tv mono" x-text="shown[t.id] || 0"></span>
+          </button>
+        </template>
       </div>
-      <span class="livepill" x-show="state === 'live'" x-text="liveText()"></span>
+      <ul class="hstrip plain" aria-label="Network health">
+        <template x-for="p in healthStrip()" :key="p.id">
+          <li>
+            <button type="button" class="hpill" :class="'hs-' + p.status" :id="'hp-' + p.id" @click="showView('health')">
+              <span class="dot" aria-hidden="true"></span>
+              <span class="hl" x-text="p.label"></span>
+              <span class="hv mono" x-text="p.value"></span>
+            </button>
+          </li>
+        </template>
+      </ul>
     </section>
     <div class="sr" role="status" aria-live="polite" aria-atomic="true" x-text="announce"></div>
 
@@ -86,29 +130,25 @@
       <div class="alert warn" role="status" x-text="w"></div>
     </template>
 
-    <section id="health" class="healthpanel" aria-labelledby="health-h" tabindex="-1" x-ref="healthPanel">
+    <section id="health" class="healthpanel" x-show="view === 'health'" aria-labelledby="health-h" tabindex="-1" x-ref="healthPanel">
       <h2 id="health-h">
         <button type="button" class="sort" :aria-expanded="healthOpen" aria-controls="health-body" @click="healthOpen = !healthOpen">
           <span aria-hidden="true" x-text="healthOpen ? '▼ ' : '▶ '"></span>Network health</button>
         <span class="sub" x-text="healthSummary()"></span>
       </h2>
       <div id="health-body" x-show="healthOpen">
-        <table x-show="health && (health.checks || []).length">
-          <caption class="sr">Network health checks</caption>
-          <thead><tr><th scope="col">Status</th><th scope="col">Check</th><th scope="col">Detail</th><th scope="col">Latency</th></tr></thead>
-          <tbody>
-            <template x-for="c in (health ? health.checks || [] : [])" :key="c.id">
-              <tr>
-                <td><span class="hs" :class="'hs-' + c.status"><span aria-hidden="true" x-text="healthIcon(c.status)"></span> <span x-text="healthStatusText(c.status)"></span></span></td>
-                <th scope="row" x-text="c.label"></th>
-                <td><span x-text="c.detail"></span>
-                  <a href="#" x-show="c.id === 'webserver' && c.status === 'unavailable'" @click.prevent="openSettings()">Set the web server URL in Settings</a></td>
-                <td x-text="healthLatency(c)"></td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-        <p class="empty" x-show="!health || !(health.checks || []).length">No health report yet. Press Recheck.</p>
+        <ul class="plain hcards" x-show="health && (health.checks || []).length" aria-label="Network health checks">
+          <template x-for="c in (health ? health.checks || [] : [])" :key="c.id">
+            <li class="hcard" :class="'hc-' + c.status">
+              <div class="hchead"><h3 x-text="c.label"></h3>
+                <span class="hs" :class="'hs-' + c.status"><span aria-hidden="true" x-text="healthIcon(c.status)"></span> <span x-text="healthStatusText(c.status)"></span></span></div>
+              <p class="hdetail mono"><span x-text="c.detail"></span>
+                <a href="#" x-show="c.id === 'webserver' && c.status === 'unavailable'" @click.prevent="openSettings()">Set the web server URL in Settings</a></p>
+              <p class="hlat mono" x-text="healthLatency(c)"></p>
+            </li>
+          </template>
+        </ul>
+        <p class="empty" x-show="!health || !(health.checks || []).length">&gt; no health report yet - press Recheck</p>
         <p>
           <button type="button" @click="recheck()" :disabled="healthBusy">Recheck</button>
           <a href="#" @click.prevent="openSettings()">Settings</a>
@@ -116,11 +156,7 @@
         </p>
       </div>
     </section>
-    <div class="tabs" role="group" aria-label="View">
-      <button type="button" class="tab" id="tab-hosts" :aria-pressed="view === 'hosts'" @click="showView('hosts')">Hosts</button>
-      <button type="button" class="tab" id="tab-history" :aria-pressed="view === 'history'" @click="showView('history')">History</button>
-    </div>
-    <div x-show="view === 'hosts'">
+    <div x-show="view === 'devices'">
     <div class="tabs" role="group" aria-label="Filter hosts">
       <template x-for="t in tabs" :key="t.id">
         <button type="button" class="tab" :aria-pressed="filter === t.id" @click="filter = t.id"
@@ -128,38 +164,51 @@
       </template>
     </div>
 
+    <div class="searchrow">
+      <label for="host-search" class="sr">Search hosts by IP, name, vendor or MAC</label>
+      <input type="search" id="host-search" class="mono" x-model="search" placeholder="Search IP, name, vendor, MAC" autocomplete="off">
+    </div>
+    <div class="tablewrap">
     <table id="hosts">
       <caption class="sr">Discovered hosts</caption>
       <thead>
         <tr>
           <th scope="col" :aria-sort="ariaSort('ip')"><button type="button" class="sort" @click="sortBy('ip')">IP address<span aria-hidden="true" x-text="arrow('ip')"></span></button></th>
+          <th scope="col">Name</th>
           <th scope="col" :aria-sort="ariaSort('vendor')"><button type="button" class="sort" @click="sortBy('vendor')">MAC / vendor<span aria-hidden="true" x-text="arrow('vendor')"></span></button></th>
+          <th scope="col">Type</th>
           <th scope="col">Open ports</th>
           <th scope="col">Web</th>
           <th scope="col" :aria-sort="ariaSort('status')"><button type="button" class="sort" @click="sortBy('status')">Status<span aria-hidden="true" x-text="arrow('status')"></span></button></th>
-          <th scope="col"><span class="sr">Details</span></th>
         </tr>
       </thead>
+      <tbody>
       <template x-for="h in visible()" :key="h.ip">
-        <tbody>
-          <tr class="host" :class="{isnew: h.isNew, offline: isOffline(h)}">
+          <tr class="host" :class="{isnew: h.isNew, offline: isOffline(h), selected: drawerIP === h.ip}" @click="rowClick($event, h.ip)">
             <th scope="row">
-              <span x-text="h.ip"></span>
+              <span class="sdot" :class="dotClass(h)" aria-hidden="true"></span>
+              <span class="sr" x-text="dotText(h) + ': '"></span>
+              <button type="button" class="rowbtn mono" :data-ip="h.ip" aria-haspopup="dialog"
+                      :aria-expanded="drawerIP === h.ip" aria-controls="drawer"
+                      @click.stop="openDrawer(h.ip)"><span x-text="h.ip"></span><span class="sr"> - show details</span></button>
               <span class="badge new" x-show="h.isNew">NEW<span class="sr"> device found while live</span></span>
               <span class="badge offline" x-show="isOffline(h)">OFFLINE<span class="sr"> - device stopped responding</span></span>
               <span class="badge conflict" x-show="hasConflict(h)">CONFLICT<span class="sr"> - see details</span></span>
               <span class="badge" x-show="h.isSelf">this computer</span>
               <span class="badge" x-show="h.ip === gateway">gateway</span>
-              <div class="sub" x-show="h.hostname" x-text="h.hostname"></div>
-              <div class="sub" x-show="mdnsName(h)" x-text="'mDNS: ' + mdnsName(h)"></div>
               <div class="sub" x-show="isOffline(h)" x-text="offlineFor(h)"></div>
             </th>
             <td>
-              <span x-text="h.mac || '-'"></span>
-              <div class="sub" x-show="h.vendor" x-text="h.vendor"></div>
+              <span x-text="hostName(h) || '-'"></span>
+              <div class="sub" x-show="mdnsName(h) && mdnsName(h) !== h.hostname" x-text="'mDNS: ' + mdnsName(h)"></div>
             </td>
             <td>
-              <template x-for="p in (h.openPorts || [])" :key="p"><span class="pill" x-text="p"></span></template>
+              <span class="mono" x-text="h.mac || '-'"></span>
+              <div class="sub" x-show="h.vendor" x-text="h.vendor"></div>
+            </td>
+            <td><span class="typecell"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + typeOf(h).icon"></use></svg><span x-text="typeOf(h).label"></span></span></td>
+            <td>
+              <template x-for="p in (h.openPorts || [])" :key="p"><span class="pill mono" x-text="p"></span></template>
               <span x-show="!(h.openPorts || []).length">-</span>
             </td>
             <td>
@@ -176,123 +225,158 @@
               <span class="badge" x-show="h.isPrinter && printerSource(h.printer)" x-text="printerSource(h.printer)"></span>
               <span x-text="statusText(h)"></span>
             </td>
-            <td>
-              <button type="button" class="expand" :aria-expanded="isOpen(h.ip)" :aria-controls="'d-' + h.ip"
-                      @click="toggle(h.ip)">
-                <span x-text="isOpen(h.ip) ? 'Hide' : 'Details'"></span><span class="sr" x-text="' for ' + h.ip"></span>
-              </button>
-            </td>
           </tr>
-          <tr class="detail" :id="'d-' + h.ip" x-show="isOpen(h.ip)">
-            <td colspan="6">
-              <template x-if="isOpen(h.ip)">
-                <div class="panel">
-                  <section x-show="h.printerReason"><h3>Printer</h3>
-                    <p x-text="h.printerReason"></p>
-                    <template x-if="h.printer">
-                      <div>
-                        <p x-show="printerSource(h.printer)">Data <span x-text="printerSource(h.printer)"></span><span x-show="h.printer.state"> - state <span x-text="h.printer.state"></span></span><span x-show="(h.printer.stateReasons || []).length"> (<span x-text="(h.printer.stateReasons || []).join(', ')"></span>)</span></p>
-                        <p x-show="h.printer.model || h.printer.serial">
-                          <span x-text="h.printer.model"></span>
-                          <span x-show="h.printer.serial"> - serial <span x-text="h.printer.serial"></span></span>
-                          <span x-show="h.printer.pageCount > 0"> - pages <span x-text="h.printer.pageCount"></span></span>
-                        </p>
-                        <div x-show="(h.printer.consoleDisplay || []).length">
-                          <strong>Console display:</strong>
-                          <template x-for="(l, i) in h.printer.consoleDisplay" :key="i"><div class="mono" x-text="l"></div></template>
-                        </div>
-                        <h4 x-show="(h.printer.supplies || []).length">Supplies</h4>
-                        <ul class="supplies">
-                          <template x-for="(s, i) in (h.printer.supplies || [])" :key="i">
-                            <li>
-                              <span class="slabel" x-text="s.description"></span>
-                              <span class="sbar" aria-hidden="true"><span class="sfill" :class="'s-' + s.state"
-                                    :style="'width:' + Math.max(0, s.percent) + '%'"></span></span>
-                              <span class="stext" x-text="supplyText(s)"></span>
-                            </li>
-                          </template>
-                        </ul>
-                        <h4 x-show="(h.printer.inputTrays || []).length">Trays</h4>
-                        <ul>
-                          <template x-for="(t, i) in (h.printer.inputTrays || [])" :key="i">
-                            <li x-text="t.name + (t.mediaName ? ' (' + t.mediaName + ')' : '') + ': ' + trayLevel(t) + ' - ' + t.status"></li>
-                          </template>
-                        </ul>
-                        <h4 x-show="(h.printer.covers || []).length">Covers</h4>
-                        <ul>
-                          <template x-for="(c, i) in (h.printer.covers || [])" :key="i"><li x-text="c.description + ': ' + c.status"></li></template>
-                        </ul>
-                        <h4 x-show="(h.printer.alerts || []).length">Alerts</h4>
-                        <ul>
-                          <template x-for="(a, i) in (h.printer.alerts || [])" :key="i">
-                            <li x-text="[a.severity, a.code, a.description].filter(Boolean).join(' - ')"></li>
-                          </template>
-                        </ul>
-                      </div>
-                    </template>
-                  </section>
-                  <section x-show="hasConflict(h)"><h3>Conflicts</h3>
-                    <template x-for="c in conflictsFor(h)" :key="c.id">
-                      <div class="cbox">
-                        <p><strong x-text="c.severity === 'fail' ? 'Conflict' : 'Possible conflict'"></strong>: <span x-text="conflictKind(c)"></span></p>
-                        <p x-show="c.detail" x-text="c.detail"></p>
-                        <p class="sub">IPs: <span x-text="(c.ips || []).join(', ')"></span> - MACs: <span x-text="(c.macs || []).join(', ')"></span><span x-show="c.name"> - name <span x-text="c.name"></span></span></p>
-                        <p class="sub" x-show="c.kind === 'mac_multi_ip'">Hint: a WiFi range extender or mesh node commonly shows one MAC for many IPs. If that is expected, ignore the MAC.</p>
-                        <template x-for="m in (c.macs || [])" :key="m">
-                          <button type="button" @click="ignoreMac(m)">Ignore this MAC <span x-text="m"></span></button>
-                        </template>
-                      </div>
-                    </template>
-                  </section>
-                  <section x-show="h.mdns"><h3>mDNS</h3>
-                    <p><span x-text="h.mdns && h.mdns.instance"></span> <span class="sub" x-text="h.mdns && h.mdns.hostname"></span></p>
-                    <ul x-show="h.mdns && (h.mdns.services || []).length">
-                      <template x-for="s in ((h.mdns && h.mdns.services) || [])" :key="s"><li class="mono" x-text="s"></li></template>
-                    </ul>
-                  </section>
-                  <section x-show="h.snmp"><h3>SNMP system</h3>
-                    <dl x-show="h.snmp">
-                      <template x-for="r in snmpRows(h)" :key="r[0]"><div><dt x-text="r[0]"></dt><dd x-text="r[1]"></dd></div></template>
-                    </dl>
-                  </section>
-                  <section x-show="(h.web || []).length"><h3>Web services</h3>
-                    <ul>
-                      <template x-for="w in (h.web || [])" :key="w.url">
-                        <li>
-                          <span x-text="w.url"></span>: <span x-text="webNote(w)"></span>
-                          <span x-show="w.tls">
-                            - TLS subject <span x-text="w.tls && w.tls.subject"></span>,
-                            issuer <span x-text="w.tls && w.tls.issuer"></span>,
-                            expires <span x-text="w.tls && w.tls.notAfter"></span>
-                            <span x-show="w.tls && w.tls.selfSigned">(self-signed)</span>
-                            <span x-show="w.tls && w.tls.expired">(EXPIRED)</span>
-                          </span>
-                        </li>
-                      </template>
-                    </ul>
-                  </section>
-                  <section><h3>Discovery</h3>
-                    <p>Found by: <span x-text="(h.foundBy || []).join(', ') || 'n/a'"></span>
-                      <span x-show="h.rttMs > 0"> - RTT <span x-text="h.rttMs.toFixed(1)"></span> ms</span>
-                      <span x-show="h.lastSeen"> - last seen <span x-text="h.lastSeen"></span></span></p>
-                  </section>
-                  <section x-show="(h.errors || []).length"><h3>Errors</h3>
-                    <ul><template x-for="(e, i) in h.errors" :key="i"><li x-text="e"></li></template></ul>
-                  </section>
-                </div>
-              </template>
-            </td>
-          </tr>
-        </tbody>
       </template>
+      </tbody>
     </table>
-    <p class="empty" x-show="!visible().length" x-text="emptyText()"></p>
     </div>
+    <p class="empty" x-show="!visible().length" x-text="emptyText()"></p>
+    <aside class="drawer" id="drawer" x-ref="drawer" role="dialog" aria-modal="false" aria-labelledby="drawer-h"
+           tabindex="-1" x-show="drawerIP" @keydown.escape.stop="closeDrawer()">
+      <template x-if="drawerIP">
+      <div class="drawerin">
+        <div class="drawerhead">
+          <svg class="ico big" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + (drawerHost() ? typeOf(drawerHost()).icon : 'device')"></use></svg>
+          <div class="dtitle">
+            <h2 id="drawer-h" class="mono" x-text="drawerIP"></h2>
+            <div class="sub" x-text="drawerHost() ? (hostName(drawerHost()) || typeOf(drawerHost()).label) : 'Host no longer in the list'"></div>
+          </div>
+          <button type="button" class="iconbtn" x-ref="drawerClose" @click="closeDrawer()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-close"></use></svg><span class="sr">Close details</span></button>
+        </div>
+        <template x-for="h in drawerHosts()" :key="h.ip">
+        <div class="panel">
+          <section class="kv">
+            <dl>
+              <div><dt>Status</dt><dd><span class="sdot" :class="dotClass(h)" aria-hidden="true"></span> <span x-text="dotText(h)"></span> <span class="badge new" x-show="h.isNew">NEW</span> <span class="badge offline" x-show="isOffline(h)">OFFLINE</span> <span class="badge conflict" x-show="hasConflict(h)">CONFLICT</span> <span class="sub" x-show="isOffline(h)" x-text="offlineFor(h)"></span></dd></div>
+              <div><dt>IP</dt><dd><span class="mono" x-text="h.ip"></span> <button type="button" class="iconbtn" @click="copy(h.ip, 'IP address')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-copy"></use></svg><span class="sr">Copy IP address</span></button></dd></div>
+              <div x-show="h.mac"><dt>MAC</dt><dd><span class="mono" x-text="h.mac"></span> <button type="button" class="iconbtn" @click="copy(h.mac, 'MAC address')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-copy"></use></svg><span class="sr">Copy MAC address</span></button></dd></div>
+              <div x-show="h.vendor"><dt>Vendor</dt><dd x-text="h.vendor"></dd></div>
+              <div x-show="hostName(h)"><dt>Name</dt><dd x-text="hostName(h)"></dd></div>
+              <div><dt>Type</dt><dd x-text="typeOf(h).label"></dd></div>
+            </dl>
+          </section>
+          <section x-show="h.printerReason"><h3>Printer</h3>
+            <p x-text="h.printerReason"></p>
+            <template x-if="h.printer">
+              <div>
+                <p x-show="printerSource(h.printer)">Data <span x-text="printerSource(h.printer)"></span><span x-show="h.printer.state"> - state <span x-text="h.printer.state"></span></span><span x-show="(h.printer.stateReasons || []).length"> (<span x-text="(h.printer.stateReasons || []).join(', ')"></span>)</span></p>
+                <p x-show="h.printer.model || h.printer.serial">
+                  <span x-text="h.printer.model"></span>
+                  <span x-show="h.printer.serial"> - serial <span class="mono" x-text="h.printer.serial"></span></span>
+                  <span x-show="h.printer.pageCount > 0"> - pages <span x-text="h.printer.pageCount"></span></span>
+                </p>
+                <div x-show="(h.printer.consoleDisplay || []).length">
+                  <strong>Console display:</strong>
+                  <template x-for="(l, i) in h.printer.consoleDisplay" :key="i"><div class="mono" x-text="l"></div></template>
+                </div>
+                <h4 x-show="(h.printer.supplies || []).length">Supplies</h4>
+                <ul class="supplies">
+                  <template x-for="(s, i) in (h.printer.supplies || [])" :key="i">
+                    <li>
+                      <span class="slabel" x-text="s.description"></span>
+                      <span class="sbar" aria-hidden="true"><span class="sfill" :class="'s-' + s.state"
+                            :style="'width:' + Math.max(0, s.percent) + '%'"></span></span>
+                      <span class="stext" x-text="supplyText(s)"></span>
+                    </li>
+                  </template>
+                </ul>
+                <h4 x-show="(h.printer.inputTrays || []).length">Trays</h4>
+                <ul>
+                  <template x-for="(t, i) in (h.printer.inputTrays || [])" :key="i">
+                    <li x-text="t.name + (t.mediaName ? ' (' + t.mediaName + ')' : '') + ': ' + trayLevel(t) + ' - ' + t.status"></li>
+                  </template>
+                </ul>
+                <h4 x-show="(h.printer.covers || []).length">Covers</h4>
+                <ul>
+                  <template x-for="(c, i) in (h.printer.covers || [])" :key="i"><li x-text="c.description + ': ' + c.status"></li></template>
+                </ul>
+                <h4 x-show="(h.printer.alerts || []).length">Alerts</h4>
+                <ul>
+                  <template x-for="(a, i) in (h.printer.alerts || [])" :key="i">
+                    <li x-text="[a.severity, a.code, a.description].filter(Boolean).join(' - ')"></li>
+                  </template>
+                </ul>
+              </div>
+            </template>
+          </section>
+          <section x-show="hasConflict(h)"><h3>Conflicts</h3>
+            <template x-for="c in conflictsFor(h)" :key="c.id">
+              <div class="cbox">
+                <p><strong x-text="c.severity === 'fail' ? 'Conflict' : 'Possible conflict'"></strong>: <span x-text="conflictKind(c)"></span></p>
+                <p x-show="c.detail" x-text="c.detail"></p>
+                <p class="sub">IPs: <span class="mono" x-text="(c.ips || []).join(', ')"></span> - MACs: <span class="mono" x-text="(c.macs || []).join(', ')"></span><span x-show="c.name"> - name <span x-text="c.name"></span></span></p>
+                <p class="sub" x-show="c.kind === 'mac_multi_ip'">Hint: a WiFi range extender or mesh node commonly shows one MAC for many IPs. If that is expected, ignore the MAC.</p>
+                <template x-for="m in (c.macs || [])" :key="m">
+                  <button type="button" @click="ignoreMac(m)">Ignore this MAC <span x-text="m"></span></button>
+                </template>
+              </div>
+            </template>
+          </section>
+          <section x-show="h.mdns"><h3>mDNS</h3>
+            <p><span x-text="h.mdns && h.mdns.instance"></span> <span class="sub" x-text="h.mdns && h.mdns.hostname"></span></p>
+            <ul x-show="h.mdns && (h.mdns.services || []).length">
+              <template x-for="s in ((h.mdns && h.mdns.services) || [])" :key="s"><li class="mono" x-text="s"></li></template>
+            </ul>
+          </section>
+          <section x-show="h.snmp"><h3>SNMP system</h3>
+            <dl x-show="h.snmp">
+              <template x-for="r in snmpRows(h)" :key="r[0]"><div><dt x-text="r[0]"></dt><dd class="mono" x-text="r[1]"></dd></div></template>
+            </dl>
+          </section>
+          <section x-show="(h.web || []).length"><h3>Web services</h3>
+            <ul>
+              <template x-for="w in (h.web || [])" :key="w.url">
+                <li>
+                  <span class="mono" x-text="w.url"></span>: <span x-text="webNote(w)"></span>
+                  <span x-show="w.tls">
+                    - TLS subject <span x-text="w.tls && w.tls.subject"></span>,
+                    issuer <span x-text="w.tls && w.tls.issuer"></span>,
+                    expires <span x-text="w.tls && w.tls.notAfter"></span>
+                    <span x-show="w.tls && w.tls.selfSigned">(self-signed)</span>
+                    <span x-show="w.tls && w.tls.expired">(EXPIRED)</span>
+                  </span>
+                </li>
+              </template>
+            </ul>
+          </section>
+          <section><h3>Discovery</h3>
+            <p>Found by: <span x-text="(h.foundBy || []).join(', ') || 'n/a'"></span>
+              <span x-show="h.rttMs > 0"> - RTT <span x-text="h.rttMs.toFixed(1)"></span> ms</span>
+              <span x-show="h.lastSeen"> - last seen <span x-text="h.lastSeen"></span></span></p>
+          </section>
+          <section x-show="(h.errors || []).length"><h3>Errors</h3>
+            <ul><template x-for="(e, i) in h.errors" :key="i"><li x-text="e"></li></template></ul>
+          </section>
+        </div>
+        </template>
+      </div>
+      </template>
+    </aside>
+    </div>
+    <section id="activity" x-show="view === 'activity'" aria-labelledby="activity-h">
+      <h2 id="activity-h">Activity</h2>
+      <div class="logbar">
+        <div class="logfilters" role="group" aria-label="Filter activity by type">
+          <template x-for="k in logKinds" :key="k.id">
+            <button type="button" class="chipbtn logchip" :id="'lf-' + k.id" :aria-pressed="!logHidden[k.id]" @click="logToggle(k.id)" x-text="k.label"></button>
+          </template>
+        </div>
+        <button type="button" id="log-copy" @click="copy(logText(), 'activity log')">Copy log</button>
+      </div>
+      <div id="log" class="logbox mono" role="log" aria-label="Activity log" aria-live="off" tabindex="0" x-ref="logBox"
+           @scroll.passive="logOnScroll($el)" x-effect="logShown().length; logFollow($refs.logBox)">
+        <p class="empty" x-show="!log.length">&gt; no events yet - start a scan</p>
+        <template x-for="e in logShown()" :key="e.id">
+          <div class="logline"><span class="lt" x-text="logTime(e)"></span> <span class="lk" :class="'k-' + e.kind" x-text="e.kind.toUpperCase()"></span> <span class="lx" x-text="e.text"></span></div>
+        </template>
+        <div class="logcursor" aria-hidden="true"><span class="cursor">&#9608;</span></div>
+      </div>
+    </section>
     <section id="history" x-show="view === 'history'" aria-labelledby="history-h">
       <h2 id="history-h">History &amp; compare</h2>
       <div class="alert error" role="alert" x-show="historyError" x-text="historyError"></div>
-      <p class="empty" x-show="!history.length && !historyError">No saved scans yet. Completed scans are saved automatically.</p>
-      <table x-show="history.length">
+      <p class="empty" x-show="!history.length && !historyError">&gt; no saved scans yet - completed scans are saved automatically</p>
+      <div class="tablescroll" x-show="history.length"><table>
         <caption class="sr">Saved scans, newest first</caption>
         <thead><tr><th scope="col">Started</th><th scope="col">Target</th><th scope="col">Result</th><th scope="col">Type</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
         <tbody>
@@ -306,7 +390,7 @@
             </tr>
           </template>
         </tbody>
-      </table>
+      </table></div>
       <form class="controls cmp" @submit.prevent="runCompare()" aria-label="Compare scans" x-show="history.length || scanId">
         <label>Baseline
           <select x-model="baseId">
@@ -330,27 +414,28 @@
             <p><strong x-text="diff.summary.added"></strong> added, <strong x-text="diff.summary.removed"></strong> removed,
               <strong x-text="diff.summary.changed"></strong> changed
               (<span x-text="diff.base.startedAt"></span> &rarr; <span x-text="diff.current.startedAt"></span>)</p>
-            <h3 x-text="'Added (' + (diff.added || []).length + ')'"></h3>
-            <table x-show="(diff.added || []).length"><caption class="sr">Added hosts</caption>
+            <h3 class="dh dh-add"><span class="gl" aria-hidden="true">+</span> <span x-text="'Added (' + (diff.added || []).length + ')'"></span></h3>
+            <div class="tablescroll" x-show="(diff.added || []).length"><table><caption class="sr">Added hosts</caption>
               <thead><tr><th scope="col">IP</th><th scope="col">MAC</th><th scope="col">Vendor</th></tr></thead>
               <tbody><template x-for="h in diff.added" :key="h.ip"><tr><th scope="row" x-text="h.ip"></th><td x-text="h.mac || '-'"></td><td x-text="h.vendor || '-'"></td></tr></template></tbody>
-            </table>
-            <h3 x-text="'Removed (' + (diff.removed || []).length + ')'"></h3>
-            <table x-show="(diff.removed || []).length"><caption class="sr">Removed hosts</caption>
+            </table></div>
+            <h3 class="dh dh-rem"><span class="gl" aria-hidden="true">&minus;</span> <span x-text="'Removed (' + (diff.removed || []).length + ')'"></span></h3>
+            <div class="tablescroll" x-show="(diff.removed || []).length"><table><caption class="sr">Removed hosts</caption>
               <thead><tr><th scope="col">IP</th><th scope="col">MAC</th><th scope="col">Vendor</th></tr></thead>
               <tbody><template x-for="h in diff.removed" :key="h.ip"><tr><th scope="row" x-text="h.ip"></th><td x-text="h.mac || '-'"></td><td x-text="h.vendor || '-'"></td></tr></template></tbody>
-            </table>
-            <h3 x-text="'Changed (' + (diff.changed || []).length + ')'"></h3>
-            <table x-show="(diff.changed || []).length"><caption class="sr">Changed hosts</caption>
+            </table></div>
+            <h3 class="dh dh-chg"><span class="gl" aria-hidden="true">~</span> <span x-text="'Changed (' + (diff.changed || []).length + ')'"></span></h3>
+            <div class="tablescroll" x-show="(diff.changed || []).length"><table><caption class="sr">Changed hosts</caption>
               <thead><tr><th scope="col">IP</th><th scope="col">Changes</th></tr></thead>
               <tbody><template x-for="h in diff.changed" :key="h.ip"><tr><th scope="row" x-text="h.ip"></th>
                 <td><ul class="plain"><template x-for="(c, i) in (h.changes || [])" :key="i"><li x-text="changeText(c)"></li></template></ul></td></tr></template></tbody>
-            </table>
+            </table></div>
           </div>
         </template>
       </div>
     </section>
   </main>
+  </div>
 <dialog id="settings-dialog" x-ref="dlg" aria-labelledby="settings-h" @cancel.prevent="closeSettings()">
   <form @submit.prevent="saveSettings()" x-show="draft" class="sform">
     <h2 id="settings-h">Settings</h2>

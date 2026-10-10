@@ -105,6 +105,22 @@ func (s *Server) Handler() http.Handler {
 	return s.guard(mux)
 }
 
+// waitScans waits up to limit for cancelled scans to finish, so a live scan's
+// final history save completes before the process exits.
+func (s *Server) waitScans(limit time.Duration) {
+	if s.cfg.Registry == nil {
+		return
+	}
+	deadline := time.After(limit)
+	for _, sc := range s.cfg.Registry.List() {
+		select {
+		case <-sc.Done():
+		case <-deadline:
+			return
+		}
+	}
+}
+
 // Serve serves on the Listen'd socket until ctx is cancelled or /api/quit is
 // called, then cancels running scans and shuts down gracefully.
 func (s *Server) Serve(ctx context.Context) error {
@@ -129,6 +145,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	case <-s.quit:
 	}
 	s.cancel() // cancels running scans and open SSE streams
+	s.waitScans(5 * time.Second)
 	sctx, c := context.WithTimeout(context.Background(), 3*time.Second)
 	defer c()
 	if err := hs.Shutdown(sctx); err != nil {

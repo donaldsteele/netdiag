@@ -274,3 +274,53 @@ func TestNoStore503(t *testing.T) {
 		t.Fatalf("history: %d", r.StatusCode)
 	}
 }
+
+// Quitting while a live scan runs must not exit before the scan's final
+// history save (an exit mid-write leaves only a .tmp file behind).
+func TestQuitWaitsForLiveSave(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := scan.NewRegistry(scan.New(scan.Deps{
+		Pinger: fakePinger{}, ARP: fakeARP{}, Ports: fakePorts{}, Web: fakeWeb{},
+		SNMP: fakeSNMP{}, DNS: fakeDNS{}, Vendors: fakeVendors{}, Env: fakeEnv{},
+		Store: st, Settings: st,
+	}))
+	s := New(Config{Registry: reg, Store: st, Health: fakeHealth{},
+		Gateway: func() (string, error) { return "10.0.0.1", nil }})
+	if err := s.Listen(0); err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- s.Serve(context.Background()) }()
+	u := s.URL()
+
+	r, b := doj(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/30","live":true}`, "application/json")
+	if r.StatusCode != 202 {
+		t.Fatalf("start: %d %s", r.StatusCode, b)
+	}
+	var started struct{ ID string }
+	json.Unmarshal([]byte(b), &started)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if sc, ok := reg.Get(started.ID); ok && sc.State() == model.StateLive {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("scan never reached live")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if r, _ := doj(t, "POST", u+"/api/quit", "{}", "application/json"); r.StatusCode != 204 {
+		t.Fatalf("quit: %d", r.StatusCode)
+	}
+	select {
+	case <-served:
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not exit")
+	}
+	if _, err := st.LoadScan(started.ID); err != nil {
+		t.Fatalf("live scan not saved before exit: %v", err)
+	}
+}
