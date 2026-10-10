@@ -1,0 +1,266 @@
+{
+  "id": "11111111-2222-3333-4444-555555555555",
+  "request": {
+    "cidr": "192.168.2.0/24",
+    "interface": "Wi-Fi",
+    "community": "public",
+    "ports": [
+      80,
+      443,
+      8080,
+      8443,
+      9100,
+      631,
+      515
+    ]
+  },
+  "startedAt": "2026-10-09T10:00:00Z",
+  "finishedAt": "2026-10-09T10:00:07Z",
+  "state": "done",
+  "self": {
+    "ip": "192.168.2.50",
+    "mac": "AA:BB:CC:00:11:22",
+    "interface": "Wi-Fi"
+  },
+  "gateway": "192.168.2.1",
+  "hosts": [
+    {
+      "ip": "192.168.2.1",
+      "isSelf": false,
+      "alive": true,
+      "foundBy": [
+        "icmp"
+      ],
+      "rttMs": 1.1,
+      "mac": "C0:FF:EE:00:00:01",
+      "vendor": "",
+      "hostname": "",
+      "openPorts": [
+        80
+      ],
+      "web": [
+        {
+          "port": 80,
+          "scheme": "http",
+          "url": "http://192.168.2.1/",
+          "status": 401,
+          "title": "",
+          "server": "lighttpd",
+          "tls": null,
+          "error": ""
+        }
+      ],
+      "snmp": null,
+      "isPrinter": false,
+      "printerReason": "",
+      "printer": null,
+      "errors": [
+        "snmp: timeout"
+      ],
+      "updatedAt": "2026-10-09T10:00:04Z",
+      "online": false
+    },
+    {
+      "ip": "192.168.2.10",
+      "isSelf": false,
+      "alive": true,
+      "foundBy": [
+        "icmp",
+        "arp"
+      ],
+      "rttMs": 3.2,
+      "mac": "00:1B:A9:12:34:56",
+      "vendor": "Brother Industries",
+      "hostname": "",
+      "openPorts": [
+        80,
+        443,
+        9100
+      ],
+      "web": [
+        {
+          "port": 80,
+          "scheme": "http",
+          "url": "http://192.168.2.10/",
+          "status": 200,
+          "title": "Brother HL-L2350DW",
+          "server": "debut/1.30",
+          "tls": null,
+          "error": ""
+        },
+        {
+          "port": 443,
+          "scheme": "https",
+          "url": "https://192.168.2.10/",
+          "status": 200,
+          "title": "Brother HL-L2350DW",
+          "server": "debut/1.30",
+          "tls": {
+            "subject": "CN=BRW001BA9123456",
+            "issuer": "CN=BRW001BA9123456",
+            "notAfter": "2030-01-01T00:00:00Z",
+            "selfSigned": true,
+            "expired": false
+          },
+          "error": ""
+        }
+      ],
+      "snmp": {
+        "version": "v2c",
+        "sysDescr": "Brother HL-L2350DW series",
+        "sysObjectID": "",
+        "sysName": "BRW001BA9123456",
+        "sysLocation": "",
+        "sysContact": "",
+        "sysUpTime": "",
+        "hrDeviceDescr": "",
+        "hrDeviceStatus": "running",
+        "hrPrinterStatus": "idle",
+        "hrPrinterDetectedErrorState": [
+          "lowToner"
+        ]
+      },
+      "isPrinter": true,
+      "printerReason": "hrDeviceType=printer",
+      "printer": {
+        "model": "HL-L2350DW",
+        "serial": "E7Z123456",
+        "pageCount": 12345,
+        "consoleDisplay": [
+          "READY"
+        ],
+        "supplies": [
+          {
+            "description": "Black Toner",
+            "type": "toner",
+            "color": "black",
+            "level": 150,
+            "max": 1000,
+            "percent": 15,
+            "unit": "impressions",
+            "state": "low"
+          },
+          {
+            "description": "Drum, \"Long Life\"",
+            "type": "drum",
+            "color": "",
+            "level": -2,
+            "max": -2,
+            "percent": -1,
+            "unit": "",
+            "state": "unknown"
+          }
+        ],
+        "inputTrays": [
+          {
+            "name": "Tray 1",
+            "mediaName": "A4",
+            "level": 100,
+            "max": 250,
+            "status": "ok"
+          }
+        ],
+        "alerts": [
+          {
+            "severity": "warning",
+            "code": "toner-low",
+            "description": "Toner low, \"replace soon\"\nsecond line"
+          }
+        ],
+        "covers": [
+          {
+            "description": "Front Cover",
+            "status": "closed"
+          }
+        ]
+      },
+      "errors": null,
+      "updatedAt": "2026-10-09T10:00:07Z",
+      "online": false
+    },
+    {
+      "ip": "192.168.2.50",
+      "isSelf": true,
+      "alive": true,
+      "foundBy": [
+        "icmp"
+      ],
+      "rttMs": 0,
+      "mac": "AA:BB:CC:00:11:22",
+      "vendor": "",
+      "hostname": "",
+      "openPorts": null,
+      "web": null,
+      "snmp": null,
+      "isPrinter": false,
+      "printerReason": "",
+      "printer": null,
+      "errors": null,
+      "updatedAt": "2026-10-09T10:00:03Z",
+      "online": false
+    },
+    {
+      "ip": "192.168.2.200",
+      "isSelf": false,
+      "alive": true,
+      "foundBy": [
+        "icmp",
+        "tcp"
+      ],
+      "rttMs": 12.34,
+      "mac": "00:50:56:AB:CD:EF",
+      "vendor": "VMware, Inc.",
+      "hostname": "",
+      "openPorts": [
+        8080
+      ],
+      "web": [
+        {
+          "port": 8080,
+          "scheme": "http",
+          "url": "http://192.168.2.200:8080/",
+          "status": 0,
+          "title": "",
+          "server": "",
+          "tls": null,
+          "error": "connection reset"
+        }
+      ],
+      "snmp": null,
+      "isPrinter": false,
+      "printerReason": "",
+      "printer": null,
+      "errors": null,
+      "updatedAt": "2026-10-09T10:00:06Z",
+      "online": true,
+      "lastSeen": "2026-10-09T10:00:03Z"
+    },
+    {
+      "ip": "192.168.10.5",
+      "isSelf": false,
+      "alive": false,
+      "foundBy": [
+        "arp"
+      ],
+      "rttMs": 0,
+      "mac": "DE:AD:BE:EF:00:01",
+      "vendor": "",
+      "hostname": "",
+      "openPorts": null,
+      "web": null,
+      "snmp": null,
+      "isPrinter": false,
+      "printerReason": "",
+      "printer": null,
+      "errors": null,
+      "updatedAt": "2026-10-09T10:00:05Z",
+      "online": false
+    }
+  ],
+  "stats": {
+    "scanned": 254,
+    "alive": 4,
+    "printers": 1,
+    "web": 3
+  }
+}

@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>netdiag - network diagnostics</title>
+<link rel="stylesheet" href="styles.css">
+<script src="app.js" defer></script>
+<script src="vendor/alpine.min.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#hosts">Skip to results</a>
+<div x-data="app()" x-init="init()">
+  <header class="bar" role="banner">
+    <h1>netdiag</h1>
+    <form class="controls" @submit.prevent="start()" aria-label="Scan settings">
+      <label>Interface
+        <select x-model="ifaceName" @change="pickIface()">
+          <option value="">(custom)</option>
+          <template x-for="i in ifaces" :key="i.name + i.ip">
+            <option :value="i.name" x-text="i.name + ' - ' + i.ip + (i.isDefault ? ' (default)' : '')"></option>
+          </template>
+        </select>
+      </label>
+      <label>Target (CIDR or range)
+        <input type="text" x-model="cidr" placeholder="192.168.1.0/24" spellcheck="false" autocomplete="off">
+      </label>
+      <label>SNMP community
+        <input type="text" x-model="community" spellcheck="false" autocomplete="off">
+      </label>
+      <label class="check"><input type="checkbox" id="live-mode" x-model="live" @change="saveLive()" :disabled="running">
+        Live mode</label>
+      <button type="submit" class="primary" x-show="!running" :disabled="!cidr.trim()">Scan</button>
+      <button type="button" x-show="running && state !== 'live'" @click="cancel()">Cancel</button>
+      <button type="button" x-show="state === 'live'" @click="cancel()">Stop live</button>
+      <button type="button" @click="exportAs('json')" :disabled="!scanId">Export JSON</button>
+      <button type="button" @click="exportAs('csv')" :disabled="!scanId">Export CSV</button>
+      <button type="button" class="danger" @click="quit()">Quit</button>
+    </form>
+  </header>
+
+  <main>
+    <div class="alert error" role="alert" x-show="error" x-text="error"></div>
+    <div class="alert warn" x-show="quitted" role="status">netdiag has stopped. You can close this tab.</div>
+
+    <section class="progress" aria-label="Scan progress">
+      <div class="stage" x-text="stageLabel()"></div>
+      <div class="track" role="progressbar" aria-label="Scan progress" aria-valuemin="0" aria-valuemax="100"
+           :aria-valuenow="percent()" :aria-valuetext="stageLabel()">
+        <div class="fill" :style="'width:' + percent() + '%'"></div>
+      </div>
+      <div class="chips" aria-live="polite" aria-atomic="true">
+        <span class="chip">Alive <b x-text="stats().alive"></b></span>
+        <span class="chip">Printers <b x-text="stats().printers"></b></span>
+        <span class="chip">Web <b x-text="stats().web"></b></span>
+      </div>
+      <span class="livepill" x-show="state === 'live'" x-text="liveText()"></span>
+    </section>
+    <div class="sr" role="status" aria-live="polite" aria-atomic="true" x-text="announce"></div>
+
+    <template x-for="w in notices()" :key="w">
+      <div class="alert warn" role="status" x-text="w"></div>
+    </template>
+
+    <div class="tabs" role="group" aria-label="Filter hosts">
+      <template x-for="t in tabs" :key="t.id">
+        <button type="button" class="tab" :aria-pressed="filter === t.id" @click="filter = t.id"
+                x-text="t.label + ' (' + count(t.id) + ')'"></button>
+      </template>
+    </div>
+
+    <table id="hosts">
+      <caption class="sr">Discovered hosts</caption>
+      <thead>
+        <tr>
+          <th scope="col" :aria-sort="ariaSort('ip')"><button type="button" class="sort" @click="sortBy('ip')">IP address<span aria-hidden="true" x-text="arrow('ip')"></span></button></th>
+          <th scope="col" :aria-sort="ariaSort('vendor')"><button type="button" class="sort" @click="sortBy('vendor')">MAC / vendor<span aria-hidden="true" x-text="arrow('vendor')"></span></button></th>
+          <th scope="col">Open ports</th>
+          <th scope="col">Web</th>
+          <th scope="col" :aria-sort="ariaSort('status')"><button type="button" class="sort" @click="sortBy('status')">Status<span aria-hidden="true" x-text="arrow('status')"></span></button></th>
+          <th scope="col"><span class="sr">Details</span></th>
+        </tr>
+      </thead>
+      <template x-for="h in visible()" :key="h.ip">
+        <tbody>
+          <tr class="host" :class="{isnew: h.isNew, offline: isOffline(h)}">
+            <th scope="row">
+              <span x-text="h.ip"></span>
+              <span class="badge new" x-show="h.isNew">NEW<span class="sr"> device found while live</span></span>
+              <span class="badge offline" x-show="isOffline(h)">OFFLINE<span class="sr"> - device stopped responding</span></span>
+              <span class="badge" x-show="h.isSelf">this computer</span>
+              <span class="badge" x-show="h.ip === gateway">gateway</span>
+              <div class="sub" x-show="h.hostname" x-text="h.hostname"></div>
+              <div class="sub" x-show="isOffline(h)" x-text="offlineFor(h)"></div>
+            </th>
+            <td>
+              <span x-text="h.mac || '-'"></span>
+              <div class="sub" x-show="h.vendor" x-text="h.vendor"></div>
+            </td>
+            <td>
+              <template x-for="p in (h.openPorts || [])" :key="p"><span class="pill" x-text="p"></span></template>
+              <span x-show="!(h.openPorts || []).length">-</span>
+            </td>
+            <td>
+              <template x-for="w in (h.web || [])" :key="w.url">
+                <div>
+                  <a :href="w.url" target="_blank" rel="noopener noreferrer" x-text="w.url"></a>
+                  <span class="sub" x-text="webNote(w)"></span>
+                </div>
+              </template>
+              <span x-show="!(h.web || []).length">-</span>
+            </td>
+            <td>
+              <span class="badge printer" x-show="h.isPrinter">printer</span>
+              <span x-text="statusText(h)"></span>
+            </td>
+            <td>
+              <button type="button" class="expand" :aria-expanded="isOpen(h.ip)" :aria-controls="'d-' + h.ip"
+                      @click="toggle(h.ip)">
+                <span x-text="isOpen(h.ip) ? 'Hide' : 'Details'"></span><span class="sr" x-text="' for ' + h.ip"></span>
+              </button>
+            </td>
+          </tr>
+          <tr class="detail" :id="'d-' + h.ip" x-show="isOpen(h.ip)">
+            <td colspan="6">
+              <template x-if="isOpen(h.ip)">
+                <div class="panel">
+                  <section x-show="h.printerReason"><h3>Printer</h3>
+                    <p x-text="h.printerReason"></p>
+                    <template x-if="h.printer">
+                      <div>
+                        <p x-show="h.printer.model || h.printer.serial">
+                          <span x-text="h.printer.model"></span>
+                          <span x-show="h.printer.serial"> - serial <span x-text="h.printer.serial"></span></span>
+                          <span x-show="h.printer.pageCount > 0"> - pages <span x-text="h.printer.pageCount"></span></span>
+                        </p>
+                        <div x-show="(h.printer.consoleDisplay || []).length">
+                          <strong>Console display:</strong>
+                          <template x-for="(l, i) in h.printer.consoleDisplay" :key="i"><div class="mono" x-text="l"></div></template>
+                        </div>
+                        <h4 x-show="(h.printer.supplies || []).length">Supplies</h4>
+                        <ul class="supplies">
+                          <template x-for="(s, i) in (h.printer.supplies || [])" :key="i">
+                            <li>
+                              <span class="slabel" x-text="s.description"></span>
+                              <span class="sbar" aria-hidden="true"><span class="sfill" :class="'s-' + s.state"
+                                    :style="'width:' + Math.max(0, s.percent) + '%'"></span></span>
+                              <span class="stext" x-text="supplyText(s)"></span>
+                            </li>
+                          </template>
+                        </ul>
+                        <h4 x-show="(h.printer.inputTrays || []).length">Trays</h4>
+                        <ul>
+                          <template x-for="(t, i) in (h.printer.inputTrays || [])" :key="i">
+                            <li x-text="t.name + (t.mediaName ? ' (' + t.mediaName + ')' : '') + ': ' + trayLevel(t) + ' - ' + t.status"></li>
+                          </template>
+                        </ul>
+                        <h4 x-show="(h.printer.covers || []).length">Covers</h4>
+                        <ul>
+                          <template x-for="(c, i) in (h.printer.covers || [])" :key="i"><li x-text="c.description + ': ' + c.status"></li></template>
+                        </ul>
+                        <h4 x-show="(h.printer.alerts || []).length">Alerts</h4>
+                        <ul>
+                          <template x-for="(a, i) in (h.printer.alerts || [])" :key="i">
+                            <li x-text="[a.severity, a.code, a.description].filter(Boolean).join(' - ')"></li>
+                          </template>
+                        </ul>
+                      </div>
+                    </template>
+                  </section>
+                  <section x-show="h.snmp"><h3>SNMP system</h3>
+                    <dl x-show="h.snmp">
+                      <template x-for="r in snmpRows(h)" :key="r[0]"><div><dt x-text="r[0]"></dt><dd x-text="r[1]"></dd></div></template>
+                    </dl>
+                  </section>
+                  <section x-show="(h.web || []).length"><h3>Web services</h3>
+                    <ul>
+                      <template x-for="w in (h.web || [])" :key="w.url">
+                        <li>
+                          <span x-text="w.url"></span>: <span x-text="webNote(w)"></span>
+                          <span x-show="w.tls">
+                            - TLS subject <span x-text="w.tls && w.tls.subject"></span>,
+                            issuer <span x-text="w.tls && w.tls.issuer"></span>,
+                            expires <span x-text="w.tls && w.tls.notAfter"></span>
+                            <span x-show="w.tls && w.tls.selfSigned">(self-signed)</span>
+                            <span x-show="w.tls && w.tls.expired">(EXPIRED)</span>
+                          </span>
+                        </li>
+                      </template>
+                    </ul>
+                  </section>
+                  <section><h3>Discovery</h3>
+                    <p>Found by: <span x-text="(h.foundBy || []).join(', ') || 'n/a'"></span>
+                      <span x-show="h.rttMs > 0"> - RTT <span x-text="h.rttMs.toFixed(1)"></span> ms</span>
+                      <span x-show="h.lastSeen"> - last seen <span x-text="h.lastSeen"></span></span></p>
+                  </section>
+                  <section x-show="(h.errors || []).length"><h3>Errors</h3>
+                    <ul><template x-for="(e, i) in h.errors" :key="i"><li x-text="e"></li></template></ul>
+                  </section>
+                </div>
+              </template>
+            </td>
+          </tr>
+        </tbody>
+      </template>
+    </table>
+    <p class="empty" x-show="!visible().length" x-text="emptyText()"></p>
+  </main>
+</div>
+</body>
+</html>

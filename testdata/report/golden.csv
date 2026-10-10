@@ -1,0 +1,6 @@
+ip,mac,vendor,hostname,alive,found_by,rtt_ms,open_ports,is_printer,printer_reason,model,serial,page_count,supplies,printer_status,errors,web_urls,web_titles,online,last_seen
+192.168.2.1,C0:FF:EE:00:00:01,,,true,icmp,1.1,80,false,,,,,,,snmp: timeout,http://192.168.2.1/,,false,
+192.168.2.10,00:1B:A9:12:34:56,Brother Industries,,true,icmp; arp,3.2,80; 443; 9100,true,hrDeviceType=printer,HL-L2350DW,E7Z123456,12345,"Black Toner=15%; Drum, ""Long Life""=unknown",idle,,http://192.168.2.10/; https://192.168.2.10/,Brother HL-L2350DW; Brother HL-L2350DW,false,
+192.168.2.50,AA:BB:CC:00:11:22,,,true,icmp,,,false,,,,,,,,,,false,
+192.168.2.200,00:50:56:AB:CD:EF,"VMware, Inc.",,true,icmp; tcp,12.3,8080,false,,,,,,,,http://192.168.2.200:8080/,,true,2026-10-09T10:00:03Z
+192.168.10.5,DE:AD:BE:EF:00:01,,,false,arp,,,false,,,,,,,,,,false,

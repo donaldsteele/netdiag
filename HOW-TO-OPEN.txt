@@ -1,0 +1,69 @@
+netdiag - how to open it
+=========================
+
+Pick the right download
+-----------------------
+  Windows PC (most laptops)        netdiag-windows-amd64.zip
+  Windows on ARM                   netdiag-windows-arm64.zip
+  Mac with Apple chip (M1/M2/M3+)  netdiag-darwin-arm64.zip
+  Mac with Intel chip              netdiag-darwin-amd64.zip
+
+Not sure which Mac? Apple menu > About This Mac. "Chip: Apple M..." means
+arm64. "Processor: Intel ..." means amd64.
+
+
+WINDOWS
+-------
+1. Right-click the zip > Extract All. Open the new folder.
+2. Double-click netdiag.exe.
+3. Windows SmartScreen may say "Windows protected your PC" because the
+   program is not code-signed. Click "More info", then "Run anyway".
+   You only need to do this once per download.
+4. Your browser opens to the netdiag page. Leave the black window open
+   while you use it. Click Quit in the page (or press Ctrl+C in the
+   black window) to stop.
+
+No administrator password is needed.
+
+
+MAC
+---
+The Mac build is also not signed, so macOS blocks it the first time.
+
+1. Unzip the file (double-click it in Finder).
+2. Open Terminal (Applications > Utilities > Terminal).
+3. Type "cd " (with a space), drag the unzipped folder into the Terminal
+   window, press Return.
+4. Remove the download block and make it runnable:
+
+       xattr -d com.apple.quarantine netdiag
+       chmod +x netdiag
+
+5. Start it:
+
+       ./netdiag
+
+   Your browser opens to the netdiag page. Click Quit in the page (or
+   press Ctrl+C in Terminal) to stop.
+
+If step 4 says "No such xattr", that is fine: the block was not set.
+If macOS still refuses to run it, open System Settings > Privacy &
+Security, scroll down to the message about "netdiag", and click
+"Open Anyway". Then run ./netdiag again.
+
+No administrator password is needed.
+
+
+WHAT YOU WILL SEE
+-----------------
+- Pick the network (interface) and the address range to scan. The range
+  is filled in for you. Large ranges (bigger than /22) are refused.
+- Click Scan. Devices appear as they respond. Printers show their toner
+  and paper levels when the printer allows it.
+- Click the web links to open a device's own settings page.
+- Export JSON or CSV to save or send the results.
+
+Everything stays on this computer. netdiag only listens on 127.0.0.1
+(this computer) and does not send anything to the internet.
+
+Problems? See README.md, section "Troubleshooting".

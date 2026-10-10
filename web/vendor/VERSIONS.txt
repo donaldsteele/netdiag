@@ -1,0 +1,4 @@
+alpinejs 3.14.9
+source: https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js
+file: alpine.min.js
+sha256: 3ed1eed252488921df65e363d6715deb04d7f92aaedb9e52199fdf73cb1e0ad3

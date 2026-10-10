@@ -1,0 +1,36 @@
+{
+ "name": "Router non-printer",
+ "v2cFails": false,
+ "varbinds": [
+  {
+   "oid": "1.3.6.1.2.1.1.1.0",
+   "type": "octet",
+   "value": "RouterOS RB750"
+  },
+  {
+   "oid": "1.3.6.1.2.1.1.2.0",
+   "type": "oid",
+   "value": "1.3.6.1.4.1.14988.1"
+  },
+  {
+   "oid": "1.3.6.1.2.1.1.3.0",
+   "type": "ticks",
+   "value": 123456789
+  },
+  {
+   "oid": "1.3.6.1.2.1.1.4.0",
+   "type": "octet",
+   "value": ""
+  },
+  {
+   "oid": "1.3.6.1.2.1.1.5.0",
+   "type": "octet",
+   "value": "gw"
+  },
+  {
+   "oid": "1.3.6.1.2.1.1.6.0",
+   "type": "octet",
+   "value": ""
+  }
+ ]
+}
