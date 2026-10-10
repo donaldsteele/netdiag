@@ -57,8 +57,11 @@ func TestSweep1024Fast(t *testing.T) {
 	got := map[netip.Addr]time.Duration{}
 	var lastDone, lastTotal int
 	start := time.Now()
+	// Pacing is disabled here: this test measures worker-pool throughput, not
+	// the default probe budget (covered by TestSweepDefaultRate*).
 	err := Sweep(context.Background(), ts, Config{
 		Pinger: fp,
+		Rate:   -1,
 		OnAlive: func(r Result) {
 			mu.Lock()
 			got[r.IP] = r.RTT
@@ -111,6 +114,66 @@ func TestSweepCancel(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("sweep did not stop")
+	}
+}
+
+// instantPinger answers every probe immediately (zero latency) and counts sends.
+type instantPinger struct {
+	alive bool
+	calls atomic.Int64
+}
+
+func (p *instantPinger) Ping(_ context.Context, _ netip.Addr, _ time.Duration) (time.Duration, bool, error) {
+	p.calls.Add(1)
+	if p.alive {
+		return 0, true, nil
+	}
+	return 0, false, nil
+}
+
+func TestDefaultsV02(t *testing.T) {
+	if DefaultRate != 500 || DefaultBurst != 64 {
+		t.Fatalf("rate/burst = %d/%d, want 500/64", DefaultRate, DefaultBurst)
+	}
+}
+
+// A /24 of silent hosts (worst case: every host gets all attempts) must
+// finish well under 10s at the default rate.
+func TestSweepDefaultRateSlash24Budget(t *testing.T) {
+	ts := addrs(254)
+	p := &instantPinger{alive: false}
+	start := time.Now()
+	if err := Sweep(context.Background(), ts, Config{Pinger: p}); err != nil {
+		t.Fatal(err)
+	}
+	el := time.Since(start)
+	if el >= 10*time.Second {
+		t.Fatalf("/24 took %v at default rate", el)
+	}
+	if want := int64(254 * (DefaultRetries + 1)); p.calls.Load() != want {
+		t.Fatalf("calls = %d, want %d", p.calls.Load(), want)
+	}
+	t.Logf("/24 silent sweep at default rate: %v", el)
+}
+
+// 254 single-probe sends at 500/s with burst 64 must be paced: the first 64
+// are free, the remaining 190 need about 0.38s.
+func TestSweepDefaultRatePacing(t *testing.T) {
+	ts := addrs(254)
+	p := &instantPinger{alive: true}
+	start := time.Now()
+	if err := Sweep(context.Background(), ts, Config{Pinger: p}); err != nil {
+		t.Fatal(err)
+	}
+	el := time.Since(start)
+	if p.calls.Load() != 254 {
+		t.Fatalf("calls = %d, want 254", p.calls.Load())
+	}
+	if el < 300*time.Millisecond {
+		t.Fatalf("254 sends finished in %v; pacing not applied", el)
+	}
+	if el >= 10*time.Second {
+		t.Fatalf("too slow: %v", el)
 	}
 }
 

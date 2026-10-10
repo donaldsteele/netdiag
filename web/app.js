@@ -6,9 +6,13 @@ document.addEventListener('alpine:init', () => {
     stage: '', done: 0, total: 0, error: '', quitted: false,
     filter: 'all', sortKey: 'ip', sortDir: 1, open: {},
     live: true, liveStatus: null, nowMs: Date.now(), announce: '', announced: {}, liveSynced: false,
+    view: 'hosts', health: null, healthOpen: true, healthBusy: false, healthMsg: '',
+    conflicts: [], banners: [], seenNotices: {},
+    settings: null, draft: null, settingsError: '', storeDown: false, desktopNote: '', audio: null,
+    history: [], historyError: '', baseId: '', currentId: '', diff: null, diffError: '', diffBusy: false,
     tabs: [{id: 'all', label: 'All'}, {id: 'printers', label: 'Printers'},
            {id: 'web', label: 'Web'}, {id: 'problems', label: 'Problems'}, {id: 'new', label: 'New'},
-           {id: 'offline', label: 'Offline'}],
+           {id: 'offline', label: 'Offline'}, {id: 'conflicts', label: 'Conflicts'}],
 
     async init() {
       try { const v = localStorage.getItem('netdiag.live'); if (v !== null) this.live = v === '1'; } catch (e) {}
@@ -19,7 +23,219 @@ document.addEventListener('alpine:init', () => {
         const d = this.ifaces.find(i => i.isDefault) || this.ifaces[0];
         if (d) { this.ifaceName = d.name; this.cidr = d.suggested || d.cidr; }
       } catch (e) { this.error = 'Could not list network interfaces: ' + e.message; }
+      this.loadSettings();
+      this.loadHealth();
     },
+    async loadSettings() {
+      try {
+        const r = await fetch('/api/settings');
+        if (r.status === 503) { this.storeDown = true; return; }
+        if (!r.ok) return;
+        this.settings = await r.json();
+        if (this.settings.community) this.community = this.settings.community;
+      } catch (e) {}
+    },
+    async loadHealth() {
+      try {
+        const r = await fetch('/api/health');
+        if (r.ok) this.health = await r.json();
+      } catch (e) {}
+    },
+    async recheck() {
+      this.healthBusy = true; this.healthMsg = 'Running checks...';
+      try {
+        const r = await this.post('/api/health/run', {interface: this.ifaceName});
+        if (r.ok) { this.health = await r.json(); this.healthMsg = 'Checks updated.'; }
+        else { this.healthMsg = 'Health check failed (HTTP ' + r.status + ').'; }
+      } catch (e) { this.healthMsg = 'Health check failed: ' + e.message; }
+      this.healthBusy = false;
+    },
+    healthIcon(s) { return {ok: '✔', warn: '▲', fail: '✖', info: 'ℹ'}[s] || '–'; },
+    healthStatusText(s) { return {ok: 'OK', warn: 'Warning', fail: 'Failed', info: 'Info', unavailable: 'Unavailable'}[s] || s; },
+    healthSummary() {
+      if (!this.health) return 'Health: not checked';
+      const c = this.health.checks || [];
+      const f = c.filter(x => x.status === 'fail').length, w = c.filter(x => x.status === 'warn').length;
+      if (!f && !w) return 'Health: OK';
+      return 'Health: ' + [f ? f + ' fail' : '', w ? w + ' warn' : ''].filter(Boolean).join(', ');
+    },
+    healthLatency(c) { return c.latencyMs > 0 ? c.latencyMs.toFixed(1) + ' ms' : ''; },
+
+    // ---- settings ----
+    openSettings() {
+      if (!this.settings) { this.settingsError = this.storeDown ? 'The data store is unavailable, so settings cannot be changed.' : 'Settings are not loaded yet.'; }
+      else { this.settingsError = ''; }
+      this.draft = JSON.parse(JSON.stringify(this.settings || {community: '', webServer: {}, alerts: {triggers: {}}, ignoredConflictMACs: []}));
+      this.draft.ignoredConflictMACs = this.draft.ignoredConflictMACs || [];
+      this.$nextTick(() => { const d = this.$refs.dlg; if (d && !d.open) d.showModal(); });
+    },
+    closeSettings() { const d = this.$refs.dlg; if (d && d.open) d.close(); },
+    async saveSettings() {
+      this.settingsError = '';
+      const n = v => (v === '' || v === null ? 0 : Number(v));
+      this.draft.webServer.expectStatus = n(this.draft.webServer.expectStatus);
+      this.draft.alerts.supplyThresholdPct = n(this.draft.alerts.supplyThresholdPct);
+      this.draft.alerts.cooldownSec = n(this.draft.alerts.cooldownSec);
+      const ok = await this.putSettings(this.draft, true);
+      if (ok) this.closeSettings();
+    },
+    async putSettings(doc, showErr) {
+      try {
+        const r = await fetch('/api/settings', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(doc)});
+        if (r.status === 503) { this.storeDown = true; if (showErr) this.settingsError = 'The data store is unavailable.'; return false; }
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { if (showErr) this.settingsError = j.error || ('Could not save settings (HTTP ' + r.status + ')'); return false; }
+        this.settings = j;
+        if (j.community) this.community = j.community;
+        return true;
+      } catch (e) { if (showErr) this.settingsError = 'Could not save settings: ' + e.message; return false; }
+    },
+    removeIgnored(i) { this.draft.ignoredConflictMACs.splice(i, 1); },
+    soundOn() { return !this.settings || this.settings.alerts.sound; },
+    async toggleSound() {
+      if (!this.settings) return;
+      const doc = JSON.parse(JSON.stringify(this.settings));
+      doc.alerts.sound = !doc.alerts.sound;
+      if (doc.alerts.sound) this.beep('info');
+      await this.putSettings(doc, false);
+    },
+    desktopState() {
+      if (typeof Notification === 'undefined') return 'unsupported';
+      return Notification.permission;
+    },
+    async enableDesktop() {
+      this.desktopNote = '';
+      if (typeof Notification === 'undefined') { this.desktopNote = 'This browser does not support desktop notifications.'; return; }
+      let p = Notification.permission;
+      if (p === 'default') p = await Notification.requestPermission();
+      if (p !== 'granted') { this.desktopNote = 'Desktop alerts are blocked. Allow notifications for this site in your browser settings.'; return; }
+      this.desktopNote = 'Desktop alerts enabled.';
+      if (this.settings && !this.settings.alerts.desktop) {
+        const doc = JSON.parse(JSON.stringify(this.settings)); doc.alerts.desktop = true;
+        await this.putSettings(doc, false);
+      }
+    },
+
+    // ---- alerts ----
+    onNotice(n, scanId) {
+      // Notice ids (n-<seq>) restart per scan, so the dedupe key includes the scan id.
+      if (!n || n.replay || !n.id) return; // replayed notices stay silent
+      const key = (scanId || '') + ':' + n.id;
+      if (this.seenNotices[key]) return;
+      this.seenNotices[key] = true;
+      this.banners.unshift(Object.assign({}, n, {bid: key}));
+      if (this.banners.length > 50) this.banners.length = 50;
+      if (this.soundOn()) this.beep(n.severity);
+      if (this.settings && this.settings.alerts.desktop && this.desktopState() === 'granted') {
+        try { new Notification(n.title || 'netdiag', {body: n.message || '', tag: n.key || n.id}); } catch (e) {}
+      }
+    },
+    shownBanners() { return this.banners.slice(0, 3); },
+    moreBanners() { return Math.max(0, this.banners.length - 3); },
+    dismiss(bid) { this.banners = this.banners.filter(b => b.bid !== bid); },
+    dismissAll() { this.banners = []; },
+    beep(sev) {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        if (!this.audio) this.audio = new AC();
+        const ctx = this.audio, seq = sev === 'critical' ? [880, 660, 880] : sev === 'warn' ? [523] : [440];
+        let t = ctx.currentTime;
+        seq.forEach(f => {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = 'sine'; o.frequency.value = f; g.gain.value = 0.08;
+          o.connect(g); g.connect(ctx.destination);
+          o.start(t); o.stop(t + 0.16); t += 0.2;
+        });
+      } catch (e) {}
+    },
+
+    // ---- conflicts ----
+    conflictsFor(h) {
+      const ids = h.conflicts || [];
+      return this.conflicts.filter(c => ids.includes(c.id) || (c.ips || []).includes(h.ip));
+    },
+    hasConflict(h) { return this.conflictsFor(h).length > 0; },
+    conflictKind(c) {
+      return {mac_flap: 'The MAC address for this IP keeps changing - two devices may share the IP, or a device is switching adapters.',
+              mac_multi_ip: 'One MAC address answers for several IPs - often a range extender or router, or a device with several addresses.',
+              duplicate_name: 'More than one device uses the same name.'}[c.kind] || c.kind;
+    },
+    onConflict(ev) {
+      if (!ev || !ev.conflict) return;
+      const id = ev.conflict.id;
+      this.conflicts = this.conflicts.filter(c => c.id !== id);
+      if (!ev.resolved) this.conflicts.push(ev.conflict);
+    },
+    async ignoreMac(mac) {
+      try {
+        const r = await this.post('/api/conflicts/ignore', {mac: mac});
+        if (r.status === 503) { this.error = 'The data store is unavailable, so the MAC cannot be ignored.'; return; }
+        if (!r.ok) { this.error = 'Could not ignore MAC (HTTP ' + r.status + ')'; return; }
+        this.announce = 'Ignoring ' + mac;
+        this.loadSettings();
+        this.conflicts = this.conflicts.filter(c => !(c.macs || []).includes(mac));
+      } catch (e) { this.error = 'Could not ignore MAC: ' + e.message; }
+    },
+
+    // ---- history & compare ----
+    async showView(v) {
+      this.view = v;
+      if (v === 'history') await this.loadHistory();
+    },
+    async loadHistory() {
+      this.historyError = '';
+      try {
+        const r = await fetch('/api/history');
+        if (r.status === 503) { this.storeDown = true; this.historyError = 'The data store is unavailable, so history cannot be shown.'; this.history = []; return; }
+        if (!r.ok) { this.historyError = 'Could not load history (HTTP ' + r.status + ')'; return; }
+        this.history = (await r.json()) || [];
+        const ok = this.readableHistory();
+        if (!this.currentId && ok.length) this.currentId = ok[0].id;
+      } catch (e) { this.historyError = 'Could not load history: ' + e.message; }
+    },
+    async deleteHistory(id) {
+      if (!window.confirm('Delete this saved scan?')) return;
+      const r = await fetch('/api/history/' + encodeURIComponent(id), {method: 'DELETE'});
+      if (!r.ok && r.status !== 404) { this.historyError = 'Could not delete (HTTP ' + r.status + ')'; return; }
+      if (this.currentId === id) this.currentId = '';
+      if (this.baseId === id) this.baseId = '';
+      this.diff = null;
+      await this.loadHistory();
+    },
+    readableHistory() { return this.history.filter(h => !h.error); },
+    currentOptions() {
+      const o = this.readableHistory().map(h => ({id: h.id, label: this.histLabel(h)}));
+      if (this.scanId && !o.some(x => x.id === this.scanId)) o.unshift({id: this.scanId, label: 'Current scan (' + this.scanId + ')'});
+      return o;
+    },
+    histLabel(h) { return h.startedAt + ' - ' + h.cidr + (h.live ? ' (live)' : ''); },
+    compareQuery() {
+      const q = new URLSearchParams();
+      if (this.baseId) q.set('base', this.baseId);
+      q.set('current', this.currentId);
+      return q;
+    },
+    async runCompare() {
+      this.diff = null; this.diffError = '';
+      if (!this.currentId) { this.diffError = 'Choose a scan to compare.'; return; }
+      this.diffBusy = true;
+      try {
+        const r = await fetch('/api/compare?' + this.compareQuery().toString());
+        const j = await r.json().catch(() => ({}));
+        if (r.status === 503) this.diffError = 'The data store is unavailable.';
+        else if (!r.ok) this.diffError = j.error || ('Compare failed (HTTP ' + r.status + ')');
+        else this.diff = j;
+      } catch (e) { this.diffError = 'Compare failed: ' + e.message; }
+      this.diffBusy = false;
+    },
+    exportDiff(f) {
+      if (!this.currentId) return;
+      const q = this.compareQuery(); q.set('format', f);
+      window.location.href = '/api/compare/export?' + q.toString();
+    },
+    changeText(c) { return c.field + ': ' + (c.from || '(none)') + ' → ' + (c.to || '(none)'); },
+    statsText(s) { s = s || {}; return (s.alive || 0) + ' alive, ' + (s.printers || 0) + ' printers, ' + (s.web || 0) + ' web'; },
     saveLive() { try { localStorage.setItem('netdiag.live', this.live ? '1' : '0'); } catch (e) {} },
     pickIface() {
       const i = this.ifaces.find(x => x.name === this.ifaceName);
@@ -32,7 +248,8 @@ document.addEventListener('alpine:init', () => {
     async start() {
       this.error = ''; this.hosts = []; this.warnings = []; this.open = {};
       this.stage = ''; this.done = 0; this.total = 0; this.state = ''; this.gateway = '';
-      this.liveStatus = null; this.announce = ''; this.announced = {};
+      this.liveStatus = null; this.announce = ''; this.announced = {}; this.conflicts = [];
+      this.seenNotices = {};
       try {
         const r = await this.post('/api/scans', {cidr: this.cidr.trim(), interface: this.ifaceName, community: this.community, live: !!this.live});
         const j = await r.json();
@@ -47,10 +264,15 @@ document.addEventListener('alpine:init', () => {
       this.es = es; this.liveSynced = false;
       const on = (t, fn) => es.addEventListener(t, ev => { try { fn(JSON.parse(ev.data)); } catch (e) {} });
       on('host', h => this.upsert(h));
+      on('health', r => { this.health = r; });
+      on('conflict', ev => this.onConflict(ev));
+      on('notice', n => this.onNotice(n, id));
       on('progress', p => { this.stage = p.stage; this.done = p.done; this.total = p.total; });
       on('stage', s => { this.stage = s.stage; this.done = 0; this.total = 0; });
       on('snapshot', r => {
         this.gateway = r.gateway || ''; this.warnings = r.warnings || []; this.state = r.state;
+        if (r.health) this.health = r.health;
+        if (r.conflicts) this.conflicts = r.conflicts;
         (r.hosts || []).forEach(h => { if (!this.hosts.some(x => x.ip === h.ip)) this.hosts.push(h); });
       });
       on('live', st => {
@@ -72,6 +294,8 @@ document.addEventListener('alpine:init', () => {
       });
       on('done', r => {
         this.liveStatus = null;
+        if (r.health) this.health = r.health;
+        if (r.conflicts) this.conflicts = r.conflicts;
         this.hosts = r.hosts || this.hosts; this.gateway = r.gateway || ''; this.warnings = r.warnings || [];
         this.state = r.state; this.running = false; this.stage = 'finished';
         es.close(); this.es = null;
@@ -139,6 +363,7 @@ document.addEventListener('alpine:init', () => {
     },
     isProblem(h) {
       if (this.isOffline(h)) return true;
+      if (this.hasConflict(h)) return true;
       const p = h.printer;
       if (h.isPrinter && p) {
         if ((p.alerts || []).length) return true;
@@ -151,6 +376,7 @@ document.addEventListener('alpine:init', () => {
       if (f === 'web') return (h.web || []).length > 0;
       if (f === 'problems') return this.isProblem(h);
       if (f === 'new') return !!h.isNew;
+      if (f === 'conflicts') return this.hasConflict(h);
       if (f === 'offline') return this.isOffline(h);
       return true;
     },
@@ -186,6 +412,10 @@ document.addEventListener('alpine:init', () => {
     isOpen(ip) { return !!this.open[ip]; },
     toggle(ip) { this.open[ip] = !this.open[ip]; },
 
+    printerSource(p) {
+      return {ipp: 'via IPP', snmp: 'via SNMP', 'snmp+ipp': 'via SNMP + IPP'}[p && p.source] || '';
+    },
+    mdnsName(h) { return h.mdns ? (h.mdns.instance || h.mdns.hostname || '') : ''; },
     statusText(h) {
       const parts = [this.isOffline(h) ? 'offline' : h.alive ? 'up' : 'no ping'];
       if (h.isPrinter && h.printer) {

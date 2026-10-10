@@ -1,0 +1,276 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"netdiag/internal/health"
+	"netdiag/internal/model"
+	"netdiag/internal/netinfo"
+	"netdiag/internal/scan"
+	"netdiag/internal/store"
+)
+
+type fakeHealth struct{}
+
+func (f fakeHealth) Run(_ context.Context, in health.Input) model.HealthReport {
+	return model.HealthReport{CheckedAt: "2026-01-01T00:00:00Z", Checks: []model.HealthCheck{{ID: "gateway", Status: model.HealthOK}}}
+}
+
+func startStore(t *testing.T) (*Server, string, *store.Store) {
+	t.Helper()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := scan.NewRegistry(scan.New(scan.Deps{
+		Pinger: fakePinger{}, ARP: fakeARP{}, Ports: fakePorts{}, Web: fakeWeb{},
+		SNMP: fakeSNMP{}, DNS: fakeDNS{}, Vendors: fakeVendors{}, Env: fakeEnv{},
+		Store: st, Settings: st,
+	}))
+	s := New(Config{
+		Registry:   reg,
+		Store:      st,
+		Health:     fakeHealth{},
+		Gateway:    func() (string, error) { return "10.0.0.1", nil },
+		Interfaces: func() ([]netinfo.Iface, error) { return []netinfo.Iface{{Name: "eth0", IP: "10.0.0.30"}}, nil },
+	})
+	if err := s.Listen(0); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	exited := make(chan struct{})
+	go func() { _ = s.Serve(ctx); close(exited) }()
+	t.Cleanup(func() { cancel(); <-exited })
+	return s, s.URL(), st
+}
+
+func doj(t *testing.T, method, url, body, ctype string) (*http.Response, string) {
+	t.Helper()
+	req, _ := http.NewRequest(method, url, strings.NewReader(body))
+	if ctype != "" {
+		req.Header.Set("Content-Type", ctype)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp, string(b)
+}
+
+func seed(t *testing.T, st *store.Store, id, cidr, start string, ips ...string) {
+	t.Helper()
+	res := model.ScanResult{ID: id, Request: model.ScanRequest{CIDR: cidr}, StartedAt: start, FinishedAt: start, State: model.StateDone,
+		Health: &model.HealthReport{CheckedAt: start}}
+	for _, ip := range ips {
+		res.Hosts = append(res.Hosts, model.Host{IP: ip, Alive: true, Online: true})
+	}
+	if err := st.SaveScan(res); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSettingsEndpoints(t *testing.T) {
+	_, u, _ := startStore(t)
+	r, b := doj(t, "GET", u+"/api/settings", "", "")
+	if r.StatusCode != 200 || !strings.Contains(b, `"cooldownSec":300`) {
+		t.Fatalf("get: %d %s", r.StatusCode, b)
+	}
+	var set model.Settings
+	_ = json.Unmarshal([]byte(b), &set)
+
+	bad := []func(*model.Settings){
+		func(s *model.Settings) { s.WebServer.URL = "ftp://x" },
+		func(s *model.Settings) { s.Alerts.SupplyThresholdPct = 0 },
+		func(s *model.Settings) { s.Alerts.SupplyThresholdPct = 101 },
+		func(s *model.Settings) { s.Alerts.CooldownSec = 10 },
+		func(s *model.Settings) { s.Alerts.CooldownSec = 4000 },
+		func(s *model.Settings) { s.InternetCheckURL = "not a url" },
+	}
+	for i, f := range bad {
+		c := set
+		f(&c)
+		body, _ := json.Marshal(c)
+		if r, b := doj(t, "PUT", u+"/api/settings", string(body), "application/json"); r.StatusCode != 400 {
+			t.Errorf("case %d: %d %s", i, r.StatusCode, b)
+		}
+	}
+	if r, _ := doj(t, "PUT", u+"/api/settings", "{", "application/json"); r.StatusCode != 400 {
+		t.Errorf("bad json: %d", r.StatusCode)
+	}
+	if r, _ := doj(t, "PUT", u+"/api/settings", "{}", "text/plain"); r.StatusCode != 415 {
+		t.Errorf("put content-type: %d", r.StatusCode)
+	}
+	set.Community = "secret"
+	set.Alerts.CooldownSec = 60
+	body, _ := json.Marshal(set)
+	if r, b := doj(t, "PUT", u+"/api/settings", string(body), "application/json"); r.StatusCode != 200 || !strings.Contains(b, `"secret"`) {
+		t.Fatalf("put: %d %s", r.StatusCode, b)
+	}
+	if _, b := doj(t, "GET", u+"/api/settings", "", ""); !strings.Contains(b, `"cooldownSec":60`) {
+		t.Fatalf("not persisted: %s", b)
+	}
+}
+
+func TestIgnoreMAC(t *testing.T) {
+	_, u, _ := startStore(t)
+	if r, _ := doj(t, "POST", u+"/api/conflicts/ignore", `{"mac":"zz"}`, "application/json"); r.StatusCode != 400 {
+		t.Fatalf("bad mac: %d", r.StatusCode)
+	}
+	for i := 0; i < 2; i++ {
+		if r, b := doj(t, "POST", u+"/api/conflicts/ignore", `{"mac":"aa:bb:cc:dd:ee:ff"}`, "application/json"); r.StatusCode != 204 {
+			t.Fatalf("ignore: %d %s", r.StatusCode, b)
+		}
+	}
+	_, b := doj(t, "GET", u+"/api/settings", "", "")
+	if strings.Count(b, "AA:BB:CC:DD:EE:FF") != 1 {
+		t.Fatalf("settings: %s", b)
+	}
+	if r, _ := doj(t, "POST", u+"/api/conflicts/ignore", `{}`, "text/plain"); r.StatusCode != 415 {
+		t.Fatalf("content type: %d", r.StatusCode)
+	}
+}
+
+func TestHistoryEndpoints(t *testing.T) {
+	_, u, st := startStore(t)
+	if _, b := doj(t, "GET", u+"/api/history", "", ""); strings.TrimSpace(b) != "[]" {
+		t.Fatalf("empty list: %s", b)
+	}
+	seed(t, st, "a1", "10.0.0.0/24", "2026-01-01T10:00:00Z", "10.0.0.5")
+	seed(t, st, "a2", "10.0.0.0/24", "2026-01-01T11:00:00Z", "10.0.0.5", "10.0.0.6")
+	_, b := doj(t, "GET", u+"/api/history", "", "")
+	if i1, i2 := strings.Index(b, `"a1"`), strings.Index(b, `"a2"`); i1 < 0 || i2 < 0 || i2 > i1 {
+		t.Fatalf("order: %s", b)
+	}
+	if r, b := doj(t, "GET", u+"/api/history/a1", "", ""); r.StatusCode != 200 || !strings.Contains(b, "10.0.0.5") {
+		t.Fatalf("get: %d %s", r.StatusCode, b)
+	}
+	if r, _ := doj(t, "GET", u+"/api/history/nope", "", ""); r.StatusCode != 404 {
+		t.Fatalf("get missing: %d", r.StatusCode)
+	}
+	if r, _ := doj(t, "DELETE", u+"/api/history/a1", "", ""); r.StatusCode != 204 {
+		t.Fatalf("delete: %d", r.StatusCode)
+	}
+	if r, _ := doj(t, "DELETE", u+"/api/history/a1", "", ""); r.StatusCode != 404 {
+		t.Fatalf("delete again: %d", r.StatusCode)
+	}
+	// DELETE is subject to the Host guard.
+	req, _ := http.NewRequest("DELETE", u+"/api/history/a2", nil)
+	req.Host = "evil.example.com"
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 403 {
+		t.Fatalf("delete foreign host: %d", resp.StatusCode)
+	}
+}
+
+func TestCompareEndpoints(t *testing.T) {
+	_, u, st := startStore(t)
+	seed(t, st, "b1", "10.0.0.0/24", "2026-01-01T10:00:00Z", "10.0.0.5")
+	seed(t, st, "b2", "10.0.0.0/24", "2026-01-01T11:00:00Z", "10.0.0.5", "10.0.0.6")
+	seed(t, st, "other", "192.168.0.0/24", "2026-01-01T09:00:00Z", "192.168.0.2")
+
+	// default base = previous scan of the same CIDR
+	r, b := doj(t, "GET", u+"/api/compare?current=b2", "", "")
+	if r.StatusCode != 200 || !strings.Contains(b, `"added":1`) || !strings.Contains(b, "10.0.0.6") {
+		t.Fatalf("default base: %d %s", r.StatusCode, b)
+	}
+	// explicit base
+	if r, b := doj(t, "GET", u+"/api/compare?base=b1&current=b2", "", ""); r.StatusCode != 200 {
+		t.Fatalf("explicit: %d %s", r.StatusCode, b)
+	}
+	if r, _ := doj(t, "GET", u+"/api/compare?base=b2&current=b2", "", ""); r.StatusCode != 400 {
+		t.Fatalf("same: %d", r.StatusCode)
+	}
+	if r, _ := doj(t, "GET", u+"/api/compare?base=zzz&current=b2", "", ""); r.StatusCode != 404 {
+		t.Fatalf("missing base: %d", r.StatusCode)
+	}
+	if r, _ := doj(t, "GET", u+"/api/compare?current=nope", "", ""); r.StatusCode != 404 {
+		t.Fatalf("missing current: %d", r.StatusCode)
+	}
+	if r, _ := doj(t, "GET", u+"/api/compare?current=other", "", ""); r.StatusCode != 404 {
+		t.Fatalf("no previous: %d", r.StatusCode)
+	}
+	if r, _ := doj(t, "GET", u+"/api/compare", "", ""); r.StatusCode != 400 {
+		t.Fatalf("no current: %d", r.StatusCode)
+	}
+
+	// export headers
+	r, b = doj(t, "GET", u+"/api/compare/export?base=b1&current=b2&format=csv", "", "")
+	if r.StatusCode != 200 || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/csv") ||
+		!strings.Contains(r.Header.Get("Content-Disposition"), "netdiag-diff-") ||
+		!strings.HasSuffix(strings.TrimSuffix(r.Header.Get("Content-Disposition"), `"`), ".csv") ||
+		!strings.HasPrefix(b, "change,ip,mac,vendor,field,from,to") {
+		t.Fatalf("csv export: %d %v %q", r.StatusCode, r.Header, b)
+	}
+	r, _ = doj(t, "GET", u+"/api/compare/export?base=b1&current=b2&format=json", "", "")
+	if r.StatusCode != 200 || r.Header.Get("Content-Type") != "application/json" ||
+		!strings.Contains(r.Header.Get("Content-Disposition"), ".json") {
+		t.Fatalf("json export: %d %v", r.StatusCode, r.Header)
+	}
+	if r, _ := doj(t, "GET", u+"/api/compare/export?base=b1&current=b2&format=xml", "", ""); r.StatusCode != 400 {
+		t.Fatalf("bad format: %d", r.StatusCode)
+	}
+}
+
+func TestCompareLiveCurrent(t *testing.T) {
+	_, u, st := startStore(t)
+	seed(t, st, "old", "10.0.0.0/24", "2020-01-01T10:00:00Z", "10.0.0.99")
+	r, b := doj(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/24"}`, "application/json")
+	if r.StatusCode != 202 {
+		t.Fatalf("start: %d %s", r.StatusCode, b)
+	}
+	id := idOf(t, b)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, g := doj(t, "GET", u+"/api/scans/"+id, "", "")
+		if strings.Contains(g, `"state":"done"`) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	r, b = doj(t, "GET", u+"/api/compare?base=old&current="+id, "", "")
+	if r.StatusCode != 200 || !strings.Contains(b, `"removed"`) {
+		t.Fatalf("live current: %d %s", r.StatusCode, b)
+	}
+}
+
+func TestHealthEndpoints(t *testing.T) {
+	_, u, st := startStore(t)
+	if r, _ := doj(t, "GET", u+"/api/health", "", ""); r.StatusCode != 404 {
+		t.Fatalf("no report: %d", r.StatusCode)
+	}
+	seed(t, st, "h1", "10.0.0.0/24", "2026-01-01T10:00:00Z", "10.0.0.5")
+	if r, b := doj(t, "GET", u+"/api/health", "", ""); r.StatusCode != 200 || !strings.Contains(b, "2026-01-01T10:00:00Z") {
+		t.Fatalf("saved report: %d %s", r.StatusCode, b)
+	}
+	if r, b := doj(t, "POST", u+"/api/health/run", `{"interface":"eth0"}`, "application/json"); r.StatusCode != 200 || !strings.Contains(b, `"gateway"`) {
+		t.Fatalf("run: %d %s", r.StatusCode, b)
+	}
+	if r, _ := doj(t, "POST", u+"/api/health/run", ``, "application/json"); r.StatusCode != 200 {
+		t.Fatalf("run empty body: %d", r.StatusCode)
+	}
+	if r, _ := doj(t, "POST", u+"/api/health/run", `{}`, "text/plain"); r.StatusCode != 415 {
+		t.Fatalf("content type: %d", r.StatusCode)
+	}
+}
+
+func TestNoStore503(t *testing.T) {
+	_, u, _ := start(t, nil)
+	if r, _ := doj(t, "GET", u+"/api/settings", "", ""); r.StatusCode != 503 {
+		t.Fatalf("settings: %d", r.StatusCode)
+	}
+	if r, _ := doj(t, "GET", u+"/api/history", "", ""); r.StatusCode != 503 {
+		t.Fatalf("history: %d", r.StatusCode)
+	}
+}

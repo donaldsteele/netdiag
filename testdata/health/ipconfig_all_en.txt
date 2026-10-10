@@ -1,0 +1,31 @@
+
+Windows IP Configuration
+
+   Host Name . . . . . . . . . . . . : DESKTOP-ABC
+   Primary Dns Suffix  . . . . . . . : 
+   IP Routing Enabled. . . . . . . . : No
+
+Ethernet adapter vEthernet (Default Switch):
+
+   Connection-specific DNS Suffix  . : 
+   Description . . . . . . . . . . . : Hyper-V Virtual Ethernet Adapter
+   DHCP Enabled. . . . . . . . . . . : No
+   IPv4 Address. . . . . . . . . . . : 172.20.0.1(Preferred)
+   Subnet Mask . . . . . . . . . . . : 255.255.240.0
+
+Wireless LAN adapter Wi-Fi:
+
+   Connection-specific DNS Suffix  . : lan
+   Description . . . . . . . . . . . : Intel(R) Wi-Fi 6 AX201 160MHz
+   Physical Address. . . . . . . . . : AA-BB-CC-DD-EE-FF
+   DHCP Enabled. . . . . . . . . . . : Yes
+   Autoconfiguration Enabled . . . . : Yes
+   IPv6 Address. . . . . . . . . . . : fd00::1234(Preferred)
+   IPv4 Address. . . . . . . . . . . : 192.168.1.50(Preferred)
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0
+   Lease Obtained. . . . . . . . . . : Monday, October 5, 2026 8:01:02 AM
+   Lease Expires . . . . . . . . . . : Tuesday, October 6, 2026 8:01:02 AM
+   Default Gateway . . . . . . . . . : 192.168.1.1
+   DHCP Server . . . . . . . . . . . : 192.168.1.1
+   DNS Servers . . . . . . . . . . . : 192.168.1.1
+                                       8.8.8.8

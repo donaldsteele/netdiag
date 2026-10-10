@@ -38,7 +38,30 @@
       <button type="button" @click="exportAs('csv')" :disabled="!scanId">Export CSV</button>
       <button type="button" class="danger" @click="quit()">Quit</button>
     </form>
+    <div class="hdrtools">
+      <button type="button" class="chipbtn" :class="'h-' + (healthSummary().includes('fail') ? 'fail' : healthSummary().includes('warn') ? 'warn' : 'ok')"
+              @click="healthOpen = true; $nextTick(() => $refs.healthPanel && $refs.healthPanel.focus())" x-text="healthSummary()"></button>
+      <button type="button" :aria-pressed="!soundOn()" @click="toggleSound()" :disabled="!settings"
+              x-text="soundOn() ? 'Mute alerts' : 'Unmute alerts'"></button>
+      <button type="button" @click="enableDesktop()" x-show="desktopState() !== 'granted'">Enable desktop alerts</button>
+      <button type="button" @click="openSettings()">Settings</button>
+    </div>
   </header>
+  <section id="alerts" class="banners" aria-label="Alerts">
+    <template x-for="b in shownBanners()" :key="b.bid">
+      <div class="banner" :class="'sev-' + b.severity" :role="b.severity === 'critical' ? 'alert' : 'status'"
+           :aria-live="b.severity === 'critical' ? 'assertive' : 'polite'">
+        <div><strong x-text="(b.severity === 'critical' ? 'Critical: ' : b.severity === 'warn' ? 'Warning: ' : 'Notice: ') + b.title"></strong>
+          <span x-text="b.message"></span> <span class="sub" x-show="b.ip" x-text="b.ip"></span></div>
+        <button type="button" @click="dismiss(b.bid)">Dismiss<span class="sr" x-text="' ' + b.title"></span></button>
+      </div>
+    </template>
+    <div class="banner more" x-show="moreBanners() > 0">
+      <span x-text="moreBanners() + ' more'"></span>
+      <button type="button" @click="dismissAll()">Dismiss all</button>
+    </div>
+    <p class="sub" role="status" x-show="desktopNote" x-text="desktopNote"></p>
+  </section>
 
   <main>
     <div class="alert error" role="alert" x-show="error" x-text="error"></div>
@@ -63,6 +86,41 @@
       <div class="alert warn" role="status" x-text="w"></div>
     </template>
 
+    <section id="health" class="healthpanel" aria-labelledby="health-h" tabindex="-1" x-ref="healthPanel">
+      <h2 id="health-h">
+        <button type="button" class="sort" :aria-expanded="healthOpen" aria-controls="health-body" @click="healthOpen = !healthOpen">
+          <span aria-hidden="true" x-text="healthOpen ? '▼ ' : '▶ '"></span>Network health</button>
+        <span class="sub" x-text="healthSummary()"></span>
+      </h2>
+      <div id="health-body" x-show="healthOpen">
+        <table x-show="health && (health.checks || []).length">
+          <caption class="sr">Network health checks</caption>
+          <thead><tr><th scope="col">Status</th><th scope="col">Check</th><th scope="col">Detail</th><th scope="col">Latency</th></tr></thead>
+          <tbody>
+            <template x-for="c in (health ? health.checks || [] : [])" :key="c.id">
+              <tr>
+                <td><span class="hs" :class="'hs-' + c.status"><span aria-hidden="true" x-text="healthIcon(c.status)"></span> <span x-text="healthStatusText(c.status)"></span></span></td>
+                <th scope="row" x-text="c.label"></th>
+                <td><span x-text="c.detail"></span>
+                  <a href="#" x-show="c.id === 'webserver' && c.status === 'unavailable'" @click.prevent="openSettings()">Set the web server URL in Settings</a></td>
+                <td x-text="healthLatency(c)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <p class="empty" x-show="!health || !(health.checks || []).length">No health report yet. Press Recheck.</p>
+        <p>
+          <button type="button" @click="recheck()" :disabled="healthBusy">Recheck</button>
+          <a href="#" @click.prevent="openSettings()">Settings</a>
+          <span class="sub" role="status" x-text="healthMsg"></span>
+        </p>
+      </div>
+    </section>
+    <div class="tabs" role="group" aria-label="View">
+      <button type="button" class="tab" id="tab-hosts" :aria-pressed="view === 'hosts'" @click="showView('hosts')">Hosts</button>
+      <button type="button" class="tab" id="tab-history" :aria-pressed="view === 'history'" @click="showView('history')">History</button>
+    </div>
+    <div x-show="view === 'hosts'">
     <div class="tabs" role="group" aria-label="Filter hosts">
       <template x-for="t in tabs" :key="t.id">
         <button type="button" class="tab" :aria-pressed="filter === t.id" @click="filter = t.id"
@@ -89,9 +147,11 @@
               <span x-text="h.ip"></span>
               <span class="badge new" x-show="h.isNew">NEW<span class="sr"> device found while live</span></span>
               <span class="badge offline" x-show="isOffline(h)">OFFLINE<span class="sr"> - device stopped responding</span></span>
+              <span class="badge conflict" x-show="hasConflict(h)">CONFLICT<span class="sr"> - see details</span></span>
               <span class="badge" x-show="h.isSelf">this computer</span>
               <span class="badge" x-show="h.ip === gateway">gateway</span>
               <div class="sub" x-show="h.hostname" x-text="h.hostname"></div>
+              <div class="sub" x-show="mdnsName(h)" x-text="'mDNS: ' + mdnsName(h)"></div>
               <div class="sub" x-show="isOffline(h)" x-text="offlineFor(h)"></div>
             </th>
             <td>
@@ -113,6 +173,7 @@
             </td>
             <td>
               <span class="badge printer" x-show="h.isPrinter">printer</span>
+              <span class="badge" x-show="h.isPrinter && printerSource(h.printer)" x-text="printerSource(h.printer)"></span>
               <span x-text="statusText(h)"></span>
             </td>
             <td>
@@ -130,6 +191,7 @@
                     <p x-text="h.printerReason"></p>
                     <template x-if="h.printer">
                       <div>
+                        <p x-show="printerSource(h.printer)">Data <span x-text="printerSource(h.printer)"></span><span x-show="h.printer.state"> - state <span x-text="h.printer.state"></span></span><span x-show="(h.printer.stateReasons || []).length"> (<span x-text="(h.printer.stateReasons || []).join(', ')"></span>)</span></p>
                         <p x-show="h.printer.model || h.printer.serial">
                           <span x-text="h.printer.model"></span>
                           <span x-show="h.printer.serial"> - serial <span x-text="h.printer.serial"></span></span>
@@ -169,6 +231,25 @@
                       </div>
                     </template>
                   </section>
+                  <section x-show="hasConflict(h)"><h3>Conflicts</h3>
+                    <template x-for="c in conflictsFor(h)" :key="c.id">
+                      <div class="cbox">
+                        <p><strong x-text="c.severity === 'fail' ? 'Conflict' : 'Possible conflict'"></strong>: <span x-text="conflictKind(c)"></span></p>
+                        <p x-show="c.detail" x-text="c.detail"></p>
+                        <p class="sub">IPs: <span x-text="(c.ips || []).join(', ')"></span> - MACs: <span x-text="(c.macs || []).join(', ')"></span><span x-show="c.name"> - name <span x-text="c.name"></span></span></p>
+                        <p class="sub" x-show="c.kind === 'mac_multi_ip'">Hint: a WiFi range extender or mesh node commonly shows one MAC for many IPs. If that is expected, ignore the MAC.</p>
+                        <template x-for="m in (c.macs || [])" :key="m">
+                          <button type="button" @click="ignoreMac(m)">Ignore this MAC <span x-text="m"></span></button>
+                        </template>
+                      </div>
+                    </template>
+                  </section>
+                  <section x-show="h.mdns"><h3>mDNS</h3>
+                    <p><span x-text="h.mdns && h.mdns.instance"></span> <span class="sub" x-text="h.mdns && h.mdns.hostname"></span></p>
+                    <ul x-show="h.mdns && (h.mdns.services || []).length">
+                      <template x-for="s in ((h.mdns && h.mdns.services) || [])" :key="s"><li class="mono" x-text="s"></li></template>
+                    </ul>
+                  </section>
                   <section x-show="h.snmp"><h3>SNMP system</h3>
                     <dl x-show="h.snmp">
                       <template x-for="r in snmpRows(h)" :key="r[0]"><div><dt x-text="r[0]"></dt><dd x-text="r[1]"></dd></div></template>
@@ -206,7 +287,114 @@
       </template>
     </table>
     <p class="empty" x-show="!visible().length" x-text="emptyText()"></p>
+    </div>
+    <section id="history" x-show="view === 'history'" aria-labelledby="history-h">
+      <h2 id="history-h">History &amp; compare</h2>
+      <div class="alert error" role="alert" x-show="historyError" x-text="historyError"></div>
+      <p class="empty" x-show="!history.length && !historyError">No saved scans yet. Completed scans are saved automatically.</p>
+      <table x-show="history.length">
+        <caption class="sr">Saved scans, newest first</caption>
+        <thead><tr><th scope="col">Started</th><th scope="col">Target</th><th scope="col">Result</th><th scope="col">Type</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+        <tbody>
+          <template x-for="h in history" :key="h.id">
+            <tr>
+              <th scope="row" x-text="h.startedAt || h.id"></th>
+              <td x-text="h.cidr"></td>
+              <td x-text="h.error ? 'Unreadable file - delete it' : statsText(h.stats) + ' (' + h.state + ')'"></td>
+              <td><span class="badge" x-show="h.live">LIVE</span></td>
+              <td><button type="button" class="danger" @click="deleteHistory(h.id)">Delete<span class="sr" x-text="' scan ' + (h.startedAt || h.id)"></span></button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <form class="controls cmp" @submit.prevent="runCompare()" aria-label="Compare scans" x-show="history.length || scanId">
+        <label>Baseline
+          <select x-model="baseId">
+            <option value="">Previous scan of the same target (auto)</option>
+            <template x-for="h in readableHistory()" :key="h.id"><option :value="h.id" x-text="histLabel(h)"></option></template>
+          </select>
+        </label>
+        <label>Current
+          <select x-model="currentId">
+            <template x-for="o in currentOptions()" :key="o.id"><option :value="o.id" x-text="o.label"></option></template>
+          </select>
+        </label>
+        <button type="submit" class="primary" :disabled="diffBusy || !currentId">Compare</button>
+        <button type="button" @click="exportDiff('json')" :disabled="!currentId">Export diff JSON</button>
+        <button type="button" @click="exportDiff('csv')" :disabled="!currentId">Export diff CSV</button>
+      </form>
+      <div class="alert error" role="alert" x-show="diffError" x-text="diffError"></div>
+      <div x-show="diff" aria-live="polite">
+        <template x-if="diff">
+          <div>
+            <p><strong x-text="diff.summary.added"></strong> added, <strong x-text="diff.summary.removed"></strong> removed,
+              <strong x-text="diff.summary.changed"></strong> changed
+              (<span x-text="diff.base.startedAt"></span> &rarr; <span x-text="diff.current.startedAt"></span>)</p>
+            <h3 x-text="'Added (' + (diff.added || []).length + ')'"></h3>
+            <table x-show="(diff.added || []).length"><caption class="sr">Added hosts</caption>
+              <thead><tr><th scope="col">IP</th><th scope="col">MAC</th><th scope="col">Vendor</th></tr></thead>
+              <tbody><template x-for="h in diff.added" :key="h.ip"><tr><th scope="row" x-text="h.ip"></th><td x-text="h.mac || '-'"></td><td x-text="h.vendor || '-'"></td></tr></template></tbody>
+            </table>
+            <h3 x-text="'Removed (' + (diff.removed || []).length + ')'"></h3>
+            <table x-show="(diff.removed || []).length"><caption class="sr">Removed hosts</caption>
+              <thead><tr><th scope="col">IP</th><th scope="col">MAC</th><th scope="col">Vendor</th></tr></thead>
+              <tbody><template x-for="h in diff.removed" :key="h.ip"><tr><th scope="row" x-text="h.ip"></th><td x-text="h.mac || '-'"></td><td x-text="h.vendor || '-'"></td></tr></template></tbody>
+            </table>
+            <h3 x-text="'Changed (' + (diff.changed || []).length + ')'"></h3>
+            <table x-show="(diff.changed || []).length"><caption class="sr">Changed hosts</caption>
+              <thead><tr><th scope="col">IP</th><th scope="col">Changes</th></tr></thead>
+              <tbody><template x-for="h in diff.changed" :key="h.ip"><tr><th scope="row" x-text="h.ip"></th>
+                <td><ul class="plain"><template x-for="(c, i) in (h.changes || [])" :key="i"><li x-text="changeText(c)"></li></template></ul></td></tr></template></tbody>
+            </table>
+          </div>
+        </template>
+      </div>
+    </section>
   </main>
+<dialog id="settings-dialog" x-ref="dlg" aria-labelledby="settings-h" @cancel.prevent="closeSettings()">
+  <form @submit.prevent="saveSettings()" x-show="draft" class="sform">
+    <h2 id="settings-h">Settings</h2>
+    <div class="alert error" role="alert" x-show="settingsError" x-text="settingsError"></div>
+    <template x-if="draft">
+      <div>
+        <fieldset><legend>Scanning</legend>
+          <label>SNMP community <input type="text" x-model="draft.community" spellcheck="false" autocomplete="off"></label>
+        </fieldset>
+        <fieldset><legend>Health checks</legend>
+          <label>Web server URL <input type="text" x-model="draft.webServer.url" placeholder="http://192.168.1.10/" spellcheck="false" autocomplete="off"></label>
+          <label>Page must contain <input type="text" x-model="draft.webServer.mustContain" autocomplete="off"></label>
+          <label>Expected HTTP status (0 = 200) <input type="number" min="0" max="599" x-model="draft.webServer.expectStatus"></label>
+          <label>Internet check URL <input type="text" x-model="draft.internetCheckURL" spellcheck="false" autocomplete="off"></label>
+        </fieldset>
+        <fieldset><legend>Alerts</legend>
+          <label class="check"><input type="checkbox" x-model="draft.alerts.sound"> Play a sound</label>
+          <label class="check"><input type="checkbox" x-model="draft.alerts.desktop"> Desktop notifications (use "Enable desktop alerts" to grant permission)</label>
+          <label class="check"><input type="checkbox" x-model="draft.alerts.triggers.printerOffline"> Printer goes offline</label>
+          <label class="check"><input type="checkbox" x-model="draft.alerts.triggers.deviceOffline"> Any device goes offline</label>
+          <label class="check"><input type="checkbox" x-model="draft.alerts.triggers.supplyLow"> Printer supply low</label>
+          <label class="check"><input type="checkbox" x-model="draft.alerts.triggers.printerAlert"> Printer alert</label>
+          <label class="check"><input type="checkbox" x-model="draft.alerts.triggers.newDevice"> New device</label>
+          <label class="check"><input type="checkbox" x-model="draft.alerts.triggers.ipConflict"> IP or name conflict</label>
+          <label class="check"><input type="checkbox" x-model="draft.alerts.triggers.healthFailed"> Health check fails</label>
+          <label>Supply threshold (%, 1-100) <input type="number" min="1" max="100" x-model="draft.alerts.supplyThresholdPct"></label>
+          <label>Repeat-alert cooldown (seconds, 30-3600) <input type="number" min="30" max="3600" x-model="draft.alerts.cooldownSec"></label>
+        </fieldset>
+        <fieldset><legend>Ignored conflict MACs</legend>
+          <p class="sub" x-show="!draft.ignoredConflictMACs.length">None.</p>
+          <ul class="plain">
+            <template x-for="(m, i) in draft.ignoredConflictMACs" :key="m">
+              <li><span class="mono" x-text="m"></span> <button type="button" @click="removeIgnored(i)">Remove<span class="sr" x-text="' ' + m"></span></button></li>
+            </template>
+          </ul>
+        </fieldset>
+      </div>
+    </template>
+    <p class="actions">
+      <button type="submit" class="primary" :disabled="!settings">Save</button>
+      <button type="button" @click="closeSettings()">Cancel</button>
+    </p>
+  </form>
+</dialog>
 </div>
 </body>
 </html>

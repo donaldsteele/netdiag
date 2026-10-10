@@ -1,0 +1,152 @@
+package notify
+
+import (
+	"testing"
+	"time"
+
+	"netdiag/internal/model"
+)
+
+type clk struct{ t time.Time }
+
+func (c *clk) now() time.Time { return c.t }
+
+func newEng() (*Engine, *clk) {
+	c := &clk{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	return New(DefaultConfig(), c.now), c
+}
+
+func printer(online bool, pct int, alerts ...model.Alert) model.Host {
+	return model.Host{IP: "10.0.0.5", IsPrinter: true, Online: online,
+		Printer: &model.PrinterInfo{
+			Supplies: []model.Supply{{Description: "Black", Percent: pct}},
+			Alerts:   alerts,
+		}}
+}
+
+func TestPrinterOfflineAndDedupe(t *testing.T) {
+	e, c := newEng()
+	n := e.Observe(printer(true, 50), printer(false, 50))
+	if len(n) != 1 || n[0].Trigger != model.TriggerPrinterOffline || n[0].ID != "n-1" {
+		t.Fatalf("%v", n)
+	}
+	// repeated transition within cooldown is suppressed
+	if n := e.Observe(printer(true, 50), printer(false, 50)); len(n) != 0 {
+		t.Fatalf("dedupe: %v", n)
+	}
+	c.t = c.t.Add(301 * time.Second)
+	if n := e.Observe(printer(true, 50), printer(false, 50)); len(n) != 1 {
+		t.Fatalf("cooldown expiry: %v", n)
+	}
+	// no transition, no notice
+	if n := e.Observe(printer(false, 50), printer(false, 50)); len(n) != 0 {
+		t.Fatalf("%v", n)
+	}
+}
+
+func TestDeviceOfflineDisabledThenEnabled(t *testing.T) {
+	e, _ := newEng()
+	p := model.Host{IP: "10.0.0.9", Online: true}
+	q := model.Host{IP: "10.0.0.9", Online: false}
+	if n := e.Observe(p, q); len(n) != 0 {
+		t.Fatalf("disabled: %v", n)
+	}
+	cfg := DefaultConfig()
+	cfg.Triggers[model.TriggerDeviceOffline] = true
+	e.SetConfig(cfg)
+	if n := e.Observe(p, q); len(n) != 1 || n[0].Trigger != model.TriggerDeviceOffline {
+		t.Fatalf("%v", n)
+	}
+}
+
+func TestSupplyCrossing(t *testing.T) {
+	e, _ := newEng()
+	if n := e.Observe(printer(true, 40), printer(true, 30)); len(n) != 0 {
+		t.Fatalf("above threshold: %v", n)
+	}
+	if n := e.Observe(printer(true, 20), printer(true, 10)); len(n) != 1 || n[0].Trigger != model.TriggerSupplyLow {
+		t.Fatalf("cross down: %v", n)
+	}
+	e2, _ := newEng()
+	if n := e2.Observe(printer(true, 10), printer(true, 5)); len(n) != 0 {
+		t.Fatalf("already below: %v", n)
+	}
+	if n := e2.Observe(printer(true, 5), printer(true, 90)); len(n) != 0 {
+		t.Fatalf("upward: %v", n)
+	}
+}
+
+func TestPrinterAlertNewOnly(t *testing.T) {
+	e, _ := newEng()
+	a := model.Alert{Severity: "critical", Code: "3", Description: "Paper jam"}
+	n := e.Observe(printer(true, 50), printer(true, 50, a))
+	if len(n) != 1 || n[0].Trigger != model.TriggerPrinterAlert || n[0].Severity != "critical" {
+		t.Fatalf("%v", n)
+	}
+	if n := e.Observe(printer(true, 50, a), printer(true, 50, a)); len(n) != 0 {
+		t.Fatalf("existing alert: %v", n)
+	}
+}
+
+func TestNewDevice(t *testing.T) {
+	e, _ := newEng()
+	if n := e.Observe(model.Host{}, model.Host{IP: "10.0.0.7", IsNew: true, Online: true}); len(n) != 1 || n[0].Trigger != model.TriggerNewDevice {
+		t.Fatalf("%v", n)
+	}
+	if n := e.Observe(model.Host{}, model.Host{IP: "10.0.0.8", Online: true}); len(n) != 0 {
+		t.Fatalf("initial scan host: %v", n)
+	}
+	cfg := DefaultConfig()
+	cfg.Triggers[model.TriggerNewDevice] = false
+	e.SetConfig(cfg)
+	if n := e.Observe(model.Host{}, model.Host{IP: "10.0.0.9", IsNew: true}); len(n) != 0 {
+		t.Fatalf("disabled: %v", n)
+	}
+}
+
+func TestConflict(t *testing.T) {
+	e, _ := newEng()
+	c := model.Conflict{ID: "c-1", Severity: "fail", IPs: []string{"10.0.0.5"}, Detail: "x"}
+	if n := e.ObserveConflict(c, false); len(n) != 0 {
+		t.Fatal("not new")
+	}
+	n := e.ObserveConflict(c, true)
+	if len(n) != 1 || n[0].Trigger != model.TriggerIPConflict || n[0].IP != "10.0.0.5" {
+		t.Fatalf("%v", n)
+	}
+	if n := e.ObserveConflict(c, true); len(n) != 0 {
+		t.Fatal("dedupe")
+	}
+}
+
+func report(status string) model.HealthReport {
+	return model.HealthReport{Checks: []model.HealthCheck{{ID: "dns", Label: "DNS", Status: status}}}
+}
+
+func TestHealth(t *testing.T) {
+	e, _ := newEng()
+	ok := report(model.HealthOK)
+	bad := report(model.HealthFail)
+	if n := e.ObserveHealth(model.HealthReport{}, ok); len(n) != 0 {
+		t.Fatal("ok")
+	}
+	n := e.ObserveHealth(ok, bad)
+	if len(n) != 1 || n[0].Trigger != model.TriggerHealthFailed {
+		t.Fatalf("%v", n)
+	}
+	if n := e.ObserveHealth(bad, bad); len(n) != 0 {
+		t.Fatal("no transition")
+	}
+	warn := report(model.HealthWarn)
+	cfg := DefaultConfig()
+	cfg.Cooldown = 0
+	e.SetConfig(cfg)
+	if n := e.ObserveHealth(warn, bad); len(n) != 1 {
+		t.Fatalf("warn->fail: %v", n)
+	}
+	cfg.Triggers[model.TriggerHealthFailed] = false
+	e.SetConfig(cfg)
+	if n := e.ObserveHealth(ok, bad); len(n) != 0 {
+		t.Fatal("disabled")
+	}
+}

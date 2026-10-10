@@ -16,6 +16,7 @@ var CSVColumns = []string{
 	"open_ports", "is_printer", "printer_reason", "model", "serial",
 	"page_count", "supplies", "printer_status", "errors", "web_urls", "web_titles",
 	"online", "last_seen",
+	"mdns_name", "mdns_services", "printer_source", "conflicts",
 }
 
 // WriteCSV writes one row per host (numeric IP order) after a header row.
@@ -38,16 +39,27 @@ func WriteCSV(w io.Writer, res model.ScanResult) error {
 
 func csvRow(h model.Host) []string {
 	var (
-		printerModel, serial, pages, supplies, printerStatus string
+		printerModel, serial, pages, supplies, printerStatus, printerSource string
 	)
 	if h.Printer != nil {
 		printerModel = h.Printer.Model
 		serial = h.Printer.Serial
 		pages = strconv.FormatInt(h.Printer.PageCount, 10)
 		supplies = formatSupplies(h.Printer.Supplies)
+		printerSource = h.Printer.Source
 	}
 	if h.Snmp != nil {
 		printerStatus = h.Snmp.HrPrinterStatus
+	}
+
+	var mdnsName string
+	var mdnsServices []string
+	if h.MDNS != nil {
+		mdnsName = h.MDNS.Instance
+		if mdnsName == "" {
+			mdnsName = h.MDNS.Hostname
+		}
+		mdnsServices = h.MDNS.Services
 	}
 
 	urls := make([]string, 0, len(h.Web))
@@ -78,6 +90,10 @@ func csvRow(h model.Host) []string {
 		join(titles),
 		strconv.FormatBool(h.Online),
 		h.LastSeen,
+		mdnsName,
+		join(mdnsServices),
+		printerSource,
+		join(h.Conflicts),
 	}
 }
 

@@ -18,8 +18,10 @@ import (
 
 	"netdiag/internal/arp"
 	"netdiag/internal/discovery"
+	"netdiag/internal/ipp"
 	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
+	"netdiag/internal/notify"
 	"netdiag/internal/oui"
 	"netdiag/internal/portprobe"
 	"netdiag/internal/report"
@@ -97,10 +99,26 @@ type Deps struct {
 	Now          func() time.Time
 	// LiveInterval overrides the request's live interval when > 0 (tests).
 	LiveInterval time.Duration
+
+	// v0.2 dependencies. Unlike the fields above, nil disables the feature
+	// (New does not fill them); DefaultDeps wires the real implementations.
+	Health   HealthChecker  // health checks at start and every live cycle
+	MDNS     MDNSBrowser    // mDNS browse at start and every live cycle
+	IPP      IPPClient      // IPP Get-Printer-Attributes when 631 is open
+	Store    HistoryStore   // history auto-save on done and live checkpoints
+	Settings SettingsSource // community, health, alert and conflict settings
+	// CheckpointInterval overrides CheckpointInterval when > 0 (tests).
+	CheckpointInterval time.Duration
 }
 
-// DefaultDeps returns the production dependencies.
+// DefaultDeps returns the production dependencies, including health, mDNS,
+// IPP and (when the data directory is usable) the settings/history store.
 func DefaultDeps() Deps {
+	return withV2Defaults(baseDeps())
+}
+
+// baseDeps returns the production v0.1 dependencies.
+func baseDeps() Deps {
 	return Deps{
 		Pinger:       discovery.NewPinger(),
 		ARP:          arpReader{},
@@ -119,6 +137,26 @@ func DefaultDeps() Deps {
 type arpReader struct{}
 
 func (arpReader) Table(ctx context.Context) ([]arp.Entry, error) { return arp.Table(ctx) }
+
+// TableFor prefers the scanned interface's rows when Windows lists an IP
+// under several adapters.
+func (arpReader) TableFor(ctx context.Context, ifaceIP string) ([]arp.Entry, error) {
+	return arp.TableFor(ctx, ifaceIP)
+}
+
+// ifaceARPReader is an optional ARPReader extension that accepts the scanned
+// interface's IP.
+type ifaceARPReader interface {
+	TableFor(ctx context.Context, ifaceIP string) ([]arp.Entry, error)
+}
+
+// arpTable reads the ARP table, preferring the scanned interface when known.
+func (r *runner) arpTable(ctx context.Context) ([]arp.Entry, error) {
+	if fr, ok := r.d.ARP.(ifaceARPReader); ok && r.self.IP != "" {
+		return fr.TableFor(ctx, r.self.IP)
+	}
+	return r.d.ARP.Table(ctx)
+}
 
 type portScanner struct{}
 
@@ -192,9 +230,11 @@ type Orchestrator struct {
 	deps Deps
 }
 
-// New returns an orchestrator; nil fields of d fall back to DefaultDeps.
+// New returns an orchestrator; nil v0.1 fields of d fall back to the
+// DefaultDeps values. Nil v0.2 fields (Health, MDNS, IPP, Store, Settings)
+// stay nil and disable their feature.
 func New(d Deps) *Orchestrator {
-	def := DefaultDeps()
+	def := baseDeps()
 	if d.Pinger == nil {
 		d.Pinger = def.Pinger
 	}
@@ -238,9 +278,25 @@ type Scan struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 
+	settings model.Settings // loaded at Start
+
 	mu     sync.Mutex
 	header model.ScanResult // everything except Hosts/Stats while running
 	result *model.ScanResult
+	apply  func(model.Settings) bool // set while the pipeline runs
+}
+
+// ApplySettings applies changed settings (alert triggers, threshold,
+// cooldown, health config, ignored conflict MACs) to a running scan and
+// re-analyzes conflicts. It reports false if the scan is not running.
+func (s *Scan) ApplySettings(set model.Settings) bool {
+	s.mu.Lock()
+	fn := s.apply
+	s.mu.Unlock()
+	if fn == nil {
+		return false
+	}
+	return fn(set)
 }
 
 // Subscribe returns snapshot+live events; see Bus.Subscribe.
@@ -266,6 +322,7 @@ func (s *Scan) Snapshot() model.ScanResult {
 	r.Warnings = slices.Clone(r.Warnings)
 	r.Hosts = s.bus.Hosts()
 	r.Stats = computeStats(r.Hosts, r.Stats.Scanned)
+	r.Stats.Conflicts = len(r.Conflicts)
 	return r
 }
 
@@ -317,18 +374,23 @@ func Validate(req model.ScanRequest) (model.ScanRequest, []netip.Addr, error) {
 // Start validates req and launches the pipeline in the background. The scan
 // runs until finished or ctx/Cancel cancels it.
 func (o *Orchestrator) Start(ctx context.Context, req model.ScanRequest) (*Scan, error) {
+	set := loadSettings(o.deps.Settings)
+	if strings.TrimSpace(req.Community) == "" && set.Community != "" {
+		req.Community = set.Community
+	}
 	req, targets, err := Validate(req)
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Scan{ID: newID(), bus: NewBus(), cancel: cancel, done: make(chan struct{})}
+	s := &Scan{ID: newID(), bus: NewBus(), cancel: cancel, done: make(chan struct{}), settings: set}
 	s.header = model.ScanResult{
-		ID:        s.ID,
-		Request:   req,
-		StartedAt: o.deps.Now().UTC().Format(time.RFC3339),
-		State:     model.StateRunning,
-		Stats:     model.Stats{Scanned: len(targets)},
+		ID:            s.ID,
+		Request:       req,
+		StartedAt:     o.deps.Now().UTC().Format(time.RFC3339),
+		State:         model.StateRunning,
+		Stats:         model.Stats{Scanned: len(targets)},
+		SchemaVersion: model.HistorySchemaVersion,
 	}
 	go o.run(ctx, s, req, targets)
 	return s, nil
@@ -360,6 +422,12 @@ type runner struct {
 
 	pmu      sync.Mutex
 	lastProg map[string]time.Time
+
+	gateway   string
+	smu       sync.Mutex
+	settings  model.Settings       // guarded by smu
+	reprobeAt map[string]time.Time // live goroutine only
+	cpWG      sync.WaitGroup       // in-flight live checkpoints
 }
 
 func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, targets []netip.Addr) {
@@ -367,10 +435,12 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 	d := o.deps
 	r := &runner{
 		d: d, s: s, req: req,
-		inRange:  make(map[string]bool, len(targets)),
-		jobs:     make(chan string, len(targets)),
-		queued:   map[string]bool{},
-		lastProg: map[string]time.Time{},
+		inRange:   make(map[string]bool, len(targets)),
+		jobs:      make(chan string, len(targets)),
+		queued:    map[string]bool{},
+		lastProg:  map[string]time.Time{},
+		settings:  s.settings,
+		reprobeAt: map[string]time.Time{},
 	}
 	for _, a := range targets {
 		r.inRange[a.String()] = true
@@ -397,13 +467,32 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 	s.header.Warnings = warnings
 	s.mu.Unlock()
 	r.self = self
+	r.gateway = gw
 
 	r.st = newState(d.Now, self, func(h model.Host) {
 		s.bus.Publish(model.Event{Type: model.EventHost, Data: h})
 	})
 	r.st.emit = s.bus.Publish
+	r.st.gateway = gw
+	r.st.ignored = slices.Clone(s.settings.IgnoredConflictMACs)
+	r.st.keepHist = req.Live
+	r.st.notify = notify.New(notifyConfig(s.settings), d.Now)
+	r.st.onChange = func(h *model.HealthReport, c []model.Conflict, n []model.Notice) {
+		s.mu.Lock()
+		s.header.Health, s.header.Conflicts, s.header.Notices = h, c, n
+		s.mu.Unlock()
+	}
 	stateDone := make(chan struct{})
 	go func() { r.st.run(); close(stateDone) }()
+	s.mu.Lock()
+	s.apply = r.applySettings
+	s.mu.Unlock()
+
+	// Health and mDNS run in parallel with the sweep; results are posted to
+	// the state goroutine.
+	var bg sync.WaitGroup
+	r.startHealth(ctx, &bg)
+	mdnsDone := r.startMDNS(ctx, MDNSRoundsScan)
 
 	// Probe pool runs concurrently with the sweep (pipeline, not barrier).
 	var wg sync.WaitGroup
@@ -436,7 +525,7 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 			if rtt > 0 {
 				h.RttMs = rtt
 			}
-			snmpprobe.Apply(h)
+			classify(h)
 		})
 		r.enqueue(ip)
 	}
@@ -452,6 +541,24 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 		r.harvest(ctx)
 	}
 
+	// mDNS: merge records; in-range IPs not yet known are probed like
+	// ARP-found hosts.
+	if recs := <-mdnsDone; ctx.Err() == nil {
+		for _, rec := range recs {
+			if !r.inRange[rec.IP] {
+				continue
+			}
+			info := rec.Info
+			r.st.update(rec.IP, func(h *model.Host) {
+				h.Alive = true
+				addSource(h, "mdns")
+				h.MDNS = mergeMDNS(h.MDNS, info)
+				classify(h)
+			})
+			r.enqueue(rec.IP)
+		}
+	}
+
 	// Probe stage: announce, then close the queue and drain.
 	if ctx.Err() == nil {
 		r.stage(model.StageProbe)
@@ -462,6 +569,8 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 	r.probeProgress()
 	close(r.jobs)
 	wg.Wait()
+	bg.Wait() // health
+	r.st.analyze()
 
 	// Live: keep watching for new hosts until cancelled.
 	initialDone := ctx.Err() == nil
@@ -470,19 +579,32 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 	}
 
 	// Finish.
+	s.mu.Lock()
+	s.apply = nil
+	s.mu.Unlock()
 	hosts := report.SortHosts(r.st.snapshot())
 	r.st.close()
 	<-stateDone
+	r.cpWG.Wait() // a late checkpoint must not overwrite the final save
 
 	s.mu.Lock()
 	res := s.header
+	s.mu.Unlock()
+	res.Warnings = slices.Clone(res.Warnings)
 	res.Hosts = hosts
 	res.Stats = computeStats(hosts, len(targets))
+	res.Stats.Conflicts = len(res.Conflicts)
 	res.FinishedAt = d.Now().UTC().Format(time.RFC3339)
 	res.State = model.StateDone
 	if !initialDone {
 		res.State = model.StateCancelled
 	}
+	if d.Store != nil && res.State == model.StateDone {
+		if err := d.Store.SaveScan(res); err != nil {
+			res.Warnings = append(res.Warnings, "history: "+err.Error())
+		}
+	}
+	s.mu.Lock()
 	s.result = &res
 	s.mu.Unlock()
 	s.bus.Publish(model.Event{Type: model.EventDone, Data: res})
@@ -541,10 +663,17 @@ func (r *runner) probeProgress() {
 }
 
 func (r *runner) harvest(ctx context.Context) {
-	entries, err := r.d.ARP.Table(ctx)
+	entries, err := r.arpTable(ctx)
 	if err != nil && ctx.Err() == nil {
 		r.warn("arp: " + err.Error())
 	}
+	seen := map[string]string{}
+	for _, e := range entries {
+		if mac, ok := arp.NormalizeMAC(e.MAC); ok && r.inRange[e.IP] {
+			seen[e.IP] = mac
+		}
+	}
+	r.st.observeMACs(seen)
 	for _, e := range entries {
 		if !r.inRange[e.IP] {
 			continue
@@ -582,6 +711,8 @@ func (r *runner) harvest(ctx context.Context) {
 // probe runs the per-host job: TCP then web, with SNMP and reverse DNS in
 // parallel. Each sub-step publishes an updated host.
 func (r *runner) probe(ctx context.Context, ip string) {
+	var ippRes *ipp.Result
+	var ippErr error
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() {
@@ -592,10 +723,13 @@ func (r *runner) probe(ctx context.Context, ip string) {
 			if len(open) > 0 {
 				addSource(h, "tcp")
 			}
-			snmpprobe.Apply(h)
+			classify(h)
 		})
 		if len(open) == 0 || ctx.Err() != nil {
 			return
+		}
+		if r.d.IPP != nil && slices.Contains(open, ippPort) {
+			ippRes, ippErr = r.d.IPP.GetPrinterAttributes(ctx, ip, ippPort)
 		}
 		web := r.d.Web.ProbeAll(ctx, ip, open)
 		if len(web) == 0 {
@@ -615,10 +749,10 @@ func (r *runner) probe(ctx context.Context, ip string) {
 			}
 			if res != nil {
 				h.Snmp = res.Snmp
-				h.Printer = res.Printer
+				h.Printer = withSNMPSource(res.Printer)
 				h.Errors = append(h.Errors, res.Errors...)
 			}
-			snmpprobe.Apply(h)
+			classify(h)
 		})
 	}()
 	go func() {
@@ -636,8 +770,27 @@ func (r *runner) probe(ctx context.Context, ip string) {
 		r.st.update(ip, func(h *model.Host) { h.Hostname = name })
 	}()
 	wg.Wait()
-	r.st.update(ip, func(h *model.Host) { snmpprobe.Apply(h) })
+	ippErrMsg := ""
+	if ippErr != nil && ctx.Err() == nil && !errors.Is(ippErr, ipp.ErrNotPrinter) {
+		ippErrMsg = "ipp: " + ippErr.Error()
+	}
+	r.st.update(ip, func(h *model.Host) {
+		if ippRes != nil && (ippRes.Printer != nil || ippRes.State != "") {
+			h.Printer = mergePrinter(h.Printer, ippRes)
+		}
+		if ippRes != nil {
+			h.Errors = append(h.Errors, ippRes.Errors...)
+		}
+		if ippErrMsg != "" {
+			h.Errors = append(h.Errors, ippErrMsg)
+		}
+		classify(h)
+	})
 }
+
+// ippPort is the IPP port; IPP is queried at most once per probed host and
+// only when it is open.
+const ippPort = 631
 
 func computeStats(hosts []model.Host, scanned int) model.Stats {
 	st := model.Stats{Scanned: scanned}
@@ -650,6 +803,9 @@ func computeStats(hosts []model.Host, scanned int) model.Stats {
 		}
 		if h.IsPrinter {
 			st.Printers++
+		}
+		if h.MDNS != nil {
+			st.MDNS++
 		}
 		for _, w := range h.Web {
 			if w.Error == "" && w.Status > 0 {

@@ -1,0 +1,127 @@
+{
+  "base": {
+    "id": "s1",
+    "cidr": "192.168.1.0/24",
+    "startedAt": "2026-01-01T10:00:00Z",
+    "finishedAt": "2026-01-01T10:01:00Z"
+  },
+  "current": {
+    "id": "s2",
+    "cidr": "192.168.1.0/24",
+    "startedAt": "2026-01-02T10:00:00Z",
+    "finishedAt": "2026-01-02T10:01:00Z"
+  },
+  "added": [
+    {
+      "ip": "192.168.1.60",
+      "isSelf": false,
+      "alive": false,
+      "foundBy": null,
+      "rttMs": 0,
+      "mac": "AA:AA:AA:00:00:60",
+      "vendor": "New",
+      "hostname": "",
+      "openPorts": null,
+      "web": null,
+      "snmp": null,
+      "isPrinter": false,
+      "printerReason": "",
+      "printer": null,
+      "errors": null,
+      "updatedAt": "",
+      "online": true,
+      "mdns": null
+    }
+  ],
+  "removed": [
+    {
+      "ip": "192.168.1.30",
+      "isSelf": false,
+      "alive": false,
+      "foundBy": null,
+      "rttMs": 0,
+      "mac": "AA:AA:AA:00:00:30",
+      "vendor": "Gone",
+      "hostname": "",
+      "openPorts": null,
+      "web": null,
+      "snmp": null,
+      "isPrinter": false,
+      "printerReason": "",
+      "printer": null,
+      "errors": null,
+      "updatedAt": "",
+      "online": true,
+      "mdns": null
+    }
+  ],
+  "changed": [
+    {
+      "ip": "192.168.1.10",
+      "mac": "aa-aa-aa-00-00-10",
+      "vendor": "Acme",
+      "changes": [
+        {
+          "field": "online",
+          "from": "true",
+          "to": "false"
+        }
+      ]
+    },
+    {
+      "ip": "192.168.1.20",
+      "mac": "AA:AA:AA:00:00:20",
+      "vendor": "Brother",
+      "changes": [
+        {
+          "field": "openPorts",
+          "from": "631,9100",
+          "to": "80,631,9100"
+        },
+        {
+          "field": "printer.state",
+          "from": "idle",
+          "to": "printing"
+        },
+        {
+          "field": "supply:Black Toner",
+          "from": "50%",
+          "to": "30%"
+        },
+        {
+          "field": "web:80",
+          "from": "200",
+          "to": "401"
+        }
+      ]
+    },
+    {
+      "ip": "192.168.1.40",
+      "mac": "",
+      "changes": [
+        {
+          "field": "openPorts",
+          "from": "22",
+          "to": "22,80"
+        }
+      ]
+    },
+    {
+      "ip": "192.168.1.55",
+      "mac": "AA:AA:AA:00:00:50",
+      "vendor": "Mover",
+      "changes": [
+        {
+          "field": "ip",
+          "from": "192.168.1.50",
+          "to": "192.168.1.55"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "added": 1,
+    "removed": 1,
+    "changed": 4
+  }
+}

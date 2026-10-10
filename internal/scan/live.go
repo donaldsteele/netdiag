@@ -11,7 +11,6 @@ import (
 	"netdiag/internal/arp"
 	"netdiag/internal/discovery"
 	"netdiag/internal/model"
-	"netdiag/internal/snmpprobe"
 )
 
 // LiveSweepWorkers caps ICMP concurrency during live-mode cycles.
@@ -53,6 +52,12 @@ func (r *runner) live(ctx context.Context, targets []netip.Addr) {
 	status.Online, status.Offline = presenceCounts(hosts)
 	r.publishLive(&status, interval, false)
 
+	cpEvery := r.d.CheckpointInterval
+	if cpEvery <= 0 {
+		cpEvery = CheckpointInterval
+	}
+	lastCP := time.Now()
+
 	timer := time.NewTimer(interval)
 	defer timer.Stop()
 	for {
@@ -70,6 +75,10 @@ func (r *runner) live(ctx context.Context, targets []netip.Addr) {
 		status.Unseen = unseen
 		status.Online, status.Offline = presenceCounts(r.st.snapshot())
 		r.publishLive(&status, interval, true)
+		if time.Since(lastCP) >= cpEvery {
+			r.checkpoint()
+			lastCP = time.Now()
+		}
 		timer.Reset(interval) // scheduled after the cycle finished: no overlap
 	}
 }
@@ -154,6 +163,13 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 		}
 	}()
 
+	// One mDNS round and a health re-run in parallel with the sweep. The
+	// health goroutine is awaited before returning (it posts to the state).
+	var bg sync.WaitGroup
+	defer bg.Wait()
+	r.startHealth(ctx, &bg)
+	mdnsDone := r.startMDNS(ctx, MDNSRoundsLive)
+
 	if len(cands) > 0 {
 		cfg := r.d.Sweep
 		cfg.Pinger = r.d.Pinger
@@ -172,23 +188,58 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 				if rtt > 0 {
 					h.RttMs = rtt
 				}
-				snmpprobe.Apply(h)
+				classify(h)
 			})
 		}
 		_ = discovery.Sweep(ctx, cands, cfg) // errors repeat every cycle; ignore
 	}
+	recs := <-mdnsDone
 	if ctx.Err() != nil {
 		return 0, 0
 	}
 
-	// ARP: one passive read per cycle, in-range entries only.
-	entries, _ := r.d.ARP.Table(ctx)
+	// mDNS: new in-range IPs feed discovery (probed once below); known IPs
+	// only get their mdns record updated, never a re-probe.
 	byIP := make(map[string]model.Host, len(hosts))
 	for _, h := range hosts {
 		byIP[h.IP] = h
 	}
+	for _, rec := range recs {
+		if !r.inRange[rec.IP] {
+			continue
+		}
+		info := rec.Info
+		if known[rec.IP] {
+			if mdnsEqual(byIP[rec.IP].MDNS, info) {
+				continue
+			}
+			r.st.update(rec.IP, func(h *model.Host) {
+				h.MDNS = mergeMDNS(h.MDNS, info)
+				classify(h)
+			})
+			continue
+		}
+		mark(rec.IP)
+		r.st.update(rec.IP, func(h *model.Host) {
+			h.Alive = true
+			h.IsNew = true
+			addSource(h, "mdns")
+			h.MDNS = mergeMDNS(h.MDNS, info)
+			classify(h)
+		})
+	}
+
+	// ARP: one passive read per cycle, in-range entries only.
+	entries, _ := r.arpTable(ctx)
 	arpMAC := map[string]string{}
 	reset := map[string]bool{}
+	seen := map[string]string{}
+	for _, e := range entries {
+		if mac, ok := arp.NormalizeMAC(e.MAC); ok && r.inRange[e.IP] {
+			seen[e.IP] = mac
+		}
+	}
+	r.st.observeMACs(seen)
 	for _, e := range entries {
 		if !r.inRange[e.IP] {
 			continue
@@ -211,17 +262,29 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 				h.Vendor = vendor
 			})
 		case !old.IsSelf && old.MAC != "" && old.MAC != mac && !reset[e.IP]:
+			vendor := r.d.Vendors.Lookup(mac)
+			nowT := r.d.Now()
+			if t, ok := r.reprobeAt[e.IP]; ok && nowT.Sub(t) < ReprobeCooldown {
+				// Flapping: the IP was re-probed recently. Only record the
+				// MAC; conflict analysis reports the flap.
+				r.st.update(e.IP, func(h *model.Host) {
+					h.MAC = mac
+					h.Vendor = vendor
+				})
+				continue
+			}
 			// Same IP, different MAC: another device reusing the address
 			// (e.g. DHCP). Start a fresh record and probe it once.
+			r.reprobeAt[e.IP] = nowT
 			reset[e.IP] = true
-			vendor := r.d.Vendors.Lookup(mac)
-			now := r.d.Now().UTC().Format(time.RFC3339)
+			now := nowT.UTC().Format(time.RFC3339)
 			mark(e.IP)
 			r.st.update(e.IP, func(h *model.Host) {
 				*h = model.Host{
 					IP: h.IP, Alive: true, IsNew: true, FoundBy: []string{"arp"},
 					MAC: mac, Vendor: vendor, FirstSeen: now, Online: true, LastSeen: now,
 				}
+				r.st.fresh = true // runs on the state goroutine
 			})
 		}
 	}
@@ -249,6 +312,10 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 		}()
 	}
 	wg.Wait()
+	bg.Wait() // health report posted before the analysis
+	if ctx.Err() == nil {
+		r.st.analyze()
+	}
 	newCands := 0
 	for _, a := range cands {
 		if isNew[a.String()] {

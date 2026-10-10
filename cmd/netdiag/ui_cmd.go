@@ -12,6 +12,7 @@ import (
 
 	"netdiag/internal/scan"
 	"netdiag/internal/server"
+	"netdiag/internal/store"
 	"netdiag/web"
 )
 
@@ -28,9 +29,15 @@ func runUI(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "error: invalid arguments")
 		return 2
 	}
+	st, err := store.Open("")
+	if err != nil {
+		fmt.Fprintln(stderr, "warning: settings/history unavailable:", err)
+		st = nil
+	}
 	srv := server.New(server.Config{
 		Registry: scan.NewRegistry(scan.New(scan.DefaultDeps())),
 		Static:   web.FS(),
+		Store:    st,
 	})
 	if err := srv.Listen(*port); err != nil {
 		fmt.Fprintln(stderr, "error:", err)

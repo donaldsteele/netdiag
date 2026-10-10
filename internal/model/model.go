@@ -58,6 +58,12 @@ type Host struct {
 	OfflineSince string `json:"offlineSince,omitempty"`
 	// MissedChecks counts consecutive failed presence checks.
 	MissedChecks int `json:"missedChecks,omitempty"`
+	// MDNS is the Bonjour/mDNS record for this host (nil when none).
+	MDNS *MDNSInfo `json:"mdns"`
+	// Conflicts lists ids into ScanResult.Conflicts that involve this host.
+	Conflicts []string `json:"conflicts,omitempty"`
+	// MACHistory holds the last 8 MAC observations (live mode only).
+	MACHistory []MACObservation `json:"macHistory,omitempty"`
 }
 
 // OfflineAfterMisses is the number of consecutive failed presence checks
@@ -110,6 +116,12 @@ type PrinterInfo struct {
 	InputTrays     []InputTray `json:"inputTrays"`
 	Alerts         []Alert     `json:"alerts"`
 	Covers         []Cover     `json:"covers"`
+	// Source is snmp, ipp or snmp+ipp.
+	Source string `json:"source,omitempty"`
+	// State is the IPP printer-state: idle|processing|stopped.
+	State string `json:"state,omitempty"`
+	// StateReasons are IPP printer-state-reasons (minus none).
+	StateReasons []string `json:"stateReasons,omitempty"`
 }
 
 // Supply is a consumable such as toner or ink.
@@ -155,11 +167,13 @@ type SelfInfo struct {
 
 // Stats are summary counters for a scan.
 type Stats struct {
-	Scanned  int `json:"scanned"`
-	Alive    int `json:"alive"`
-	Printers int `json:"printers"`
-	Web      int `json:"web"`
-	Offline  int `json:"offline,omitempty"`
+	Scanned   int `json:"scanned"`
+	Alive     int `json:"alive"`
+	Printers  int `json:"printers"`
+	Web       int `json:"web"`
+	Offline   int `json:"offline,omitempty"`
+	Conflicts int `json:"conflicts,omitempty"`
+	MDNS      int `json:"mdns,omitempty"`
 }
 
 // ScanResult is the full state of a scan.
@@ -175,6 +189,13 @@ type ScanResult struct {
 	Stats      Stats       `json:"stats"`
 	// Warnings holds non-fatal scan-level problems (e.g. ICMP unavailable).
 	Warnings []string `json:"warnings,omitempty"`
+	// Health is the latest health report (nil when not run).
+	Health    *HealthReport `json:"health"`
+	Conflicts []Conflict    `json:"conflicts,omitempty"`
+	// Notices holds the last 100 alert notices.
+	Notices []Notice `json:"notices,omitempty"`
+	// SchemaVersion is HistorySchemaVersion for v0.2 results.
+	SchemaVersion int `json:"schemaVersion"`
 }
 
 // Event is one SSE message. Type is host|progress|stage|snapshot|live|presence|
@@ -202,7 +223,25 @@ const (
 	EventSnapshot = "snapshot" // ScanResult when the initial scan completes in live mode
 	EventPresence = "presence" // Presence, when a known host goes offline or comes back
 	EventError    = "error"
+	EventHealth   = "health"   // HealthReport, after each health run
+	EventConflict = "conflict" // ConflictEvent, when a conflict appears or resolves
+	EventNotice   = "notice"   // NoticeEvent, one alert notice
 )
+
+// ConflictEvent is the data of a conflict event. Replay marks events replayed
+// to a new subscriber.
+type ConflictEvent struct {
+	Conflict Conflict `json:"conflict"`
+	Resolved bool     `json:"resolved"`
+	Replay   bool     `json:"replay,omitempty"`
+}
+
+// NoticeEvent is the data of a notice event: the Notice fields plus Replay,
+// set on notices replayed to a new subscriber (the UI must not re-alert).
+type NoticeEvent struct {
+	Notice
+	Replay bool `json:"replay,omitempty"`
+}
 
 // Scan states.
 const (

@@ -11,11 +11,18 @@ import (
 )
 
 // Defaults from the locked scanning limits.
+//
+// DefaultRate and DefaultBurst pace the sweep with a token bucket. They were
+// 2000/s with burst 256 in v0.1; v0.2 lowered them to 500/s and burst 64
+// because cheap travel routers drop or stall under bursts of ICMP. A /24
+// (254 hosts, default retries) still completes in about one second at the
+// default rate, and a /22 stays well inside the 10s budget per subnet.
 const (
 	DefaultWorkers = 256
 	DefaultTimeout = time.Second
 	DefaultRetries = 1
-	DefaultRate    = 2000 // probes per second (token bucket refill)
+	DefaultRate    = 500 // probes per second (token bucket refill)
+	DefaultBurst   = 64  // token bucket capacity: probes allowed back-to-back
 )
 
 // Pinger sends a single echo request. ok is false when no reply arrived
@@ -36,7 +43,7 @@ type Config struct {
 	Workers    int
 	Timeout    time.Duration
 	Retries    int // extra attempts after the first; negative means none
-	Rate       int // probes/second; negative disables pacing
+	Rate       int // probes/second; 0 selects DefaultRate, negative disables pacing
 	OnAlive    func(Result)
 	OnProgress func(done, total int) // called after each target completes
 }
@@ -69,7 +76,7 @@ func Sweep(ctx context.Context, targets []netip.Addr, cfg Config) error {
 	}
 	var tb *bucket
 	if rate > 0 {
-		tb = newBucket(rate, workers)
+		tb = newBucket(rate, DefaultBurst)
 	}
 
 	total := len(targets)

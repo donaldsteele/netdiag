@@ -14,7 +14,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			http.Error(w, "forbidden host", http.StatusForbidden)
 			return
 		}
-		if r.Method == http.MethodPost {
+		if r.Method == http.MethodPost || r.Method == http.MethodPut {
 			mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 			if err != nil || mt != "application/json" {
 				writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")

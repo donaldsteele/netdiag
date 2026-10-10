@@ -58,7 +58,8 @@
         "snmp: timeout"
       ],
       "updatedAt": "2026-10-09T10:00:04Z",
-      "online": false
+      "online": false,
+      "mdns": null
     },
     {
       "ip": "192.168.2.10",
@@ -176,7 +177,8 @@
       },
       "errors": null,
       "updatedAt": "2026-10-09T10:00:07Z",
-      "online": false
+      "online": false,
+      "mdns": null
     },
     {
       "ip": "192.168.2.50",
@@ -197,7 +199,8 @@
       "printer": null,
       "errors": null,
       "updatedAt": "2026-10-09T10:00:03Z",
-      "online": false
+      "online": false,
+      "mdns": null
     },
     {
       "ip": "192.168.2.200",
@@ -233,7 +236,8 @@
       "errors": null,
       "updatedAt": "2026-10-09T10:00:06Z",
       "online": true,
-      "lastSeen": "2026-10-09T10:00:03Z"
+      "lastSeen": "2026-10-09T10:00:03Z",
+      "mdns": null
     },
     {
       "ip": "192.168.10.5",
@@ -254,7 +258,8 @@
       "printer": null,
       "errors": null,
       "updatedAt": "2026-10-09T10:00:05Z",
-      "online": false
+      "online": false,
+      "mdns": null
     }
   ],
   "stats": {
@@ -262,5 +267,7 @@
     "alive": 4,
     "printers": 1,
     "web": 3
-  }
+  },
+  "health": null,
+  "schemaVersion": 0
 }

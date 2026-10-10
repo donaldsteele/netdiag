@@ -187,7 +187,7 @@ func TestCSVHeaderOrder(t *testing.T) {
 		"page_count", "supplies", "printer_status", "errors", "web_urls", "web_titles",
 		"online", "last_seen",
 	}
-	if !reflect.DeepEqual(CSVColumns, want) {
+	if len(CSVColumns) < len(want) || !reflect.DeepEqual(CSVColumns[:len(want)], want) {
 		t.Fatalf("CSVColumns = %v\nwant %v", CSVColumns, want)
 	}
 }

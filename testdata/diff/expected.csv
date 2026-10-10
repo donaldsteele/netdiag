@@ -1,0 +1,10 @@
+change,ip,mac,vendor,field,from,to
+added,192.168.1.60,AA:AA:AA:00:00:60,New,,,
+removed,192.168.1.30,AA:AA:AA:00:00:30,Gone,,,
+changed,192.168.1.10,aa-aa-aa-00-00-10,Acme,online,true,false
+changed,192.168.1.20,AA:AA:AA:00:00:20,Brother,openPorts,"631,9100","80,631,9100"
+changed,192.168.1.20,AA:AA:AA:00:00:20,Brother,printer.state,idle,printing
+changed,192.168.1.20,AA:AA:AA:00:00:20,Brother,supply:Black Toner,50%,30%
+changed,192.168.1.20,AA:AA:AA:00:00:20,Brother,web:80,200,401
+changed,192.168.1.40,,,openPorts,22,"22,80"
+changed,192.168.1.55,AA:AA:AA:00:00:50,Mover,ip,192.168.1.50,192.168.1.55

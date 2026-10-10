@@ -1,0 +1,12 @@
+
+Windows-IP-Konfiguration
+
+Drahtlos-LAN-Adapter WLAN:
+
+   Verbindungsspezifisches DNS-Suffix: fritz.box
+   Beschreibung. . . . . . . . . . . : Intel(R) Wi-Fi 6 AX201 160MHz
+   DHCP aktiviert. . . . . . . . . . : Ja
+   IPv4-Adresse  . . . . . . . . . . : 192.168.178.20(Bevorzugt)
+   Subnetzmaske  . . . . . . . . . . : 255.255.255.0
+   Standardgateway . . . . . . . . . : 192.168.178.1
+   DHCP-Server . . . . . . . . . . . : 192.168.178.1

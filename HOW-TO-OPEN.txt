@@ -25,6 +25,12 @@ WINDOWS
 
 No administrator password is needed.
 
+Windows Defender Firewall may show a "Windows Security Alert" asking
+whether netdiag may communicate on private networks. Click "Allow access"
+(or leave the private-network box ticked). This lets netdiag find printers
+and devices that announce themselves (Bonjour / mDNS). If you click Cancel
+or "Don't allow", the scan still works, but those devices may not appear.
+
 
 MAC
 ---
@@ -51,6 +57,12 @@ If macOS still refuses to run it, open System Settings > Privacy &
 Security, scroll down to the message about "netdiag", and click
 "Open Anyway". Then run ./netdiag again.
 
+When netdiag first scans, macOS may ask "Do you want the application
+"netdiag" to accept incoming network connections?". Click Allow. This
+lets netdiag find printers and devices that announce themselves (Bonjour /
+mDNS). If you click Deny, the scan still works, but those devices may not
+appear. You can change this later in System Settings > Network > Firewall.
+
 No administrator password is needed.
 
 
@@ -62,8 +74,17 @@ WHAT YOU WILL SEE
   and paper levels when the printer allows it.
 - Click the web links to open a device's own settings page.
 - Export JSON or CSV to save or send the results.
+- The Health panel shows whether the router, DHCP, DNS and the event web
+  server are working. Recheck runs the checks again.
+- Conflicts are listed when two devices share an address. Routers and
+  Wi-Fi extenders often do this on purpose; use "Ignore this MAC" if so.
+- Scans are saved in the History tab, and two scans can be compared.
+- Alerts (live mode) show as a banner and a beep. Use Mute to silence them.
 
 Everything stays on this computer. netdiag only listens on 127.0.0.1
-(this computer) and does not send anything to the internet.
+(this computer). The web page makes no internet requests. The only
+outside request is the optional internet check, which asks one test
+address whether the internet is reachable. The address can be changed in
+Settings.
 
 Problems? See README.md, section "Troubleshooting".

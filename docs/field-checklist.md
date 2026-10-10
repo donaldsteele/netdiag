@@ -53,6 +53,61 @@ Machines required:
 - [ ] Starting a second scan while one is running is refused (API returns 409; UI shows the refusal)
 - [ ] Two netdiag windows at once each get their own random port and both work
 
+## 5. v0.2 features (unchecked; field test deferred)
+
+Tick only after observing the behaviour on real hardware.
+
+### Health panel
+- [ ] Gateway row shows `ok` with a latency; unplugging the router shows `fail` text, not colour alone
+- [ ] DHCP row shows `ok` on a DHCP lease and `fail` on a 169.254.x.x (APIPA) address
+- [ ] DNS row resolves the event web server name
+- [ ] Event web server row shows HTTP status, latency and the must-contain result, once a URL is set in Settings
+- [ ] Event web server row shows "not configured" (info) when no URL is set
+- [ ] Internet row is `info` (never `fail`) on an offline event network
+- [ ] Wi-Fi row shows SSID, signal and channel on Wi-Fi; "not on Wi-Fi" on a cable
+- [ ] Wi-Fi row shows "unavailable" (not wrong data) on a non-English Windows install
+- [ ] macOS Wi-Fi row shows "hidden by macOS" without Location permission
+- [ ] Recheck finishes within about 10 seconds
+- [ ] Header summary chip reads "Health: N fail, M warn" (or "Health: OK")
+
+### Conflicts
+- [ ] Two devices given the same static IP produce a MAC flap conflict after two alternations within 10 minutes
+- [ ] A single DHCP address change does not produce a conflict
+- [ ] A Wi-Fi range extender or mesh node shows the "same MAC on several IPs" warning with the extender hint
+- [ ] "Ignore this MAC" removes the conflict and the MAC appears in Settings under ignored MACs
+- [ ] Gateway and this computer are never reported as multi-IP conflicts
+
+### mDNS and IPP
+- [ ] Printer shows its Bonjour name under the IP address
+- [ ] A device that blocks ping but advertises a service appears through mDNS
+- [ ] With no mDNS responders the scan shows "mdns: no responses" and completes
+- [ ] Printer with port 631 open shows state and supplies "via IPP" when SNMP is off
+- [ ] Printer with SNMP and IPP both working shows "via SNMP + IPP" with SNMP values preferred
+- [ ] Windows Firewall prompt (private networks) and macOS incoming-connection prompt are answered as described in HOW-TO-OPEN.txt, and the scan still works after Deny
+
+### Live alerts
+- [ ] Unplugging a printer in live mode shows a critical banner and a beep (printerOffline)
+- [ ] Reloading the page with existing alerts does not beep or notify again (replay is silent)
+- [ ] Mute and Unmute change the beep and survive a restart
+- [ ] "Enable desktop alerts" from a click shows the browser permission prompt; denying it still leaves the banner and beep working
+- [ ] The same alert does not repeat within the cooldown (default 300 s)
+- [ ] `netdiag scan --live` prints `ALERT` lines to stdout and the health summary to stderr
+
+### History and compare
+- [ ] A completed scan appears in the History tab without any action
+- [ ] Live mode writes a checkpoint at about 5 minutes and when stopped
+- [ ] Only the newest 20 scans are kept
+- [ ] Compare with the default baseline lists added, removed and changed devices correctly
+- [ ] JSON and CSV compare exports download with the `netdiag-diff-<timestamp>` name
+- [ ] Deleting a history entry removes it from the list and from disk
+- [ ] `netdiag compare` exits 2 when both IDs are the same and 1 when there is no earlier scan
+- [ ] A corrupt file placed in the history folder is skipped and does not stop the UI
+
+### Data location
+- [ ] Settings and history are created under `%AppData%\netdiag` (Windows) or `~/Library/Application Support/netdiag` (macOS)
+- [ ] `NETDIAG_DATA_DIR` moves the data to the chosen folder
+- [ ] Deleting the folder while netdiag is closed resets everything to defaults on the next start
+
 ## Results
 
 | Date | Tester | Build version | Machine / OS | Router model | Printer model | Notes |

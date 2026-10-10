@@ -1,0 +1,22 @@
+{
+  "SPAirPortDataType": [
+    {
+      "spairport_airport_interfaces": [
+        {
+          "_name": "awdl0",
+          "spairport_status_information": "spairport_status_connected"
+        },
+        {
+          "_name": "en0",
+          "spairport_current_network_information": {
+            "_name": "EventNet",
+            "spairport_network_channel": "36 (5GHz, 80MHz)",
+            "spairport_network_phymode": "802.11ac",
+            "spairport_network_rate": 866,
+            "spairport_signal_noise": "-55 dBm / -92 dBm"
+          }
+        }
+      ]
+    }
+  ]
+}

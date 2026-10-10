@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"slices"
 	"sync"
 
 	"netdiag/internal/model"
@@ -19,6 +20,9 @@ type Bus struct {
 	final    *model.Event
 	snap     *model.Event // initial-scan result in live mode
 	live     *model.Event // latest live status
+	health   *model.Event // latest health report
+	conflict map[string]model.ConflictEvent
+	notices  []model.Notice // last ReplayNotices
 	subs     map[*subscriber]struct{}
 }
 
@@ -27,6 +31,7 @@ func NewBus() *Bus {
 	return &Bus{
 		hosts:    map[string]model.Host{},
 		progress: map[string]model.Progress{},
+		conflict: map[string]model.ConflictEvent{},
 		subs:     map[*subscriber]struct{}{},
 	}
 }
@@ -59,6 +64,24 @@ func (b *Bus) Publish(ev model.Event) {
 	case model.EventLive:
 		e := ev
 		b.live = &e
+	case model.EventHealth:
+		e := ev
+		b.health = &e
+	case model.EventConflict:
+		if c, ok := ev.Data.(model.ConflictEvent); ok {
+			if c.Resolved {
+				delete(b.conflict, c.Conflict.ID)
+			} else {
+				b.conflict[c.Conflict.ID] = c
+			}
+		}
+	case model.EventNotice:
+		if n, ok := ev.Data.(model.NoticeEvent); ok {
+			b.notices = append(b.notices, n.Notice)
+			if len(b.notices) > ReplayNotices {
+				b.notices = slices.Clone(b.notices[len(b.notices)-ReplayNotices:])
+			}
+		}
 	case model.EventDone, model.EventError:
 		e := ev
 		b.final = &e
@@ -73,7 +96,8 @@ func (b *Bus) Publish(ev model.Event) {
 
 // Subscribe returns a channel that first replays a snapshot (current stage,
 // the live-mode initial result, all hosts in IP order, current-stage
-// progress, the latest live status, and the terminal event if the scan
+// progress, the latest live status, the latest health report, current
+// conflicts and the last ReplayNotices notices (flagged replay), and the terminal event if the scan
 // already finished) followed by live events. The channel is closed
 // after the terminal event or when the returned cancel func is called.
 func (b *Bus) Subscribe() (<-chan model.Event, func()) {
@@ -95,6 +119,22 @@ func (b *Bus) Subscribe() (<-chan model.Event, func()) {
 	}
 	if b.live != nil {
 		replay = append(replay, *b.live)
+	}
+	if b.health != nil {
+		replay = append(replay, *b.health)
+	}
+	ids := make([]string, 0, len(b.conflict))
+	for id := range b.conflict {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		c := b.conflict[id]
+		c.Replay = true
+		replay = append(replay, model.Event{Type: model.EventConflict, Data: c})
+	}
+	for _, n := range b.notices {
+		replay = append(replay, model.Event{Type: model.EventNotice, Data: model.NoticeEvent{Notice: n, Replay: true}})
 	}
 	for _, ev := range replay {
 		s.push(ev, false)

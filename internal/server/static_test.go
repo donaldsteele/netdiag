@@ -104,3 +104,76 @@ func TestOfflineUI(t *testing.T) {
 		}
 	}
 }
+
+func TestV02UI(t *testing.T) {
+	html, err := readAsset("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js, err := readAsset("app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`id="health"`, `aria-labelledby="health-h"`, "Recheck", `<dialog id="settings-dialog"`,
+		`id="alerts"`, `aria-label="Alerts"`, `id="tab-history"`, ">History<", "CONFLICT", "Ignore this MAC",
+		"Enable desktop alerts", "Export diff CSV", `role="alert"`} {
+		if !strings.Contains(string(html), want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	for _, want := range []string{"{id: 'conflicts', label: 'Conflicts'}", "on('notice'", "on('health'", "on('conflict'",
+		"n.replay", "Health: ", "Notification.requestPermission", "/api/history", "/api/compare", "/api/conflicts/ignore", "/api/health/run"} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+	// Desktop permission must only be requested from a click handler.
+	if strings.Count(string(js), "requestPermission") != 1 {
+		t.Errorf("expected exactly one requestPermission call")
+	}
+}
+
+// Notice ids restart at n-1 for every scan, so the UI must dedupe per scan
+// and reset its seen set when a new scan starts. Otherwise a second scan's
+// alerts are silently dropped.
+func TestNoticeDedupeScopedToScan(t *testing.T) {
+	js, err := readAsset("app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(js)
+	for _, want := range []string{
+		"onNotice(n, scanId)",
+		"const key = (scanId || '') + ':' + n.id;",
+		"this.seenNotices[key]",
+		"on('notice', n => this.onNotice(n, id));",
+		"this.seenNotices = {};",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+	if strings.Contains(src, "this.seenNotices[n.id]") {
+		t.Errorf("app.js still dedupes on bare notice id")
+	}
+}
+
+// Banner identity must be unique across scans (scan id + notice id), used as
+// the x-for key and for dismiss.
+func TestBannerIdentityUniqueAcrossScans(t *testing.T) {
+	js, _ := readAsset("app.js")
+	html, _ := readAsset("index.html")
+	for _, want := range []string{"{bid: key}", "b.bid !== bid"} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+	for _, want := range []string{`:key="b.bid"`, "dismiss(b.bid)"} {
+		if !strings.Contains(string(html), want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	if strings.Contains(string(html), `:key="b.id"`) || strings.Contains(string(html), "dismiss(b.id)") {
+		t.Errorf("index.html still keys banners on notice id")
+	}
+}

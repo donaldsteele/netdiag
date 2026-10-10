@@ -106,6 +106,14 @@ func runScan(args []string, stdout, stderr io.Writer) int {
 			lw.flushNew()
 		case model.EventPresence:
 			lw.presence(ev.Data.(model.Presence))
+		case model.EventNotice:
+			if n, ok := ev.Data.(model.NoticeEvent); ok {
+				lw.notice(n)
+			}
+		case model.EventHealth:
+			if h, ok := ev.Data.(model.HealthReport); ok {
+				lw.health(h)
+			}
 		}
 	}
 	unsub()
@@ -199,6 +207,7 @@ type liveWriter struct {
 	stdout, stderr io.Writer
 	json           bool
 	started        bool
+	healthSum      string
 	latest         map[string]model.Host
 	printed        map[string]string // ip -> firstSeen of the printed record
 }
@@ -226,6 +235,48 @@ func (l *liveWriter) presence(p model.Presence) {
 		line += "  (" + p.Reason + ")"
 	}
 	fmt.Fprintln(l.stdout, line)
+}
+
+// notice prints one alert line (NDJSON with --json). Replayed notices and
+// anything before the initial result are skipped.
+func (l *liveWriter) notice(n model.NoticeEvent) {
+	if !l.started || n.Replay {
+		return
+	}
+	if l.json {
+		if b, err := json.Marshal(model.Event{Type: model.EventNotice, Data: n}); err == nil {
+			fmt.Fprintf(l.stdout, "%s\n", b)
+		}
+		return
+	}
+	line := time.Now().Format("15:04:05") + "  ALERT  [" + n.Severity + "]  " + n.Title
+	if n.IP != "" {
+		line += "  " + n.IP
+	}
+	if n.Message != "" {
+		line += "  " + n.Message
+	}
+	fmt.Fprintln(l.stdout, line)
+}
+
+// health prints a one-line health summary on stderr, once, when the first
+// report arrives (and again only if the worst status changes).
+func (l *liveWriter) health(h model.HealthReport) {
+	counts := map[string]int{}
+	for _, c := range h.Checks {
+		counts[c.Status]++
+	}
+	sum := fmt.Sprintf("%d fail, %d warn, %d ok", counts[model.HealthFail], counts[model.HealthWarn], counts[model.HealthOK])
+	if sum == l.healthSum {
+		return
+	}
+	l.healthSum = sum
+	fmt.Fprintln(l.stderr, "health: "+sum)
+	for _, c := range h.Checks {
+		if c.Status == model.HealthFail || c.Status == model.HealthWarn {
+			fmt.Fprintf(l.stderr, "  %s: %s - %s\n", c.Status, c.Label, c.Detail)
+		}
+	}
 }
 
 func (l *liveWriter) initial(res model.ScanResult, csvPath string) error {

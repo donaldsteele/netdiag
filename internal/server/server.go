@@ -12,8 +12,10 @@ import (
 	"sync"
 	"time"
 
+	"netdiag/internal/health"
 	"netdiag/internal/netinfo"
 	"netdiag/internal/scan"
+	"netdiag/internal/store"
 )
 
 // Config configures a Server.
@@ -21,6 +23,9 @@ type Config struct {
 	Registry   *scan.Registry
 	Interfaces func() ([]netinfo.Iface, error) // defaults to netinfo.Interfaces
 	Static     fs.FS                           // served at "/"; may be nil
+	Store      *store.Store                    // settings + history; nil makes those endpoints return 503
+	Health     scan.HealthChecker              // defaults to health.NewRunner()
+	Gateway    func() (string, error)          // defaults to the OS default route
 }
 
 // Server is the HTTP server. Create with New, then Listen and Serve.
@@ -43,6 +48,12 @@ type Server struct {
 func New(cfg Config) *Server {
 	if cfg.Interfaces == nil {
 		cfg.Interfaces = netinfo.Interfaces
+	}
+	if cfg.Health == nil {
+		cfg.Health = health.NewRunner()
+	}
+	if cfg.Gateway == nil {
+		cfg.Gateway = defaultGateway
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{cfg: cfg, keepalive: 15 * time.Second, baseCtx: ctx, cancel: cancel, quit: make(chan struct{})}
@@ -78,6 +89,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/scans/{id}/cancel", s.handleCancel)
 	mux.HandleFunc("GET /api/scans/{id}/export", s.handleExport)
 	mux.HandleFunc("POST /api/quit", s.handleQuit)
+	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
+	mux.HandleFunc("PUT /api/settings", s.handlePutSettings)
+	mux.HandleFunc("GET /api/health", s.handleHealth)
+	mux.HandleFunc("POST /api/health/run", s.handleHealthRun)
+	mux.HandleFunc("GET /api/history", s.handleHistory)
+	mux.HandleFunc("GET /api/history/{id}", s.handleHistoryGet)
+	mux.HandleFunc("DELETE /api/history/{id}", s.handleHistoryDelete)
+	mux.HandleFunc("GET /api/compare", s.handleCompare)
+	mux.HandleFunc("GET /api/compare/export", s.handleCompareExport)
+	mux.HandleFunc("POST /api/conflicts/ignore", s.handleIgnore)
 	if s.cfg.Static != nil {
 		mux.Handle("GET /", http.FileServerFS(s.cfg.Static))
 	}

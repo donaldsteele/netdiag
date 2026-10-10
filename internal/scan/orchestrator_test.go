@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,6 +40,38 @@ func (f fakePinger) Ping(ctx context.Context, ip netip.Addr, timeout time.Durati
 type fakeARP []arp.Entry
 
 func (f fakeARP) Table(context.Context) ([]arp.Entry, error) { return f, nil }
+
+// ifaceARP records the interface IP passed to TableFor.
+type ifaceARP struct {
+	fakeARP
+	mu    sync.Mutex
+	iface []string
+}
+
+func (a *ifaceARP) TableFor(_ context.Context, ifaceIP string) ([]arp.Entry, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.iface = append(a.iface, ifaceIP)
+	return a.fakeARP, nil
+}
+
+func TestARPPrefersScannedInterface(t *testing.T) {
+	d := fakeDeps()
+	fa := &ifaceARP{fakeARP: d.ARP.(fakeARP)}
+	d.ARP = fa
+	s, err := New(d).Start(context.Background(), model.ScanRequest{CIDR: "10.0.0.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, cancel := s.Subscribe()
+	defer cancel()
+	collect(t, ch, 2*time.Second)
+	fa.mu.Lock()
+	defer fa.mu.Unlock()
+	if len(fa.iface) == 0 || fa.iface[0] != "10.0.0.30" {
+		t.Fatalf("TableFor calls = %v, want scanned iface 10.0.0.30", fa.iface)
+	}
+}
 
 type fakePorts map[string][]int
 
