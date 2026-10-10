@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,6 +67,22 @@ func TestParseNetsh(t *testing.T) {
 	}
 	if _, err = parseNetshWlan(fixture(t, "netsh_wlan_de.txt")); err == nil {
 		t.Fatal("localized sample must be rejected")
+	}
+}
+
+func TestNetshWlanError(t *testing.T) {
+	exit := errors.New("exit status 1")
+	loc := "There is 1 interface on the system: \r\nNetwork shell commands need location permission to access WLAN information. " +
+		"Turn on Location services on the Location page in Privacy & security settings.\r\n" +
+		"Function WlanQueryInterface returns error 5:\r\nThe requested operation requires elevation (Run as administrator).\r\n"
+	for _, tc := range []struct{ out, want string }{
+		{loc, "Location services"},
+		{"The Wireless AutoConfig Service (wlansvc) is not running.\r\n", "WLAN AutoConfig"},
+		{"", "netsh wlan: exit status 1"},
+	} {
+		if got := netshWlanError(tc.out, exit).Error(); !strings.Contains(got, tc.want) {
+			t.Errorf("netshWlanError(%q) = %q, want it to contain %q", tc.out, got, tc.want)
+		}
 	}
 }
 

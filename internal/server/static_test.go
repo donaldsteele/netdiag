@@ -248,7 +248,7 @@ func TestFontsAndThemeUI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"@font-face", "font-display:swap", ":root[data-theme=light]", "--font-mono:", "--accent:#0a7d3b"} {
+	for _, want := range []string{"@font-face", "font-display:swap", ":root[data-theme=light]", "--font-mono:", "--accent:#c2410c"} {
 		if !strings.Contains(string(css), want) {
 			t.Errorf("styles.css missing %q", want)
 		}
@@ -324,5 +324,75 @@ func TestDeviceDrawerUI(t *testing.T) {
 	svg, err := readAsset("icons.svg")
 	if err != nil || !strings.Contains(string(svg), `id="i-printer"`) {
 		t.Errorf("icons.svg missing or lacks printer symbol: %v", err)
+	}
+}
+
+// Sprite budget and reference checks for web/icons.svg (T3).
+const iconSpriteMaxBytes = 40960
+
+var iconRefRe = regexp.MustCompile(`icons\.svg#(i-[a-z0-9-]+)`)
+
+func TestIconSpriteBudgetAndRefs(t *testing.T) {
+	sprite, err := readAsset("icons.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sprite) > iconSpriteMaxBytes {
+		t.Errorf("icons.svg is %d bytes, limit %d", len(sprite), iconSpriteMaxBytes)
+	}
+	s := string(sprite)
+	if !strings.HasPrefix(s, "<!-- Lucide v") {
+		t.Errorf("icons.svg missing generated Lucide header comment")
+	}
+	// Only the SVG namespace URL may appear; no external references.
+	if strings.Contains(strings.ReplaceAll(s, `xmlns="http://www.w3.org/2000/svg"`, ""), "http") {
+		t.Errorf("icons.svg contains an external URL")
+	}
+	has := func(id string) bool { return strings.Contains(s, `<symbol id="`+id+`"`) }
+
+	// (b) every literal icons.svg#i-<id> reference must have a symbol.
+	for _, name := range []string{"index.html", "app.js"} {
+		b, err := readAsset(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range iconRefRe.FindAllStringSubmatch(string(b), -1) {
+			if !has(m[1]) {
+				t.Errorf("%s references missing sprite symbol %s", name, m[1])
+			}
+		}
+	}
+
+	// (c) ids referenced via the dynamic 'icons.svg#i-' + type prefix.
+	dynamic := []string{"i-printer", "i-router", "i-web", "i-computer", "i-device",
+		"i-type-gateway", "i-type-printer", "i-type-computer", "i-type-phone", "i-type-tv",
+		"i-type-nas", "i-type-camera", "i-type-network", "i-type-iot", "i-type-server",
+		"i-type-self", "i-type-unknown",
+		// statusIcon/statusShape/checkIcon/sevIcon/kindIcon/tileDefs helpers in app.js.
+		"i-circle-check", "i-circle-help", "i-circle-x", "i-triangle-alert", "i-info",
+		"i-router", "i-network", "i-book-search", "i-cloud", "i-wifi", "i-server", "i-activity",
+		"i-radar", "i-circle-plus", "i-wifi-off", "i-heart-pulse", "i-bell", "i-globe", "i-radio-tower",
+		"i-printer", "i-chevron-down", "i-chevron-right"}
+	for _, id := range dynamic {
+		if !has(id) {
+			t.Errorf("icons.svg missing dynamically referenced symbol %s", id)
+		}
+	}
+}
+
+func TestIconLicenseAndVersionsEmbedded(t *testing.T) {
+	lic, err := readAsset("vendor/LICENSE-lucide.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(strings.TrimSpace(string(lic))) == 0 {
+		t.Errorf("vendor/LICENSE-lucide.txt is empty")
+	}
+	ver, err := readAsset("vendor/VERSIONS.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ver), "lucide-static") {
+		t.Errorf("vendor/VERSIONS.txt does not mention lucide-static")
 	}
 }

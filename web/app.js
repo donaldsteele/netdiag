@@ -38,9 +38,9 @@ document.addEventListener('alpine:init', () => {
       });
     },
     tileDefs: [
-      {id: 'alive', label: 'Alive', filter: 'alive'}, {id: 'printers', label: 'Printers', filter: 'printers'},
-      {id: 'web', label: 'Web', filter: 'web'}, {id: 'mdns', label: 'mDNS', filter: 'mdns'},
-      {id: 'offline', label: 'Offline', filter: 'offline'}, {id: 'conflicts', label: 'Conflicts', filter: 'conflicts'}],
+      {id: 'alive', label: 'Alive', filter: 'alive', icon: 'wifi'}, {id: 'printers', label: 'Printers', filter: 'printers', icon: 'printer'},
+      {id: 'web', label: 'Web', filter: 'web', icon: 'globe'}, {id: 'mdns', label: 'mDNS', filter: 'mdns', icon: 'radio-tower'},
+      {id: 'offline', label: 'Offline', filter: 'offline', icon: 'wifi-off'}, {id: 'conflicts', label: 'Conflicts', filter: 'conflicts', icon: 'triangle-alert'}],
     tileCounts() {
       const c = {alive: 0, printers: 0, web: 0, mdns: 0, offline: 0, conflicts: 0};
       for (const h of this.hosts) {
@@ -81,9 +81,9 @@ document.addEventListener('alpine:init', () => {
       const ids = [['gateway', 'Gateway'], ['dhcp', 'DHCP'], ['dns', 'DNS'], ['internet', 'Internet'], ['wifi', 'Wi-Fi'], ['webserver', 'Event web']];
       return ids.map(([id, label]) => {
         const c = by[id];
-        if (!c) return {id, label, status: 'unavailable', value: 'not checked'};
+        if (!c) return {id, label, icon: this.checkIcon(id), status: 'unavailable', value: 'not checked'};
         const lat = this.healthLatency(c);
-        return {id, label, status: c.status, value: this.healthStatusText(c.status) + (lat ? ' ' + lat : '')};
+        return {id, label, icon: this.checkIcon(id), status: c.status, value: this.healthStatusText(c.status) + (lat ? ' ' + lat : '')};
       });
     },
     tabs: [{id: 'all', label: 'All'}, {id: 'printers', label: 'Printers'},
@@ -154,6 +154,7 @@ document.addEventListener('alpine:init', () => {
       this.draft.webServer.expectStatus = n(this.draft.webServer.expectStatus);
       this.draft.alerts.supplyThresholdPct = n(this.draft.alerts.supplyThresholdPct);
       this.draft.alerts.cooldownSec = n(this.draft.alerts.cooldownSec);
+      this.draft.printerStatusPollSec = n(this.draft.printerStatusPollSec);
       const ok = await this.putSettings(this.draft, true);
       if (ok) this.closeSettings();
     },
@@ -519,16 +520,48 @@ document.addEventListener('alpine:init', () => {
       return 'Live · ' + (st.newHosts || 0) + ' new · ' + (st.offline || 0) + ' offline' + ' · ' + last +
         ' · watching ' + (st.unseen || 0) + ' addresses';
     },
+    typeInfo: {gateway: 'Gateway', printer: 'Printer', computer: 'Computer', phone: 'Phone/tablet', tv: 'TV/streamer', nas: 'NAS/storage',
+               camera: 'Camera', network: 'Network gear', iot: 'Smart home/IoT', server: 'Server/web device', self: 'This computer', unknown: 'Unknown'},
     typeOf(h) {
-      if (h.isPrinter) return {icon: "printer", label: "Printer"};
-      if (h.ip === this.gateway) return {icon: "router", label: "Gateway"};
-      if (h.isSelf) return {icon: "computer", label: "This computer"};
-      if ((h.web || []).length) return {icon: "web", label: "Web server"};
-      return {icon: "device", label: "Device"};
+      if (h.deviceType && this.typeInfo[h.deviceType]) return {icon: 'type-' + h.deviceType, label: this.typeInfo[h.deviceType]};
+      if (h.isPrinter) return {icon: "type-printer", label: "Printer"};
+      if (h.ip === this.gateway) return {icon: "type-gateway", label: "Gateway"};
+      if (h.isSelf) return {icon: "type-self", label: "This computer"};
+      if ((h.web || []).length) return {icon: "type-server", label: "Web server"};
+      return {icon: "type-unknown", label: "Device"};
     },
+    // Printer alerts outrank "up": critical/error alerts are bad, others warn.
+    printerSev(h) {
+      const al = (h.isPrinter && h.printer && h.printer.alerts) || [];
+      if (al.some(a => a.severity === 'critical' || a.severity === 'error')) return 'bad';
+      return al.length ? 'warn' : '';
+    },
+    statusIcon(h) {
+      if (this.isOffline(h)) return 'circle-x';
+      const p = this.printerSev(h);
+      if (p) return p === 'bad' ? 'circle-x' : 'triangle-alert';
+      return h.alive ? 'circle-check' : 'circle-help';
+    },
+    statusClass(h) {
+      if (this.isOffline(h)) return 's-bad';
+      const p = this.printerSev(h);
+      if (p) return 's-' + p;
+      return h.alive ? 's-ok' : 's-unknown';
+    },
+    statusShape(s) { return {ok: 'circle-check', warn: 'triangle-alert', fail: 'circle-x', info: 'info'}[s] || 'circle-help'; },
+    statusShapeClass(s) { return {ok: 's-ok', warn: 's-warn', fail: 's-bad', info: 's-info'}[s] || 's-unknown'; },
+    checkIcon(id) { return {gateway: 'router', dhcp: 'network', dns: 'book-search', internet: 'cloud', wifi: 'wifi', webserver: 'server'}[id] || 'activity'; },
+    sevIcon(sev) { return {critical: 'circle-x', error: 'circle-x', warn: 'triangle-alert', info: 'info', ok: 'circle-check'}[sev] || 'info'; },
+    sevClass(sev) { return {critical: 's-bad', error: 's-bad', warn: 's-warn', ok: 's-ok'}[sev] || 's-info'; },
+    kindIcon(k) { return {scan: 'radar', host: 'circle-plus', offline: 'wifi-off', online: 'wifi', conflict: 'triangle-alert', health: 'heart-pulse', notice: 'bell', error: 'circle-x'}[k] || 'info'; },
     hostName(h) { return h.hostname || this.mdnsName(h); },
     dotClass(h) { return this.isOffline(h) ? "st-off" : h.alive ? "st-up" : "st-down"; },
-    dotText(h) { return this.isOffline(h) ? "Offline" : h.alive ? "Up" : "No ping"; },
+    dotText(h) {
+      if (this.isOffline(h)) return "Offline";
+      const p = this.printerSev(h);
+      const base = h.alive ? "Up" : "No ping";
+      return p ? base + ", printer " + (p === "bad" ? "error" : "warning") : base;
+    },
     drawerHost() { return this.hosts.find(h => h.ip === this.drawerIP) || null; },
     drawerHosts() { const h = this.drawerHost(); return h ? [h] : []; },
     rowClick(ev, ip) {
@@ -570,8 +603,8 @@ document.addEventListener('alpine:init', () => {
       const parts = [this.isOffline(h) ? 'offline' : h.alive ? 'up' : 'no ping'];
       if (h.isPrinter && h.printer) {
         if (h.printer.model) parts.push(h.printer.model);
-        const bad = (h.printer.alerts || []).length;
-        if (bad) parts.push(bad + ' alert' + (bad > 1 ? 's' : ''));
+        const al = h.printer.alerts || [];
+        if (al.length) parts.push(al.slice(0, 2).map(a => a.description || a.code).join(', ') + (al.length > 2 ? ' +' + (al.length - 2) + ' more' : ''));
         const low = (h.printer.supplies || []).filter(s => s.state === 'low' || s.state === 'empty').length;
         if (low) parts.push(low + ' supply low/empty');
       }

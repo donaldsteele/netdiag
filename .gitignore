@@ -7,3 +7,4 @@ coverage*
 # tools/uitest: Node deps and generated screenshots/reports (T2)
 tools/uitest/node_modules/
 tools/uitest/out/
+tools/icons/node_modules/

@@ -27,7 +27,8 @@ First time? Read **HOW-TO-OPEN.txt** (included in your zip). It explains the Sma
 
 - **Sidebar navigation**: Devices, Health, Activity, History and Settings. The sidebar becomes a narrow icon rail on medium-width windows and a **menu** button on narrow ones (phones and small windows). Keyboard users can reach every item with Tab, and the current view is marked.
 - **Top bar**: the interface, target range and SNMP community fields, the **Live mode** switch, **Scan** / **Stop live**, **Export** and **Quit**, then the health summary and icon buttons for muting alerts (bell), enabling desktop alerts (screen) and switching theme (moon/sun). Hover an icon to see its name. The **LIVE** indicator pulses while live mode runs.
-- **Dark and light themes**: the dark theme is the default. Use the theme button in the top bar to switch; your choice is remembered in this browser only. Both themes meet the WCAG AA contrast levels for text and controls.
+- **Palette and themes**: the warm dark theme is the default (dark brown with orange accents). Use the sun/moon button in the top bar for the warm light theme; your choice is remembered in this browser only. Both themes meet the WCAG AA contrast levels for text and controls. Status is never shown by colour alone: every status has a shape and a word.
+- **Icon legend** (status shapes): up = circle with a check (green); warning = triangle (gold); fail or offline = circle with an X (coral red); unknown or no ping = circle with a question mark; info = "i" (violet). Badges: **NEW** (sparkles), **OFFLINE** (wifi-off), **CONFLICT** (triangle), and a printer icon for printers.
 - **Details drawer**: opens on the right with a full description of one device. It stays open while live mode updates the device, and closes with **Esc** or its close button, which also returns the keyboard focus to the row. On narrow screens it fills the window.
 - **Activity log**: a terminal-style feed of the scan (start, stages, finish), new, offline and back-online devices, conflicts, health changes, notices and errors, with the time of each entry. Filter it by kind with the chips at the top, and use **Copy** to put the visible lines on the clipboard. It keeps the most recent 500 entries. It is cleared when you reload the page, and is not saved to disk.
 - **Motion**: the LIVE indicator, new-device highlights and the tile counts animate briefly. If your computer is set to reduce motion, all animation is switched off.
@@ -85,15 +86,57 @@ Conflicts show as a red or amber **CONFLICT** label on the affected rows, are li
 - If nothing answers mDNS, the scan shows the note "mdns: no responses". This is information only and the scan carries on. A firewall (Windows Defender Firewall, or a VPN client) can block mDNS, and some guest networks do not forward it.
 - netdiag uses the network you chose on the first screen. If you have more than one adapter (for example Wi-Fi and a docking station), pick the one connected to the event network.
 
+## Device types
+
+Each device gets a **Type** (shown in the table and the details drawer, and exported as `deviceType`). The type is a best guess from the signals netdiag collected, and is shown as **Unknown** when there are no identifying signals (netdiag never guesses).
+
+| Type (JSON/CSV) | Label | Typical signals |
+|---|---|---|
+| `self` | This computer | the machine running netdiag |
+| `gateway` | Gateway | the default route IP |
+| `printer` | Printer | printer detection: SNMP Printer-MIB, IPP, port 9100, mDNS `_ipp` |
+| `tv` | TV | mDNS `_airplay`, `_googlecast`, `_raop`, `_roku`, `_spotify-connect`; vendor Roku, Hisense, TCL, Vizio, LG, Sonos; hostname `tv`, `roku`, `chromecast` |
+| `nas` | NAS | mDNS `_smb`, `_afpovertcp`, `_nfs`, `_adisk` with a NAS vendor or model; vendor Synology, QNAP, TerraMaster, ASUSTOR; hostname `nas`, `diskstation` |
+| `phone` | Phone | mDNS `_companion-link`, `_apple-mobdev2`; hostname `iphone`, `ipad`, `android`, `galaxy`, `pixel` |
+| `computer` | Computer | file-sharing mDNS without a NAS signal; hostname `macbook`, `imac`, `DESKTOP-`, `laptop`, `-PC`, `thinkpad` |
+| `camera` | Camera | mDNS `_rtsp`, `_onvif`; vendor Hikvision, Dahua, Axis, Reolink, Amcrest |
+| `network` | Network gear | SNMP sysDescr for a switch, router or access point; Deco, UniFi; vendor Ubiquiti, TP-Link, NETGEAR, Cisco, Aruba, MikroTik, Ruckus, Juniper |
+| `iot` | Smart home | mDNS `_hap`, `_homekit`, `_matter`, `_hue`; vendor Espressif, Tuya, Shelly, Philips Lighting/Signify, Nest, Ring, ecobee |
+| `server` | Server | open web ports 80, 443, 8080 or 8443 with no other signal |
+| `unknown` | Unknown | no identifying signals |
+
+Rules are applied in this order and the first match wins: self, gateway, printer, mDNS, SNMP, vendor, hostname, web ports. The details drawer shows the reason for the type (for example "mdns _airplay"). Older saved scans are classified when they are loaded. Compare reports a `deviceType` change only when both scans have a type.
+
 ## Alerts (live mode)
 
-In live mode netdiag raises an alert when something changes: a printer goes offline, a printer reports an alert, a supply runs low, a new device appears, an IP conflict is found, or a health check starts failing. Alerts appear as a banner stack at the top of the page (up to three at a time, with "N more" for the rest; close each with its button). Critical alerts are announced at once to screen readers; others are announced politely. Each alert makes a beep, with a different tone for critical and warning alerts.
+In live mode netdiag raises an alert when something changes: a printer goes offline, a printer reports an alert (and **Printer OK again** when its alerts clear), a supply runs low, a new device appears, an IP conflict is found, or a health check starts failing. Alerts appear as a banner stack at the top of the page (up to three at a time, with "N more" for the rest; close each with its button). Critical alerts are announced at once to screen readers; others are announced politely. Each alert makes a beep, with a different tone for critical and warning alerts.
 
 - The **bell** button in the top bar mutes or unmutes the beep (a crossed-out bell means muted). The choice is saved in Settings.
 - The **screen** button (**Enable desktop alerts**) in the top bar shows a desktop notification too. Your browser asks for permission when you click the button (it must be a click, so the browser allows the prompt). If you say no, the banner and beep still work and netdiag shows a short note. To change your mind later, use the browser's site settings for the 127.0.0.1 address.
 - Alerts only fire when something changes, not on every check, and the same alert is not repeated within its **cooldown** (default 300 seconds). Opening the page again does not replay old alerts with sound.
 - **Settings** (header button) has the switches for each alert type, the **supply threshold** (percent, 1 to 100, default 15) and the **cooldown** (30 to 3600 seconds). "Device offline" is off by default because it is noisy; "Printer offline" is on.
 - On the command line, `netdiag scan --live` prints each alert as a line (`ALERT ...`, or JSON lines with `--json`) and the health summary to stderr.
+
+## Printer status monitoring
+
+In live mode netdiag keeps watching every printer it found through SNMP, so a jam, an open cover or a paused printer is reported within seconds, and so is the fix.
+
+- **Fast status check.** Every few seconds (default 5; set it in **Settings > Scanning > Printer status check in live mode**, 2 to 300 seconds) netdiag reads just three values from each printer in one small SNMP request: the device status, the printer status and the printer's error flags. When the device status or the error flags change, it reads the printer in full straight away and updates the row, the alerts and the banners. Normal idle/printing changes do not trigger a full read.
+- **Full refresh.** Every 60 seconds each online printer is also read in full (supplies, trays, alerts). If the fast check fails (for example the printer restarted), the full refresh picks it up again.
+- **Error flags become alerts.** Some printers, including Zebra label printers, report problems only through the standard SNMP error flags and leave their alert list empty. netdiag turns those flags into named alerts. Out of paper or toner, door or cover open, paper jam, offline or paused, service requested, missing tray or supply, and output tray full are **critical**. Paper or toner low, output tray nearly full, input tray empty and maintenance overdue are **warnings**. A printer that only reports "down" or "warning" as its device status gets a general alert. Printers that fill in their own alert list are shown as they report it.
+- **What you see.** A printer with a critical alert gets a red ✖ status icon (amber ▲ for a warning), even though it still answers ping. The status column and the details panel name the problem (for example "Up, printer error" and "Door or cover open, Printer offline or paused"), and the printer is listed under the **Problems** filter.
+- **Back to normal.** When all of a printer's alerts clear, netdiag raises a **Printer OK again** notice that lists what cleared. If the printer fails again soon after, the new alert is shown straight away, without waiting for the alert cooldown. Earlier alert banners stay until you dismiss them.
+- Only printers that answer SNMP get the fast check. Printers found only through IPP or mDNS are refreshed every 60 seconds.
+
+![Zebra printer with its cover open: red status icon and two critical alert banners](docs/img/printer-error.png)
+
+![Details panel for the same printer, listing the alerts and the SNMP status](docs/img/printer-error-drawer.png)
+
+![The printer fixed: green status and a Printer OK again notice](docs/img/printer-recovered.png)
+
+![Activity log with the two alerts and the recovery notice](docs/img/printer-activity.png)
+
+![Settings with the printer status check interval](docs/img/settings-printer-poll.png)
 
 ## History and compare
 
@@ -116,11 +159,9 @@ The folder holds `settings.json` (your settings) and a `history` folder with one
 
 **How to clear it.** To remove one scan, use **Delete** in the History view. To reset your settings to the defaults, quit netdiag and delete `settings.json`. To clear everything, quit netdiag and delete the whole folder above (or the `NETDIAG_DATA_DIR` folder you chose). netdiag creates the folder again the next time it starts.
 
-## Using the command line
-
 ## Live mode
 
-Leave **Live mode** ticked (next to **Scan**; your choice is remembered) to keep watching the network after the first scan. Every 15 seconds netdiag checks the addresses where nothing has been found yet. Devices it already knows are never probed again (no port scan, web, SNMP or name lookup); they only get one quick "are you still there?" check, so live mode stays light on the network.
+Leave **Live mode** ticked (next to **Scan**; your choice is remembered) to keep watching the network after the first scan. Every 15 seconds netdiag checks the addresses where nothing has been found yet. Devices it already knows are not fully probed again (no port scan, web page or name lookup); they get one quick "are you still there?" check. Printers found through SNMP also get a small status check (see **Printer status monitoring**), so live mode stays light on the network.
 
 - The status line reads `Live · watching N addresses · last check Xs ago · M new · K offline`.
 - A newly arrived device gets a **NEW** badge and a highlighted row, is listed under the **New** filter, and screen readers announce it.
@@ -130,7 +171,7 @@ Leave **Live mode** ticked (next to **Scan**; your choice is remembered) to keep
 
 **Offline detection.** Each known device gets one cheap presence check per cycle: a single ping if it was found by ping, otherwise a connection to its lowest open port, otherwise a look at the ARP table (same IP and MAC address). A device that answered ping but stops can still count as present through its open port. After two missed checks in a row a device is marked **OFFLINE** (dimmed row, "offline for 2m", listed under the **Offline** and **Problems** filters, and announced to screen readers); one missed check never flips it. When it answers again it is shown as back online. If an address suddenly shows a different MAC address (another device got the same IP), it is treated as a new device and fully checked once. Your own computer is never checked. Exports include `online` and `last_seen`.
 
-Live mode does not notice changes on devices it already found (for example toner running low). Run a fresh scan for that.
+Apart from printers (see **Printer status monitoring**), live mode does not notice changes on devices it already found, such as a changed web page. Run a fresh scan for that.
 
 On the command line: `netdiag scan --live` (optional `--interval 30s`, between 5s and 5m) prints the first results, then one line per new device and one line whenever a device goes offline or comes back, until you press Ctrl+C. With `--json` the first result is a JSON object followed by one JSON line per new device and one `{"type":"presence",...}` line per online/offline change.
 
@@ -153,6 +194,8 @@ netdiag ui --port 8765                        # fixed port (80 and 443 are refus
 netdiag version
 ```
 
+The table has a **TYPE** column after VENDOR. `--json` hosts include `deviceType` and `deviceTypeReason`. CSV exports (the UI export and `--csv`) have a final column, `device_type` (column 25; the first 24 columns are unchanged).
+
 `compare` exits `2` when the two IDs are the same, and `1` when a scan is missing or there is no earlier scan to compare with. Use `--csv -` to print the CSV to stdout (not together with `--json`).
 
 Exit codes: `0` success, `1` runtime error (including a scan that was cancelled or timed out, which still prints partial results), `2` invalid arguments (for example a range bigger than /22).
@@ -163,6 +206,9 @@ Ranges can be CIDR (`192.168.1.0/24`), a dash range (`192.168.1.10-192.168.1.50`
 
 **Only the router (gateway) responds, or only a few devices show up.**
 Wi-Fi "client isolation" (sometimes called AP isolation or guest mode) stops devices from seeing each other. netdiag shows this warning when only the gateway answers. Connect to the event's main network (not a guest network), or ask the venue to turn off client isolation. A wired connection to the event switch usually avoids the problem.
+
+**A printer shows an error on its own screen but netdiag shows it green.**
+Printer status is only watched in live mode, so make sure **Live mode** is on. The printer must also answer SNMP with the community set in Settings: its details panel shows **Data via SNMP** and an SNMP system section. A printer found only through IPP or mDNS is refreshed every 60 seconds instead of every few seconds.
 
 **The printer is found but has no supply or model details.**
 SNMP is probably disabled on the printer, or it uses a community string other than `public`. Enable SNMP in the printer's web page (or its front-panel network menu) and set the read community to the event's value, then type that value in the **Community** box and scan again. The printer is still flagged as a printer because its printing ports (9100, 631, 515) are open.
@@ -186,7 +232,7 @@ Run `xattr -d com.apple.quarantine netdiag` in the folder where you unzipped it,
 That is information, not a fault. Open **Settings** and enter the event web server address in "Web server URL" (and optionally the text the page must contain). Then press **Recheck**.
 
 **The health panel says "not on Wi-Fi" or "unavailable" for Wi-Fi.**
-"Not on Wi-Fi" means this computer is on a cable (or Wi-Fi is off), which is fine. "Unavailable" means the Wi-Fi details could not be read; on Windows this happens with a non-English language setting. The rest of the scan is not affected.
+"Not on Wi-Fi" means this computer is on a cable (or Wi-Fi is off), which is fine. "Unavailable" means the Wi-Fi details could not be read. On recent Windows 11 versions this happens when **Location** is off, because Windows treats Wi-Fi details as location data: open Settings > Privacy & security > Location, turn on **Location services** and **Let desktop apps access your location**, then press **Recheck**. It also happens with a non-English language setting or when the WLAN AutoConfig service is stopped; the panel says which. The rest of the scan is not affected.
 
 **The health panel says "self-assigned 169.254.x.x address" (DHCP fail).**
 This computer did not get an address from the router. Check the cable or Wi-Fi connection, and restart the network connection or the computer. Ask the venue to check the DHCP server if it keeps happening.
@@ -219,5 +265,7 @@ pwsh scripts/build.ps1     # same, from PowerShell on Windows
 ```
 
 Set `VERSION=1.2.0` to stamp a version; otherwise `git describe` is used. Each zip contains the binary, this README and HOW-TO-OPEN.txt.
+
+Dev note: the icons are a vendored subset of [Lucide](https://lucide.dev) (ISC licence, `web/vendor/LICENSE-lucide.txt`), packed into the sprite `web/icons.svg`. The sprite is regenerated only by the dev-only tool in `tools/icons` (`npm ci && node build-sprite.mjs`). You do not need it to build or run netdiag.
 
 Refresh the vendor database with `bash scripts/update-oui.sh` (needs network access).

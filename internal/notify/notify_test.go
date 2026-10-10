@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -85,6 +86,29 @@ func TestPrinterAlertNewOnly(t *testing.T) {
 	}
 	if n := e.Observe(printer(true, 50, a), printer(true, 50, a)); len(n) != 0 {
 		t.Fatalf("existing alert: %v", n)
+	}
+}
+
+func TestPrinterAlertClearedAndRelapse(t *testing.T) {
+	e, c := newEng()
+	door := model.Alert{Severity: "critical", Code: "hrPrinterDetectedErrorState.doorOpen", Description: "Door or cover open"}
+	if n := e.Observe(printer(true, 50), printer(true, 50, door)); len(n) != 1 {
+		t.Fatalf("raise: %v", n)
+	}
+	c.t = c.t.Add(30 * time.Second)
+	n := e.Observe(printer(true, 50, door), printer(true, 50))
+	if len(n) != 1 || n[0].Title != "Printer OK again" || n[0].Severity != "info" ||
+		!strings.Contains(n[0].Message, "Door or cover open") {
+		t.Fatalf("cleared: %v", n)
+	}
+	// Relapse inside the cooldown window is still reported.
+	c.t = c.t.Add(30 * time.Second)
+	if n := e.Observe(printer(true, 50), printer(true, 50, door)); len(n) != 1 || n[0].Severity != "critical" {
+		t.Fatalf("relapse: %v", n)
+	}
+	// No notice when nothing was raised before.
+	if n := e.Observe(printer(true, 50), printer(true, 50)); len(n) != 0 {
+		t.Fatalf("quiet: %v", n)
 	}
 }
 

@@ -8,12 +8,15 @@ const HistorySchemaVersion = 2
 
 // Settings is the persisted user configuration (settings.json).
 type Settings struct {
-	SchemaVersion       int               `json:"schemaVersion"`
-	Community           string            `json:"community"`
-	WebServer           SettingsWebServer `json:"webServer"`
-	InternetCheckURL    string            `json:"internetCheckURL"`
-	Alerts              SettingsAlerts    `json:"alerts"`
-	IgnoredConflictMACs []string          `json:"ignoredConflictMACs"`
+	SchemaVersion int    `json:"schemaVersion"`
+	Community     string `json:"community"`
+	// PrinterStatusPollSec is the live-mode printer status poll interval
+	// (2-300 s; 0 or missing means the default 5).
+	PrinterStatusPollSec int               `json:"printerStatusPollSec"`
+	WebServer            SettingsWebServer `json:"webServer"`
+	InternetCheckURL     string            `json:"internetCheckURL"`
+	Alerts               SettingsAlerts    `json:"alerts"`
+	IgnoredConflictMACs  []string          `json:"ignoredConflictMACs"`
 }
 
 // SettingsWebServer configures the optional web server health check.

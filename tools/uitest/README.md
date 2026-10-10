@@ -26,6 +26,7 @@ npm run shots                                    # shots.spec.mjs only (name fil
 Outputs (all under `out/`, git-ignored):
 - `out/shots/<theme>-<width>x<height>.png`: dark and light, at 1440x900 and 390x844 (full page).
 - `out/shots/{empty,health,history,settings}-<theme>.png`: state screenshots.
+- `out/shots/vision-<type>-<theme>-{devices,health}.png` and `out/axe/vision-<type>-<theme>.json`: colour-vision screenshots from `vision.spec.mjs`.
 - `out/axe/<config>.json`: axe violations per screenshot config (also attached to the test report).
 - `out/docs/devices-dark.png` and `out/docs/drawer-light.png`: the two README screenshots.
 - `out/test-results/`: Playwright artifacts.
@@ -39,6 +40,7 @@ Outputs (all under `out/`, git-ignored):
 4. Check that `README.md` still references `docs/img/devices-dark.png` and `docs/img/drawer-light.png`.
 
 Do not add the copies to the harness output folder by hand; `docs/img/` is the committed location.
+The copy into `docs/img/` is manual: the spec writes only to `out/docs/`, and nothing copies the files for you.
 
 ## How it works
 
@@ -74,6 +76,8 @@ Do not add the copies to the harness output folder by hand; `docs/img/` is the c
 - `tests/responsive.spec.mjs`, `motion.spec.mjs`: width and reduced-motion checks.
 - `tests/shots.spec.mjs`: screenshots and axe for the four configs.
 - `tests/docs-shots.spec.mjs`: the two README screenshots.
+- `tests/icons.spec.mjs`: icon presence in the sprite, the icon for each device type, and the device type in the drawer.
+- `tests/vision.spec.mjs`: colour-vision check. Uses CDP `Emulation.setEmulatedVisionDeficiency` for deuteranopia, protanopia and tritanopia, in both themes, and writes the `out/shots/vision-*` files above.
 
 ## Stable hooks used by the specs
 

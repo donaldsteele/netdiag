@@ -60,6 +60,12 @@ type SNMPProber interface {
 	Probe(ctx context.Context, ip, community string) (*snmpprobe.Result, error)
 }
 
+// SNMPStatusPoller is optionally implemented by an SNMPProber; live mode then
+// polls known printers' status objects every StatusPollInterval.
+type SNMPStatusPoller interface {
+	PollStatus(ctx context.Context, ip, community string, t snmpprobe.StatusTarget) (snmpprobe.Status, error)
+}
+
 // PortChecker reports whether a single TCP port of ip is reachable (used by
 // live-mode presence checks).
 type PortChecker interface {
@@ -99,6 +105,10 @@ type Deps struct {
 	Now          func() time.Time
 	// LiveInterval overrides the request's live interval when > 0 (tests).
 	LiveInterval time.Duration
+	// PrinterPoll overrides PrinterPollInterval when > 0 (tests).
+	PrinterPoll time.Duration
+	// StatusPoll overrides StatusPollInterval when > 0 (tests).
+	StatusPoll time.Duration
 
 	// v0.2 dependencies. Unlike the fields above, nil disables the feature
 	// (New does not fill them); DefaultDeps wires the real implementations.
@@ -188,6 +198,10 @@ type snmpProber struct{}
 
 func (snmpProber) Probe(ctx context.Context, ip, community string) (*snmpprobe.Result, error) {
 	return snmpprobe.Probe(ctx, snmpprobe.GoSNMPDialer, ip, community)
+}
+
+func (snmpProber) PollStatus(ctx context.Context, ip, community string, t snmpprobe.StatusTarget) (snmpprobe.Status, error) {
+	return snmpprobe.PollStatus(ctx, snmpprobe.GoSNMPDialer, ip, community, t)
 }
 
 type vendorLookup struct{}
@@ -427,7 +441,10 @@ type runner struct {
 	smu       sync.Mutex
 	settings  model.Settings       // guarded by smu
 	reprobeAt map[string]time.Time // live goroutine only
-	cpWG      sync.WaitGroup       // in-flight live checkpoints
+	polledAt  time.Time            // last live printer poll; live goroutine only
+	tmu       sync.Mutex
+	targets   map[string]snmpprobe.StatusTarget // printer status rows; guarded by tmu
+	cpWG      sync.WaitGroup                    // in-flight live checkpoints
 }
 
 func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, targets []netip.Addr) {
@@ -441,6 +458,7 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 		lastProg:  map[string]time.Time{},
 		settings:  s.settings,
 		reprobeAt: map[string]time.Time{},
+		targets:   map[string]snmpprobe.StatusTarget{},
 	}
 	for _, a := range targets {
 		r.inRange[a.String()] = true
@@ -525,7 +543,7 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 			if rtt > 0 {
 				h.RttMs = rtt
 			}
-			classify(h)
+			classify(h, r.gateway)
 		})
 		r.enqueue(ip)
 	}
@@ -553,7 +571,7 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 				h.Alive = true
 				addSource(h, "mdns")
 				h.MDNS = mergeMDNS(h.MDNS, info)
-				classify(h)
+				classify(h, r.gateway)
 			})
 			r.enqueue(rec.IP)
 		}
@@ -688,6 +706,7 @@ func (r *runner) harvest(ctx context.Context) {
 			addSource(h, "arp")
 			h.MAC = mac
 			h.Vendor = vendor
+			classify(h, r.gateway)
 		})
 		r.enqueue(e.IP)
 	}
@@ -702,6 +721,7 @@ func (r *runner) harvest(ctx context.Context) {
 				if h.Vendor == "" {
 					h.Vendor = vendor
 				}
+				classify(h, r.gateway)
 			})
 		}
 	}
@@ -723,7 +743,7 @@ func (r *runner) probe(ctx context.Context, ip string) {
 			if len(open) > 0 {
 				addSource(h, "tcp")
 			}
-			classify(h)
+			classify(h, r.gateway)
 		})
 		if len(open) == 0 || ctx.Err() != nil {
 			return
@@ -735,7 +755,7 @@ func (r *runner) probe(ctx context.Context, ip string) {
 		if len(web) == 0 {
 			return
 		}
-		r.st.update(ip, func(h *model.Host) { h.Web = web })
+		r.st.update(ip, func(h *model.Host) { h.Web = web; classify(h, r.gateway) })
 	}()
 	go func() {
 		defer wg.Done()
@@ -748,11 +768,12 @@ func (r *runner) probe(ctx context.Context, ip string) {
 				h.Errors = append(h.Errors, "snmp: "+err.Error())
 			}
 			if res != nil {
+				r.setTarget(ip, res.Status)
 				h.Snmp = res.Snmp
 				h.Printer = withSNMPSource(res.Printer)
 				h.Errors = append(h.Errors, res.Errors...)
 			}
-			classify(h)
+			classify(h, r.gateway)
 		})
 	}()
 	go func() {
@@ -767,7 +788,7 @@ func (r *runner) probe(ctx context.Context, ip string) {
 		if name == "" {
 			return
 		}
-		r.st.update(ip, func(h *model.Host) { h.Hostname = name })
+		r.st.update(ip, func(h *model.Host) { h.Hostname = name; classify(h, r.gateway) })
 	}()
 	wg.Wait()
 	ippErrMsg := ""
@@ -784,7 +805,7 @@ func (r *runner) probe(ctx context.Context, ip string) {
 		if ippErrMsg != "" {
 			h.Errors = append(h.Errors, ippErrMsg)
 		}
-		classify(h)
+		classify(h, r.gateway)
 	})
 }
 

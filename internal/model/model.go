@@ -42,9 +42,13 @@ type Host struct {
 	Snmp          *SnmpInfo    `json:"snmp"`
 	IsPrinter     bool         `json:"isPrinter"`
 	PrinterReason string       `json:"printerReason"`
-	Printer       *PrinterInfo `json:"printer"`
-	Errors        []string     `json:"errors"`
-	UpdatedAt     string       `json:"updatedAt"`
+	// DeviceType is the classified device category (see internal/devtype).
+	DeviceType string `json:"deviceType,omitempty"`
+	// DeviceTypeReason names the signal that decided DeviceType.
+	DeviceTypeReason string       `json:"deviceTypeReason,omitempty"`
+	Printer          *PrinterInfo `json:"printer"`
+	Errors           []string     `json:"errors"`
+	UpdatedAt        string       `json:"updatedAt"`
 	// FirstSeen is when the host was first discovered (RFC 3339).
 	FirstSeen string `json:"firstSeen,omitempty"`
 	// IsNew is true for hosts discovered by live mode after the initial scan.

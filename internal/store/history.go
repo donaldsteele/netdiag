@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"netdiag/internal/devtype"
 	"netdiag/internal/model"
 )
 
@@ -91,6 +92,13 @@ func (s *Store) readScan(f fileInfo) (model.ScanResult, error) {
 	}
 	if r.ID == "" {
 		r.ID = f.id
+	}
+	// Back-fill device types for scans saved before v0.4.
+	for i := range r.Hosts {
+		if h := &r.Hosts[i]; h.DeviceType == "" {
+			t, why := devtype.Classify(*h, r.Gateway)
+			h.DeviceType, h.DeviceTypeReason = string(t), why
+		}
 	}
 	return r, nil
 }

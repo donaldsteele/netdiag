@@ -1,0 +1,13 @@
+{
+  "name": "netdiag-icons",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dev-only: builds web/icons.svg from pinned lucide-static icons",
+  "type": "module",
+  "scripts": {
+    "build": "node build-sprite.mjs"
+  },
+  "dependencies": {
+    "lucide-static": "1.55.0"
+  }
+}

@@ -1,0 +1,92 @@
+# Sprite manifest for web/icons.svg. One entry per line: "<sprite-id> <lucide-name>".
+# <lucide-name> must exist as node_modules/lucide-static/icons/<lucide-name>.svg (pinned in package.json).
+# Lines starting with # are comments. Duplicate sprite ids are an error.
+
+# Nav / general
+i-layout-dashboard layout-dashboard
+i-monitor monitor
+i-heart-pulse heart-pulse
+i-activity activity
+i-history history
+i-settings settings
+i-radar radar
+i-square square
+i-download download
+i-power power
+i-search search
+i-filter filter
+i-arrow-up-down arrow-up-down
+i-clock clock
+i-map-pin map-pin
+i-refresh-cw refresh-cw
+i-external-link external-link
+i-chevron-right chevron-right
+i-chevron-down chevron-down
+
+# Alerts / notifications
+i-bell bell
+i-bell-off bell-off
+i-bell-ring bell-ring
+i-notify monitor-smartphone
+i-monitor-smartphone monitor-smartphone
+i-triangle-alert triangle-alert
+i-shield-alert shield-alert
+i-octagon-x octagon-x
+i-info info
+i-sparkles sparkles
+
+# Theme
+i-sun sun
+i-moon moon
+
+# Status / actions
+i-circle-check circle-check
+i-circle-x circle-x
+i-circle-help circle-help
+i-circle-dot circle-dot
+i-diamond diamond
+i-circle-plus circle-plus
+i-plus-circle circle-plus
+i-copy copy
+i-trash-2 trash-2
+i-git-compare git-compare
+i-x x
+i-close x
+
+# Network / device types (generic)
+i-wifi wifi
+i-wifi-off wifi-off
+i-globe globe
+i-web globe
+i-radio-tower radio-tower
+i-rss rss
+i-router router
+i-network network
+i-book-search book-search
+i-cloud cloud
+i-server server
+i-house-wifi house-wifi
+i-printer printer
+i-computer laptop
+i-laptop laptop
+i-smartphone smartphone
+i-tv tv
+i-hard-drive hard-drive
+i-cctv cctv
+i-camera camera
+i-lightbulb lightbulb
+i-device circle-help
+
+# Device-type ids used by the UI
+i-type-gateway router
+i-type-printer printer
+i-type-computer laptop
+i-type-phone smartphone
+i-type-tv tv
+i-type-nas hard-drive
+i-type-camera cctv
+i-type-network network
+i-type-iot lightbulb
+i-type-server server
+i-type-self monitor
+i-type-unknown circle-help

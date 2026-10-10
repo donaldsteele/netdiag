@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"netdiag/internal/ipp"
 	"netdiag/internal/mdns"
 	"netdiag/internal/model"
+	"netdiag/internal/snmpprobe"
 	"netdiag/internal/store"
 )
 
@@ -149,7 +151,7 @@ func TestMDNSOnlyHostDiscoveredAndProbedOnce(t *testing.T) {
 
 func TestMDNSPrinterServiceClassifies(t *testing.T) {
 	h := model.Host{IP: "x", MDNS: &model.MDNSInfo{Services: []string{"_http._tcp", "_ipp._tcp"}}}
-	classify(&h)
+	classify(&h, "")
 	if !h.IsPrinter || h.PrinterReason != "mdns service _ipp._tcp" {
 		t.Fatalf("got %v %q", h.IsPrinter, h.PrinterReason)
 	}
@@ -467,3 +469,129 @@ var (
 	_ SettingsSource = (*store.Store)(nil)
 	_ MDNSBrowser    = mdnsBrowser{}
 )
+
+func TestClassifySetsDeviceType(t *testing.T) {
+	h := model.Host{IP: "10.0.0.1"}
+	classify(&h, "10.0.0.1")
+	if h.DeviceType != "gateway" || h.DeviceTypeReason == "" {
+		t.Fatalf("gateway: %q %q", h.DeviceType, h.DeviceTypeReason)
+	}
+	p := model.Host{IP: "10.0.0.9"}
+	classify(&p, "10.0.0.1")
+	if p.DeviceType == "gateway" || p.DeviceType == "" {
+		t.Fatalf("plain host type = %q", p.DeviceType)
+	}
+	before := p.DeviceType
+	p.MDNS = &model.MDNSInfo{Services: []string{"_ipp._tcp"}}
+	classify(&p, "10.0.0.1")
+	if p.DeviceType != "printer" || p.DeviceType == before {
+		t.Fatalf("after mDNS: %q (before %q)", p.DeviceType, before)
+	}
+}
+
+// scriptSNMP answers for one IP; the first `faulty` calls report an open door,
+// later calls a healthy printer.
+type scriptSNMP struct {
+	mu          sync.Mutex
+	ip          string
+	faulty      int
+	calls       int
+	faultyPolls int
+	polls       int
+}
+
+func (f *scriptSNMP) Probe(ctx context.Context, ip, community string) (*snmpprobe.Result, error) {
+	if ip != f.ip {
+		return nil, fmt.Errorf("%w: timeout", snmpprobe.ErrNoResponse)
+	}
+	f.mu.Lock()
+	f.calls++
+	bad := f.calls <= f.faulty
+	f.mu.Unlock()
+	p := &model.PrinterInfo{Model: "ZD621"}
+	si := &model.SnmpInfo{Version: "v2c", SysDescr: "Zebra ZD621", HrDeviceStatus: "running", HrPrinterStatus: "idle"}
+	if bad {
+		p.Alerts = []model.Alert{{Severity: "critical", Code: "hrPrinterDetectedErrorState.doorOpen", Description: "Door or cover open"}}
+		si.HrDeviceStatus, si.HrPrinterDetectedErrorState = "down", []string{"doorOpen"}
+	}
+	return &snmpprobe.Result{Snmp: si, Printer: p, Status: &snmpprobe.StatusTarget{Version: "v2c", DevIdx: "1", PrtIdx: "1"}}, nil
+}
+
+// PollStatus reports the open door for the first faultyPolls polls, then a
+// healthy printer.
+func (f *scriptSNMP) PollStatus(ctx context.Context, ip, community string, t snmpprobe.StatusTarget) (snmpprobe.Status, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.polls++
+	if f.polls <= f.faultyPolls {
+		return snmpprobe.Status{DeviceStatus: "down", PrinterStatus: "idle", ErrorState: []string{"doorOpen"}}, nil
+	}
+	return snmpprobe.Status{DeviceStatus: "running", PrinterStatus: "idle"}, nil
+}
+
+func TestLivePollClearsPrinterAlert(t *testing.T) {
+	d := fakeDeps()
+	fs := &scriptSNMP{ip: "10.0.0.10", faulty: 1, faultyPolls: 1 << 30}
+	d.SNMP = fs
+	d.PrinterPoll = time.Nanosecond
+	_, res := runCycles(t, d, "10.0.0.0/26", 4)
+	if h := hostByIP(t, res, "10.0.0.10"); h.Printer == nil || len(h.Printer.Alerts) != 0 {
+		t.Fatalf("printer after polls = %+v", h.Printer)
+	}
+	var raised, cleared int
+	for _, n := range res.Notices {
+		if n.IP == "10.0.0.10" && n.Trigger == model.TriggerPrinterAlert {
+			if n.Title == "Printer OK again" {
+				cleared++
+			} else {
+				raised++
+			}
+		}
+	}
+	if raised != 1 || cleared != 1 {
+		t.Fatalf("raised %d cleared %d (%+v)", raised, cleared, res.Notices)
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if fs.calls < 2 {
+		t.Fatalf("snmp calls = %d", fs.calls)
+	}
+}
+
+func TestFastStatusPollClearsPrinterAlert(t *testing.T) {
+	d := fakeDeps()
+	fs := &scriptSNMP{ip: "10.0.0.10", faulty: 1, faultyPolls: 1}
+	d.SNMP = fs
+	d.PrinterPoll = time.Hour // only the fast status poll can notice the fix
+	d.StatusPoll = 5 * time.Millisecond
+	_, res := runCycles(t, d, "10.0.0.0/26", 6)
+	if h := hostByIP(t, res, "10.0.0.10"); h.Printer == nil || len(h.Printer.Alerts) != 0 || h.Snmp.HrDeviceStatus != "running" {
+		t.Fatalf("printer after fast poll = %+v / %+v", h.Printer, h.Snmp)
+	}
+	cleared := 0
+	for _, n := range res.Notices {
+		if n.IP == "10.0.0.10" && n.Title == "Printer OK again" {
+			cleared++
+		}
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if cleared != 1 || fs.polls < 2 || fs.calls != 2 {
+		t.Fatalf("cleared %d, polls %d, full probes %d", cleared, fs.polls, fs.calls)
+	}
+}
+
+func TestStatusEveryFollowsSettings(t *testing.T) {
+	r := &runner{settings: model.Settings{PrinterStatusPollSec: 7}}
+	if got := r.statusEvery(); got != 7*time.Second {
+		t.Fatalf("from settings: %v", got)
+	}
+	r.settings = model.Settings{}
+	if got := r.statusEvery(); got != StatusPollInterval {
+		t.Fatalf("default: %v", got)
+	}
+	r.d.StatusPoll = time.Millisecond
+	if got := r.statusEvery(); got != time.Millisecond {
+		t.Fatalf("deps override: %v", got)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"netdiag/internal/devtype"
 	"netdiag/internal/health"
 	"netdiag/internal/ipp"
 	"netdiag/internal/mdns"
@@ -23,6 +24,16 @@ const CheckpointInterval = 5 * time.Minute
 // ReprobeCooldown caps the full re-probe after a MAC change to once per IP
 // per window, so a flapping IP never causes a probe storm.
 const ReprobeCooldown = 10 * time.Minute
+
+// PrinterPollInterval is how often live mode re-reads known printers' SNMP
+// and IPP status (at most one poll per printer per interval).
+const PrinterPollInterval = 60 * time.Second
+
+// StatusPollInterval is the default (Settings: printerStatusPollSec) for how
+// often live mode reads just the status objects
+// (device status, error bits) of known SNMP printers; a change triggers an
+// immediate full printer poll.
+const StatusPollInterval = 5 * time.Second
 
 // MaxNotices is the number of notices kept on a scan result.
 const MaxNotices = 100
@@ -127,7 +138,7 @@ func healthConfig(s model.Settings) health.Config {
 
 // classify applies the v0.1 printer rules plus IPP data and mDNS printer
 // services.
-func classify(h *model.Host) {
+func classify(h *model.Host, gateway string) {
 	snmpprobe.Apply(h)
 	if h.IsPrinter && h.Printer != nil && h.Printer.Source == ipp.SourceIPP &&
 		(h.Snmp == nil || h.Snmp.HrPrinterStatus == "") {
@@ -138,6 +149,8 @@ func classify(h *model.Host) {
 			h.IsPrinter, h.PrinterReason = true, "mdns service "+svc
 		}
 	}
+	t, why := devtype.Classify(*h, gateway)
+	h.DeviceType, h.DeviceTypeReason = string(t), why
 }
 
 // mergeMDNS returns a new MDNSInfo combining old (may be nil) and add.

@@ -79,6 +79,11 @@
           "to": "80,631,9100"
         },
         {
+          "field": "deviceType",
+          "from": "unknown",
+          "to": "printer"
+        },
+        {
           "field": "printer.state",
           "from": "idle",
           "to": "printing"

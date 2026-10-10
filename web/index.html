@@ -17,11 +17,11 @@
     <div class="brand mono" aria-hidden="true">netdiag</div>
     <nav aria-label="Main">
       <ul class="plain navlist">
-        <li><button type="button" class="navitem" id="tab-devices" :aria-current="view === 'devices' ? 'page' : null" title="Devices" @click="showView('devices')"><span class="ico" aria-hidden="true">&#9638;</span><span class="lbl">Devices</span></button></li>
-        <li><button type="button" class="navitem" id="tab-health" :aria-current="view === 'health' ? 'page' : null" title="Health" @click="showView('health')"><span class="ico" aria-hidden="true">&#9829;</span><span class="lbl">Health</span></button></li>
-        <li><button type="button" class="navitem" id="tab-activity" :aria-current="view === 'activity' ? 'page' : null" title="Activity" @click="showView('activity')"><span class="ico" aria-hidden="true">&#8811;</span><span class="lbl">Activity</span></button></li>
-        <li><button type="button" class="navitem" id="tab-history" :aria-current="view === 'history' ? 'page' : null" title="History" @click="showView('history')"><span class="ico" aria-hidden="true">&#9719;</span><span class="lbl">History</span></button></li>
-        <li><button type="button" class="navitem" id="nav-settings" title="Settings" @click="openSettings()"><span class="ico" aria-hidden="true">&#9881;</span><span class="lbl">Settings</span></button></li>
+        <li><button type="button" class="navitem" id="tab-devices" :aria-current="view === 'devices' ? 'page' : null" title="Devices" @click="showView('devices')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-layout-dashboard"></use></svg><span class="lbl">Devices</span></button></li>
+        <li><button type="button" class="navitem" id="tab-health" :aria-current="view === 'health' ? 'page' : null" title="Health" @click="showView('health')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-heart-pulse"></use></svg><span class="lbl">Health</span></button></li>
+        <li><button type="button" class="navitem" id="tab-activity" :aria-current="view === 'activity' ? 'page' : null" title="Activity" @click="showView('activity')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-activity"></use></svg><span class="lbl">Activity</span></button></li>
+        <li><button type="button" class="navitem" id="tab-history" :aria-current="view === 'history' ? 'page' : null" title="History" @click="showView('history')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-history"></use></svg><span class="lbl">History</span></button></li>
+        <li><button type="button" class="navitem" id="nav-settings" title="Settings" @click="openSettings()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-settings"></use></svg><span class="lbl">Settings</span></button></li>
       </ul>
     </nav>
   </aside>
@@ -46,22 +46,22 @@
       </label>
       <label class="check"><input type="checkbox" id="live-mode" x-model="live" @change="saveLive()" :disabled="running">
         Live mode</label>
-      <button type="submit" class="primary" x-show="!running" :disabled="!cidr.trim()">Scan</button>
-      <button type="button" x-show="running && state !== 'live'" @click="cancel()">Cancel</button>
-      <button type="button" x-show="state === 'live'" @click="cancel()">Stop live</button>
+      <button type="submit" class="primary" x-show="!running" :disabled="!cidr.trim()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-radar"></use></svg>Scan</button>
+      <button type="button" x-show="running && state !== 'live'" @click="cancel()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-square"></use></svg>Cancel</button>
+      <button type="button" x-show="state === 'live'" @click="cancel()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-square"></use></svg>Stop live</button>
       <details class="menu" @keydown.escape="$el.open = false">
-        <summary>Export</summary>
+        <summary><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-download"></use></svg>Export</summary>
         <div class="menupop">
           <button type="button" @click="exportAs('json'); $el.closest('details').open = false" :disabled="!scanId">Export JSON</button>
           <button type="button" @click="exportAs('csv'); $el.closest('details').open = false" :disabled="!scanId">Export CSV</button>
         </div>
       </details>
-      <button type="button" class="danger" @click="quit()">Quit</button>
+      <button type="button" class="danger" @click="quit()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-power"></use></svg>Quit</button>
     </form>
     <div class="hdrtools">
       <span class="livepill" x-show="state === 'live'" x-text="liveText()" :title="liveText()"></span>
       <button type="button" class="chipbtn" :class="'h-' + (healthSummary().includes('fail') ? 'fail' : healthSummary().includes('warn') ? 'warn' : 'ok')"
-              @click="showView('health'); $nextTick(() => $refs.healthPanel && $refs.healthPanel.focus())" x-text="healthSummary()"></button>
+              @click="showView('health'); $nextTick(() => $refs.healthPanel && $refs.healthPanel.focus())" ><svg class="ico" :class="healthSummary().includes('fail') ? 's-bad' : healthSummary().includes('warn') ? 's-warn' : 's-ok'" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + (healthSummary().includes('fail') ? 'circle-x' : healthSummary().includes('warn') ? 'triangle-alert' : 'circle-check')"></use></svg><span x-text="healthSummary()"></span></button>
       <button type="button" class="iconbtn tool" :aria-pressed="!soundOn()" @click="toggleSound()" :disabled="!settings" title="Mute alerts">
         <svg class="ico" aria-hidden="true" focusable="false"><use :href="soundOn() ? 'icons.svg#i-bell' : 'icons.svg#i-bell-off'"></use></svg><span class="sr">Mute alerts</span></button>
       <button type="button" class="iconbtn tool" @click="enableDesktop()" x-show="desktopState() !== 'granted'" title="Enable desktop alerts">
@@ -74,14 +74,14 @@
     <template x-for="b in shownBanners()" :key="b.bid">
       <div class="banner" :class="'sev-' + b.severity" :role="b.severity === 'critical' ? 'alert' : 'status'"
            :aria-live="b.severity === 'critical' ? 'assertive' : 'polite'">
-        <div><strong x-text="(b.severity === 'critical' ? 'Critical: ' : b.severity === 'warn' ? 'Warning: ' : 'Notice: ') + b.title"></strong>
+        <div><svg class="ico" :class="sevClass(b.severity)" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + sevIcon(b.severity)"></use></svg> <strong x-text="(b.severity === 'critical' ? 'Critical: ' : b.severity === 'warn' ? 'Warning: ' : 'Notice: ') + b.title"></strong>
           <span x-text="b.message"></span> <span class="sub" x-show="b.ip" x-text="b.ip"></span></div>
-        <button type="button" @click="dismiss(b.bid)">Dismiss<span class="sr" x-text="' ' + b.title"></span></button>
+        <button type="button" @click="dismiss(b.bid)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-x"></use></svg>Dismiss<span class="sr" x-text="' ' + b.title"></span></button>
       </div>
     </template>
     <div class="banner more" x-show="moreBanners() > 0">
       <span x-text="moreBanners() + ' more'"></span>
-      <button type="button" @click="dismissAll()">Dismiss all</button>
+      <button type="button" @click="dismissAll()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-x"></use></svg>Dismiss all</button>
     </div>
     <p class="sub" role="status" x-show="desktopNote" x-text="desktopNote"></p>
   </section>
@@ -99,7 +99,7 @@
     </section>
 
     <button type="button" id="ticker" class="ticker mono" x-show="view === 'devices' && log.length" @click="showView('activity')" aria-label="Recent activity, open the Activity view">
-      <template x-for="e in logRecent()" :key="e.id"><span class="tick"><span class="lt" x-text="logTime(e)"></span> <span class="lk" :class="'k-' + e.kind" x-text="e.kind.toUpperCase()"></span> <span x-text="e.text"></span></span></template>
+      <template x-for="e in logRecent()" :key="e.id"><span class="tick"><span class="lt" x-text="logTime(e)"></span> <span class="lk" :class="'k-' + e.kind"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + kindIcon(e.kind)"></use></svg><span x-text="e.kind.toUpperCase()"></span></span> <span x-text="e.text"></span></span></template>
     </button>
 
     <section class="dash" aria-label="Network summary" x-show="view === 'devices'">
@@ -107,7 +107,7 @@
         <template x-for="t in tileDefs" :key="t.id">
           <button type="button" class="tile" :class="'t-' + t.id + ' ' + tileTone(t)" :id="'tile-' + t.id"
                   :aria-pressed="filter === t.filter" @click="tileClick(t)">
-            <span class="tl" x-text="t.label"></span>
+            <span class="tl"><svg class="ico tileico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + t.icon"></use></svg><span x-text="t.label"></span></span>
             <span class="tv mono" x-text="shown[t.id] || 0"></span>
           </button>
         </template>
@@ -116,7 +116,8 @@
         <template x-for="p in healthStrip()" :key="p.id">
           <li>
             <button type="button" class="hpill" :class="'hs-' + p.status" :id="'hp-' + p.id" @click="showView('health')">
-              <span class="dot" aria-hidden="true"></span>
+              <svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + p.icon"></use></svg>
+              <svg class="ico" :class="statusShapeClass(p.status)" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusShape(p.status)"></use></svg>
               <span class="hl" x-text="p.label"></span>
               <span class="hv mono" x-text="p.value"></span>
             </button>
@@ -133,15 +134,15 @@
     <section id="health" class="healthpanel" x-show="view === 'health'" aria-labelledby="health-h" tabindex="-1" x-ref="healthPanel">
       <h2 id="health-h">
         <button type="button" class="sort" :aria-expanded="healthOpen" aria-controls="health-body" @click="healthOpen = !healthOpen">
-          <span aria-hidden="true" x-text="healthOpen ? '▼ ' : '▶ '"></span>Network health</button>
+          <svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + (healthOpen ? 'chevron-down' : 'chevron-right')"></use></svg> Network health</button>
         <span class="sub" x-text="healthSummary()"></span>
       </h2>
       <div id="health-body" x-show="healthOpen">
         <ul class="plain hcards" x-show="health && (health.checks || []).length" aria-label="Network health checks">
           <template x-for="c in (health ? health.checks || [] : [])" :key="c.id">
             <li class="hcard" :class="'hc-' + c.status">
-              <div class="hchead"><h3 x-text="c.label"></h3>
-                <span class="hs" :class="'hs-' + c.status"><span aria-hidden="true" x-text="healthIcon(c.status)"></span> <span x-text="healthStatusText(c.status)"></span></span></div>
+              <div class="hchead"><h3><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + checkIcon(c.id)"></use></svg> <span x-text="c.label"></span></h3>
+                <span class="hs" :class="'hs-' + c.status"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusShape(c.status)"></use></svg> <span x-text="healthStatusText(c.status)"></span></span></div>
               <p class="hdetail mono"><span x-text="c.detail"></span>
                 <a href="#" x-show="c.id === 'webserver' && c.status === 'unavailable'" @click.prevent="openSettings()">Set the web server URL in Settings</a></p>
               <p class="hlat mono" x-text="healthLatency(c)"></p>
@@ -150,7 +151,7 @@
         </ul>
         <p class="empty" x-show="!health || !(health.checks || []).length">&gt; no health report yet - press Recheck</p>
         <p>
-          <button type="button" @click="recheck()" :disabled="healthBusy">Recheck</button>
+          <button type="button" @click="recheck()" :disabled="healthBusy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Recheck</button>
           <a href="#" @click.prevent="openSettings()">Settings</a>
           <span class="sub" role="status" x-text="healthMsg"></span>
         </p>
@@ -186,14 +187,14 @@
       <template x-for="h in visible()" :key="h.ip">
           <tr class="host" :class="{isnew: h.isNew, offline: isOffline(h), selected: drawerIP === h.ip}" @click="rowClick($event, h.ip)">
             <th scope="row">
-              <span class="sdot" :class="dotClass(h)" aria-hidden="true"></span>
+              <svg class="ico sico" :class="statusClass(h)" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusIcon(h)"></use></svg>
               <span class="sr" x-text="dotText(h) + ': '"></span>
               <button type="button" class="rowbtn mono" :data-ip="h.ip" aria-haspopup="dialog"
                       :aria-expanded="drawerIP === h.ip" aria-controls="drawer"
                       @click.stop="openDrawer(h.ip)"><span x-text="h.ip"></span><span class="sr"> - show details</span></button>
-              <span class="badge new" x-show="h.isNew">NEW<span class="sr"> device found while live</span></span>
-              <span class="badge offline" x-show="isOffline(h)">OFFLINE<span class="sr"> - device stopped responding</span></span>
-              <span class="badge conflict" x-show="hasConflict(h)">CONFLICT<span class="sr"> - see details</span></span>
+              <span class="badge new" x-show="h.isNew"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-sparkles"></use></svg>NEW<span class="sr"> device found while live</span></span>
+              <span class="badge offline" x-show="isOffline(h)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-wifi-off"></use></svg>OFFLINE<span class="sr"> - device stopped responding</span></span>
+              <span class="badge conflict" x-show="hasConflict(h)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg>CONFLICT<span class="sr"> - see details</span></span>
               <span class="badge" x-show="h.isSelf">this computer</span>
               <span class="badge" x-show="h.ip === gateway">gateway</span>
               <div class="sub" x-show="isOffline(h)" x-text="offlineFor(h)"></div>
@@ -221,7 +222,7 @@
               <span x-show="!(h.web || []).length">-</span>
             </td>
             <td>
-              <span class="badge printer" x-show="h.isPrinter">printer</span>
+              <span class="badge printer" x-show="h.isPrinter"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-printer"></use></svg>printer</span>
               <span class="badge" x-show="h.isPrinter && printerSource(h.printer)" x-text="printerSource(h.printer)"></span>
               <span x-text="statusText(h)"></span>
             </td>
@@ -247,12 +248,12 @@
         <div class="panel">
           <section class="kv">
             <dl>
-              <div><dt>Status</dt><dd><span class="sdot" :class="dotClass(h)" aria-hidden="true"></span> <span x-text="dotText(h)"></span> <span class="badge new" x-show="h.isNew">NEW</span> <span class="badge offline" x-show="isOffline(h)">OFFLINE</span> <span class="badge conflict" x-show="hasConflict(h)">CONFLICT</span> <span class="sub" x-show="isOffline(h)" x-text="offlineFor(h)"></span></dd></div>
+              <div><dt>Status</dt><dd><svg class="ico sico" :class="statusClass(h)" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusIcon(h)"></use></svg> <span x-text="dotText(h)"></span> <span class="badge new" x-show="h.isNew"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-sparkles"></use></svg>NEW</span> <span class="badge offline" x-show="isOffline(h)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-wifi-off"></use></svg>OFFLINE</span> <span class="badge conflict" x-show="hasConflict(h)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg>CONFLICT</span> <span class="sub" x-show="isOffline(h)" x-text="offlineFor(h)"></span></dd></div>
               <div><dt>IP</dt><dd><span class="mono" x-text="h.ip"></span> <button type="button" class="iconbtn" @click="copy(h.ip, 'IP address')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-copy"></use></svg><span class="sr">Copy IP address</span></button></dd></div>
               <div x-show="h.mac"><dt>MAC</dt><dd><span class="mono" x-text="h.mac"></span> <button type="button" class="iconbtn" @click="copy(h.mac, 'MAC address')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-copy"></use></svg><span class="sr">Copy MAC address</span></button></dd></div>
               <div x-show="h.vendor"><dt>Vendor</dt><dd x-text="h.vendor"></dd></div>
               <div x-show="hostName(h)"><dt>Name</dt><dd x-text="hostName(h)"></dd></div>
-              <div><dt>Type</dt><dd x-text="typeOf(h).label"></dd></div>
+              <div id="drawer-type"><dt>Type</dt><dd><span class="typecell"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + typeOf(h).icon"></use></svg><span x-text="typeOf(h).label"></span></span> <span class="sub typereason" x-show="h.deviceTypeReason" x-text="h.deviceTypeReason"></span></dd></div>
             </dl>
           </section>
           <section x-show="h.printerReason"><h3>Printer</h3>
@@ -358,16 +359,16 @@
       <div class="logbar">
         <div class="logfilters" role="group" aria-label="Filter activity by type">
           <template x-for="k in logKinds" :key="k.id">
-            <button type="button" class="chipbtn logchip" :id="'lf-' + k.id" :aria-pressed="!logHidden[k.id]" @click="logToggle(k.id)" x-text="k.label"></button>
+            <button type="button" class="chipbtn logchip" :id="'lf-' + k.id" :aria-pressed="!logHidden[k.id]" @click="logToggle(k.id)"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + kindIcon(k.id)"></use></svg><span x-text="k.label"></span></button>
           </template>
         </div>
-        <button type="button" id="log-copy" @click="copy(logText(), 'activity log')">Copy log</button>
+        <button type="button" id="log-copy" @click="copy(logText(), 'activity log')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-copy"></use></svg>Copy log</button>
       </div>
       <div id="log" class="logbox mono" role="log" aria-label="Activity log" aria-live="off" tabindex="0" x-ref="logBox"
            @scroll.passive="logOnScroll($el)" x-effect="logShown().length; logFollow($refs.logBox)">
         <p class="empty" x-show="!log.length">&gt; no events yet - start a scan</p>
         <template x-for="e in logShown()" :key="e.id">
-          <div class="logline"><span class="lt" x-text="logTime(e)"></span> <span class="lk" :class="'k-' + e.kind" x-text="e.kind.toUpperCase()"></span> <span class="lx" x-text="e.text"></span></div>
+          <div class="logline"><span class="lt" x-text="logTime(e)"></span> <span class="lk" :class="'k-' + e.kind"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + kindIcon(e.kind)"></use></svg><span x-text="e.kind.toUpperCase()"></span></span> <span class="lx" x-text="e.text"></span></div>
         </template>
         <div class="logcursor" aria-hidden="true"><span class="cursor">&#9608;</span></div>
       </div>
@@ -386,7 +387,7 @@
               <td x-text="h.cidr"></td>
               <td x-text="h.error ? 'Unreadable file - delete it' : statsText(h.stats) + ' (' + h.state + ')'"></td>
               <td><span class="badge" x-show="h.live">LIVE</span></td>
-              <td><button type="button" class="danger" @click="deleteHistory(h.id)">Delete<span class="sr" x-text="' scan ' + (h.startedAt || h.id)"></span></button></td>
+              <td><button type="button" class="danger" @click="deleteHistory(h.id)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-trash-2"></use></svg>Delete<span class="sr" x-text="' scan ' + (h.startedAt || h.id)"></span></button></td>
             </tr>
           </template>
         </tbody>
@@ -403,7 +404,7 @@
             <template x-for="o in currentOptions()" :key="o.id"><option :value="o.id" x-text="o.label"></option></template>
           </select>
         </label>
-        <button type="submit" class="primary" :disabled="diffBusy || !currentId">Compare</button>
+        <button type="submit" class="primary" :disabled="diffBusy || !currentId"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-git-compare"></use></svg>Compare</button>
         <button type="button" @click="exportDiff('json')" :disabled="!currentId">Export diff JSON</button>
         <button type="button" @click="exportDiff('csv')" :disabled="!currentId">Export diff CSV</button>
       </form>
@@ -414,17 +415,17 @@
             <p><strong x-text="diff.summary.added"></strong> added, <strong x-text="diff.summary.removed"></strong> removed,
               <strong x-text="diff.summary.changed"></strong> changed
               (<span x-text="diff.base.startedAt"></span> &rarr; <span x-text="diff.current.startedAt"></span>)</p>
-            <h3 class="dh dh-add"><span class="gl" aria-hidden="true">+</span> <span x-text="'Added (' + (diff.added || []).length + ')'"></span></h3>
+            <h3 class="dh dh-add"><span class="gl" aria-hidden="true"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-plus"></use></svg></span> <span x-text="'Added (' + (diff.added || []).length + ')'"></span></h3>
             <div class="tablescroll" x-show="(diff.added || []).length"><table><caption class="sr">Added hosts</caption>
               <thead><tr><th scope="col">IP</th><th scope="col">MAC</th><th scope="col">Vendor</th></tr></thead>
               <tbody><template x-for="h in diff.added" :key="h.ip"><tr><th scope="row" x-text="h.ip"></th><td x-text="h.mac || '-'"></td><td x-text="h.vendor || '-'"></td></tr></template></tbody>
             </table></div>
-            <h3 class="dh dh-rem"><span class="gl" aria-hidden="true">&minus;</span> <span x-text="'Removed (' + (diff.removed || []).length + ')'"></span></h3>
+            <h3 class="dh dh-rem"><span class="gl" aria-hidden="true"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-x"></use></svg></span> <span x-text="'Removed (' + (diff.removed || []).length + ')'"></span></h3>
             <div class="tablescroll" x-show="(diff.removed || []).length"><table><caption class="sr">Removed hosts</caption>
               <thead><tr><th scope="col">IP</th><th scope="col">MAC</th><th scope="col">Vendor</th></tr></thead>
               <tbody><template x-for="h in diff.removed" :key="h.ip"><tr><th scope="row" x-text="h.ip"></th><td x-text="h.mac || '-'"></td><td x-text="h.vendor || '-'"></td></tr></template></tbody>
             </table></div>
-            <h3 class="dh dh-chg"><span class="gl" aria-hidden="true">~</span> <span x-text="'Changed (' + (diff.changed || []).length + ')'"></span></h3>
+            <h3 class="dh dh-chg"><span class="gl" aria-hidden="true"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg></span> <span x-text="'Changed (' + (diff.changed || []).length + ')'"></span></h3>
             <div class="tablescroll" x-show="(diff.changed || []).length"><table><caption class="sr">Changed hosts</caption>
               <thead><tr><th scope="col">IP</th><th scope="col">Changes</th></tr></thead>
               <tbody><template x-for="h in diff.changed" :key="h.ip"><tr><th scope="row" x-text="h.ip"></th>
@@ -442,16 +443,17 @@
     <div class="alert error" role="alert" x-show="settingsError" x-text="settingsError"></div>
     <template x-if="draft">
       <div>
-        <fieldset><legend>Scanning</legend>
+        <fieldset><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-radar"></use></svg>Scanning</legend>
           <label>SNMP community <input type="text" x-model="draft.community" spellcheck="false" autocomplete="off"></label>
+          <label>Printer status check in live mode (seconds, 2-300) <input type="number" min="2" max="300" x-model="draft.printerStatusPollSec"></label>
         </fieldset>
-        <fieldset><legend>Health checks</legend>
+        <fieldset><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-heart-pulse"></use></svg>Health checks</legend>
           <label>Web server URL <input type="text" x-model="draft.webServer.url" placeholder="http://192.168.1.10/" spellcheck="false" autocomplete="off"></label>
           <label>Page must contain <input type="text" x-model="draft.webServer.mustContain" autocomplete="off"></label>
           <label>Expected HTTP status (0 = 200) <input type="number" min="0" max="599" x-model="draft.webServer.expectStatus"></label>
           <label>Internet check URL <input type="text" x-model="draft.internetCheckURL" spellcheck="false" autocomplete="off"></label>
         </fieldset>
-        <fieldset><legend>Alerts</legend>
+        <fieldset><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-bell"></use></svg>Alerts</legend>
           <label class="check"><input type="checkbox" x-model="draft.alerts.sound"> Play a sound</label>
           <label class="check"><input type="checkbox" x-model="draft.alerts.desktop"> Desktop notifications (use "Enable desktop alerts" to grant permission)</label>
           <label class="check"><input type="checkbox" x-model="draft.alerts.triggers.printerOffline"> Printer goes offline</label>
@@ -464,7 +466,7 @@
           <label>Supply threshold (%, 1-100) <input type="number" min="1" max="100" x-model="draft.alerts.supplyThresholdPct"></label>
           <label>Repeat-alert cooldown (seconds, 30-3600) <input type="number" min="30" max="3600" x-model="draft.alerts.cooldownSec"></label>
         </fieldset>
-        <fieldset><legend>Ignored conflict MACs</legend>
+        <fieldset><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-shield-alert"></use></svg>Ignored conflict MACs</legend>
           <p class="sub" x-show="!draft.ignoredConflictMACs.length">None.</p>
           <ul class="plain">
             <template x-for="(m, i) in draft.ignoredConflictMACs" :key="m">

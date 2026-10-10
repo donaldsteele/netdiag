@@ -5,6 +5,7 @@ package notify
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -83,6 +84,15 @@ func (e *Engine) emit(out []model.Notice, trigger, sev, ip, title, msg, keyPart 
 	})
 }
 
+// forget drops the cooldown history of every key starting with prefix.
+func (e *Engine) forget(prefix string) {
+	for k := range e.last {
+		if strings.HasPrefix(k, prefix) {
+			delete(e.last, k)
+		}
+	}
+}
+
 func label(h model.Host) string {
 	switch {
 	case h.Hostname != "":
@@ -142,6 +152,17 @@ func (e *Engine) Observe(prev, cur model.Host) []model.Notice {
 		if pp != nil {
 			for _, a := range pp.Alerts {
 				seen[a.Code+"|"+a.Description] = true
+			}
+			if len(pp.Alerts) > 0 && len(cur.Printer.Alerts) == 0 {
+				descs := make([]string, len(pp.Alerts))
+				for i, a := range pp.Alerts {
+					descs[i] = a.Description
+				}
+				// A fix is a transition: forget the cooldown of the cleared
+				// alerts so a relapse is reported straight away.
+				e.forget(model.TriggerPrinterAlert + "|" + ip + "|")
+				out = e.emit(out, model.TriggerPrinterAlert, "info", ip, "Printer OK again",
+					fmt.Sprintf("%s: cleared %s.", l, strings.Join(descs, ", ")), "cleared")
 			}
 		}
 		for _, a := range cur.Printer.Alerts {

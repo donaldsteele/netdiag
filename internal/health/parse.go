@@ -146,6 +146,19 @@ func bandFromChannel(ch int) string {
 	}
 }
 
+// netshWlanError explains a failed `netsh wlan show interfaces` run using its
+// output; netsh exits 1 with only a generic process error otherwise.
+func netshWlanError(out string, err error) error {
+	low := strings.ToLower(out)
+	switch {
+	case strings.Contains(low, "location permission") || strings.Contains(low, "ms-settings:privacy-location"):
+		return errors.New("Windows blocks Wi-Fi details until Location is on: Settings > Privacy & security > Location, turn on Location services and Let desktop apps access your location")
+	case strings.Contains(low, "wlansvc") || strings.Contains(low, "wireless autoconfig"):
+		return errors.New("Wi-Fi service (WLAN AutoConfig) is not running")
+	}
+	return fmt.Errorf("netsh wlan: %w", err)
+}
+
 // parseNetshWlan parses English `netsh wlan show interfaces`. Output is
 // only trusted when the English "State" key is present.
 func parseNetshWlan(out string) (WiFiInfo, error) {

@@ -41,14 +41,16 @@ func fixture() model.ScanResult {
 		Gateway: "192.168.2.1",
 		Hosts: []model.Host{
 			{
-				IP:        "192.168.10.5",
+				IP:         "192.168.10.5",
+				DeviceType: "unknown", DeviceTypeReason: "no matching signals",
 				Alive:     false,
 				FoundBy:   []string{"arp"},
 				MAC:       "DE:AD:BE:EF:00:01",
 				UpdatedAt: "2026-10-09T10:00:05Z",
 			},
 			{
-				IP:        "192.168.2.200",
+				IP:         "192.168.2.200",
+				DeviceType: "server", DeviceTypeReason: "web server",
 				Alive:     true,
 				Online:    true,
 				LastSeen:  "2026-10-09T10:00:03Z",
@@ -68,7 +70,8 @@ func fixture() model.ScanResult {
 				UpdatedAt: "2026-10-09T10:00:06Z",
 			},
 			{
-				IP:            "192.168.2.10",
+				IP:         "192.168.2.10",
+				DeviceType: "printer", DeviceTypeReason: "hrDeviceType=printer",
 				Alive:         true,
 				FoundBy:       []string{"icmp", "arp"},
 				RttMs:         3.2,
@@ -149,7 +152,8 @@ func fixture() model.ScanResult {
 				UpdatedAt: "2026-10-09T10:00:07Z",
 			},
 			{
-				IP:        "192.168.2.1",
+				IP:         "192.168.2.1",
+				DeviceType: "gateway", DeviceTypeReason: "default gateway",
 				Alive:     true,
 				FoundBy:   []string{"icmp"},
 				RttMs:     1.1,
@@ -168,7 +172,8 @@ func fixture() model.ScanResult {
 				UpdatedAt: "2026-10-09T10:00:04Z",
 			},
 			{
-				IP:        "192.168.2.50",
+				IP:         "192.168.2.50",
+				DeviceType: "self", DeviceTypeReason: "this machine",
 				IsSelf:    true,
 				Alive:     true,
 				FoundBy:   []string{"icmp"},

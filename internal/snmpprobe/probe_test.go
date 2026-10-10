@@ -261,6 +261,34 @@ func TestErrorStatesBitmask(t *testing.T) {
 	}
 }
 
+// Zebra ZD621 with the head open and paused: empty prtAlertTable, status only
+// in HOST-RESOURCES.
+func TestStatusAlerts(t *testing.T) {
+	got := statusAlerts(&model.SnmpInfo{HrDeviceStatus: "down", HrPrinterDetectedErrorState: []string{"doorOpen", "offline", "lowPaper"}})
+	want := []model.Alert{
+		{Severity: "critical", Code: "hrPrinterDetectedErrorState.doorOpen", Description: "Door or cover open"},
+		{Severity: "critical", Code: "hrPrinterDetectedErrorState.offline", Description: "Printer offline or paused"},
+		{Severity: "warning", Code: "hrPrinterDetectedErrorState.lowPaper", Description: "Paper low"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("alert %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if a := statusAlerts(&model.SnmpInfo{HrDeviceStatus: "down"}); len(a) != 1 || a[0].Severity != "critical" {
+		t.Errorf("down without error bits: %+v", a)
+	}
+	if a := statusAlerts(&model.SnmpInfo{HrDeviceStatus: "warning"}); len(a) != 1 || a[0].Severity != "warning" {
+		t.Errorf("warning without error bits: %+v", a)
+	}
+	if a := statusAlerts(&model.SnmpInfo{HrDeviceStatus: "running"}); len(a) != 0 {
+		t.Errorf("healthy printer: %+v", a)
+	}
+}
+
 func TestSupplyPercent(t *testing.T) {
 	cases := []struct {
 		l, m  int64
@@ -300,5 +328,37 @@ func TestClassifyPorts(t *testing.T) {
 	h := &model.Host{Snmp: &model.SnmpInfo{HrPrinterStatus: "idle"}, OpenPorts: []int{9100}}
 	if _, why := Classify(h); !strings.Contains(why, "hrDeviceType") {
 		t.Errorf("first rule should win: %q", why)
+	}
+}
+
+func TestPollStatusMatchesProbe(t *testing.T) {
+	d, _ := load(t, "hp")
+	r, err := Probe(context.Background(), d, "10.0.0.5", "public")
+	if err != nil || r.Status == nil {
+		t.Fatalf("probe: %v, status target %+v", err, r)
+	}
+	s, err := PollStatus(context.Background(), d, "10.0.0.5", "public", *r.Status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := StatusOf(r.Snmp)
+	if s.Key() != want.Key() || s.PrinterStatus != want.PrinterStatus || s.DeviceStatus != "running" {
+		t.Fatalf("poll %+v, probe %+v", s, want)
+	}
+	bad := *r.Status
+	bad.PrtIdx = "999"
+	if _, err := PollStatus(context.Background(), d, "10.0.0.5", "public", bad); err == nil {
+		t.Fatal("unknown row must fail so the caller re-probes")
+	}
+}
+
+func TestStatusKeyIgnoresPrinterStatus(t *testing.T) {
+	a := Status{DeviceStatus: "running", PrinterStatus: "idle", ErrorState: []string{"offline", "doorOpen"}}
+	b := Status{DeviceStatus: "running", PrinterStatus: "printing", ErrorState: []string{"doorOpen", "offline"}}
+	if a.Key() != b.Key() {
+		t.Fatalf("%q != %q", a.Key(), b.Key())
+	}
+	if a.Key() == (Status{DeviceStatus: "running"}).Key() {
+		t.Fatal("error bits must change the key")
 	}
 }

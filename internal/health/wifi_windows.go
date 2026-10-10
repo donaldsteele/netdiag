@@ -12,7 +12,7 @@ func readWiFi(ctx context.Context, r *Runner, iface string) (WiFiInfo, error) {
 	defer cancel()
 	out, err := r.Exec(ctx, "netsh", "wlan", "show", "interfaces")
 	if err != nil {
-		return WiFiInfo{}, err
+		return WiFiInfo{}, netshWlanError(string(out), err)
 	}
 	return parseNetshWlan(string(out))
 }

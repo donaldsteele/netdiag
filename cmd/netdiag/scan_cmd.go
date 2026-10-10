@@ -13,6 +13,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"netdiag/internal/devtype"
 	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
 	"netdiag/internal/report"
@@ -177,7 +178,7 @@ func writeCSV(path string, stdout io.Writer, res model.ScanResult) error {
 
 func printTable(w io.Writer, res model.ScanResult) {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "IP\tMAC\tVENDOR\tHOSTNAME\tFOUND BY\tPORTS\tPRINTER")
+	fmt.Fprintln(tw, "IP\tMAC\tVENDOR\tTYPE\tHOSTNAME\tFOUND BY\tPORTS\tPRINTER")
 	for _, h := range report.SortHosts(res.Hosts) {
 		ip := h.IP
 		switch {
@@ -194,7 +195,11 @@ func printTable(w io.Writer, res model.ScanResult) {
 		if h.IsPrinter {
 			pr = "yes: " + h.PrinterReason
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", ip, h.MAC, h.Vendor, h.Hostname,
+		dt := devtype.Type(h.DeviceType)
+		if h.DeviceType == "" {
+			dt, _ = devtype.Classify(h, res.Gateway)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", ip, h.MAC, h.Vendor, devtype.Label(dt), h.Hostname,
 			strings.Join(h.FoundBy, ","), strings.Join(ports, ","), pr)
 	}
 	tw.Flush()

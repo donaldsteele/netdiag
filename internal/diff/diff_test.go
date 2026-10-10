@@ -87,3 +87,32 @@ func TestIdentical(t *testing.T) {
 		t.Errorf("summary = %+v", d.Summary)
 	}
 }
+
+func TestDeviceTypeChange(t *testing.T) {
+	d := Compare(load(t, "base.json"), load(t, "current.json"))
+	for _, c := range d.Changed {
+		if c.IP == "192.168.1.20" {
+			for _, f := range c.Changes {
+				if f.Field == "deviceType" && f.From == "unknown" && f.To == "printer" {
+					return
+				}
+			}
+		}
+	}
+	t.Error("deviceType unknown->printer change missing")
+}
+
+func TestOldBaseNoSpuriousDeviceType(t *testing.T) {
+	base := load(t, "base.json")
+	for i := range base.Hosts {
+		base.Hosts[i].DeviceType = ""
+	}
+	d := Compare(base, load(t, "current.json"))
+	for _, c := range d.Changed {
+		for _, f := range c.Changes {
+			if f.Field == "deviceType" {
+				t.Errorf("spurious deviceType change: %+v", c)
+			}
+		}
+	}
+}

@@ -64,7 +64,7 @@ func TestSettings(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(s.Dir(), "settings.json"), []byte(`{"community":"x"}`), 0o644)
 	d, _ = s.LoadSettings()
-	if d.Community != "x" || !d.Alerts.Sound || d.SchemaVersion != 1 {
+	if d.Community != "x" || !d.Alerts.Sound || d.SchemaVersion != 1 || d.PrinterStatusPollSec != 5 {
 		t.Fatalf("partial %+v", d)
 	}
 	d.IgnoredConflictMACs = []string{"aa-bb-cc-dd-ee-ff", "AA:BB:CC:DD:EE:FF"}
@@ -77,12 +77,19 @@ func TestSettings(t *testing.T) {
 	if back.WebServer.URL != "http://x.local/" {
 		t.Fatal("not persisted")
 	}
+	z := back
+	z.PrinterStatusPollSec = 0 // older clients omit it
+	if out, err := s.SaveSettings(z); err != nil || out.PrinterStatusPollSec != 5 {
+		t.Fatalf("zero poll interval: %+v %v", out.PrinterStatusPollSec, err)
+	}
 	bad := []func(*model.Settings){
 		func(x *model.Settings) { x.WebServer.URL = "ftp://x" },
 		func(x *model.Settings) { x.Alerts.SupplyThresholdPct = 0 },
 		func(x *model.Settings) { x.Alerts.SupplyThresholdPct = 101 },
 		func(x *model.Settings) { x.Alerts.CooldownSec = 29 },
 		func(x *model.Settings) { x.Alerts.CooldownSec = 3601 },
+		func(x *model.Settings) { x.PrinterStatusPollSec = 1 },
+		func(x *model.Settings) { x.PrinterStatusPollSec = 301 },
 		func(x *model.Settings) { x.InternetCheckURL = "nope" },
 		func(x *model.Settings) { x.IgnoredConflictMACs = []string{"zz"} },
 	}
@@ -234,4 +241,19 @@ func TestConcurrent(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestReadBackfillsDeviceType(t *testing.T) {
+	s := open(t)
+	old := `{"id":"old1","schemaVersion":2,"startedAt":"2026-01-01T10:00:00Z","state":"done","request":{"cidr":"10.0.0.0/24"},"gateway":"10.0.0.1","hosts":[{"ip":"10.0.0.1","online":true},{"ip":"10.0.0.9","online":true}]}`
+	if err := os.WriteFile(filepath.Join(s.Dir(), "history", "20260101T100000Z-old1.json"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.LoadScan("old1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Hosts[0].DeviceType != "gateway" || r.Hosts[1].DeviceType == "" || r.Hosts[1].DeviceTypeReason == "" {
+		t.Fatalf("not back-filled: %+v", r.Hosts)
+	}
 }

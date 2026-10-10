@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"netdiag/internal/model"
 )
 
 // text decodes a PDU to a display string; binary/invalid UTF-8 becomes hex.
@@ -110,6 +112,56 @@ func errorStates(b []byte) []string {
 		}
 		if b[idx]&(0x80>>(uint(i)%8)) != 0 {
 			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// errStateText describes each hrPrinterDetectedErrorState bit; critical
+// states stop printing, the rest are warnings.
+var errStateText = map[string]struct {
+	desc     string
+	critical bool
+}{
+	"lowPaper":                  {"Paper low", false},
+	"noPaper":                   {"Out of paper", true},
+	"lowToner":                  {"Toner low", false},
+	"noToner":                   {"Out of toner", true},
+	"doorOpen":                  {"Door or cover open", true},
+	"jammed":                    {"Paper jam", true},
+	"offline":                   {"Printer offline or paused", true},
+	"serviceRequested":          {"Service requested", true},
+	"inputTrayMissing":          {"Input tray missing", true},
+	"outputTrayMissing":         {"Output tray missing", true},
+	"markerSupplyMissing":       {"Ink, toner or ribbon missing", true},
+	"outputNearFull":            {"Output tray nearly full", false},
+	"outputFull":                {"Output tray full", true},
+	"inputTrayEmpty":            {"Input tray empty", false},
+	"overduePreventMaintenance": {"Maintenance overdue", false},
+}
+
+// statusAlerts derives alerts from the HOST-RESOURCES printer status for
+// printers whose Printer-MIB alert table is empty (e.g. Zebra label printers
+// report a paused or open printer only through these objects).
+func statusAlerts(si *model.SnmpInfo) []model.Alert {
+	var out []model.Alert
+	for _, s := range si.HrPrinterDetectedErrorState {
+		t, ok := errStateText[s]
+		if !ok {
+			continue
+		}
+		sev := "warning"
+		if t.critical {
+			sev = "critical"
+		}
+		out = append(out, model.Alert{Severity: sev, Code: "hrPrinterDetectedErrorState." + s, Description: t.desc})
+	}
+	if len(out) == 0 {
+		switch si.HrDeviceStatus {
+		case "down":
+			out = append(out, model.Alert{Severity: "critical", Code: "hrDeviceStatus.down", Description: "Printer reports it is down"})
+		case "warning":
+			out = append(out, model.Alert{Severity: "warning", Code: "hrDeviceStatus.warning", Description: "Printer reports a warning"})
 		}
 	}
 	return out

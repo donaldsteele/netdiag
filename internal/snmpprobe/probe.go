@@ -17,6 +17,9 @@ type Result struct {
 	Snmp    *model.SnmpInfo
 	Printer *model.PrinterInfo // non-nil only when printer evidence was found
 	Errors  []string           // partial-failure notes, "snmp: ..." prefixed
+	// Status locates the printer status objects for PollStatus (nil when the
+	// host has no hrPrinterTable row).
+	Status *StatusTarget
 }
 
 // Probe queries ip. A sysDescr GET gates all walks: v2c first, v1 fallback only
@@ -112,6 +115,7 @@ func Probe(ctx context.Context, dial Dialer, ip, community string) (*Result, err
 		}
 	}
 	if p, ok := pst[pk]; ok {
+		r.Status = &StatusTarget{Version: version, DevIdx: prtIdx, PrtIdx: pk}
 		if n, ok := num(p); ok {
 			si.HrPrinterStatus = printerStatus(n)
 		} else {
@@ -247,6 +251,9 @@ func Probe(ctx context.Context, dial Dialer, ip, community string) (*Result, err
 			a.Severity = severity(n)
 		}
 		pi.Alerts = append(pi.Alerts, a)
+	}
+	if len(pi.Alerts) == 0 {
+		pi.Alerts = statusAlerts(si)
 	}
 
 	// Console display lines (rows are OIDPrtConsoleBuffer.<host>.<line>).

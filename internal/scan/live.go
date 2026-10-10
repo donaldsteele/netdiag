@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/netip"
 	"slices"
 	"sync"
@@ -10,7 +11,9 @@ import (
 
 	"netdiag/internal/arp"
 	"netdiag/internal/discovery"
+	"netdiag/internal/ipp"
 	"netdiag/internal/model"
+	"netdiag/internal/snmpprobe"
 )
 
 // LiveSweepWorkers caps ICMP concurrency during live-mode cycles.
@@ -26,7 +29,8 @@ const (
 // live runs live mode after the initial scan: it announces the completed
 // initial result, then every interval sweeps only the target addresses not
 // yet known, fully probes each newly found host exactly once and gives every
-// known host one cheap presence check (never a re-probe). Cycles never
+// known host one cheap presence check (never a full re-probe; printers get a
+// status poll every PrinterPollInterval). Cycles never
 // overlap. It returns when ctx is cancelled.
 func (r *runner) live(ctx context.Context, targets []netip.Addr) {
 	interval := r.d.LiveInterval
@@ -44,6 +48,7 @@ func (r *runner) live(ctx context.Context, targets []netip.Addr) {
 	r.s.mu.Unlock()
 	r.stage(model.StageLive)
 	r.s.bus.Publish(model.Event{Type: model.EventSnapshot, Data: r.s.Snapshot()})
+	defer r.startStatusPoll(ctx)()
 
 	status := model.LiveStatus{
 		Unseen:      len(unknown(targets, known)),
@@ -188,7 +193,7 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 				if rtt > 0 {
 					h.RttMs = rtt
 				}
-				classify(h)
+				classify(h, r.gateway)
 			})
 		}
 		_ = discovery.Sweep(ctx, cands, cfg) // errors repeat every cycle; ignore
@@ -215,7 +220,7 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 			}
 			r.st.update(rec.IP, func(h *model.Host) {
 				h.MDNS = mergeMDNS(h.MDNS, info)
-				classify(h)
+				classify(h, r.gateway)
 			})
 			continue
 		}
@@ -225,7 +230,7 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 			h.IsNew = true
 			addSource(h, "mdns")
 			h.MDNS = mergeMDNS(h.MDNS, info)
-			classify(h)
+			classify(h, r.gateway)
 		})
 	}
 
@@ -260,6 +265,7 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 				addSource(h, "arp")
 				h.MAC = mac
 				h.Vendor = vendor
+				classify(h, r.gateway)
 			})
 		case !old.IsSelf && old.MAC != "" && old.MAC != mac && !reset[e.IP]:
 			vendor := r.d.Vendors.Lookup(mac)
@@ -270,6 +276,7 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 				r.st.update(e.IP, func(h *model.Host) {
 					h.MAC = mac
 					h.Vendor = vendor
+					classify(h, r.gateway)
 				})
 				continue
 			}
@@ -284,6 +291,7 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 					IP: h.IP, Alive: true, IsNew: true, FoundBy: []string{"arp"},
 					MAC: mac, Vendor: vendor, FirstSeen: now, Online: true, LastSeen: now,
 				}
+				classify(h, r.gateway)
 				r.st.fresh = true // runs on the state goroutine
 			})
 		}
@@ -312,6 +320,7 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 		}()
 	}
 	wg.Wait()
+	r.pollPrinters(ctx, hosts, isNew)
 	bg.Wait() // health report posted before the analysis
 	if ctx.Err() == nil {
 		r.st.analyze()
@@ -437,4 +446,174 @@ func presenceUpdate(seen bool, now string) func(h *model.Host) *model.Event {
 		reason := fmt.Sprintf("no response to %d checks", h.MissedChecks)
 		return &model.Event{Type: model.EventPresence, Data: model.Presence{IP: h.IP, Online: false, At: now, Reason: reason}}
 	}
+}
+
+// pollPrinters re-reads SNMP (and IPP when port 631 is open) for every known,
+// online printer every PrinterPollInterval, so a cleared jam or a closed door reaches
+// the UI and alerts. Hosts fully probed this cycle (skip) are left alone.
+func (r *runner) pollPrinters(ctx context.Context, hosts []model.Host, skip map[string]bool) {
+	every := r.d.PrinterPoll
+	if every <= 0 {
+		every = PrinterPollInterval
+	}
+	now := r.d.Now()
+	if r.polledAt.IsZero() {
+		r.polledAt = now // the initial scan just probed them
+		return
+	}
+	if now.Sub(r.polledAt) < every {
+		return
+	}
+	r.polledAt = now
+	sem := make(chan struct{}, max(r.d.ProbeWorkers, 1))
+	var wg sync.WaitGroup
+	for _, h := range hosts {
+		if !h.IsPrinter || !h.Online || h.IsSelf || skip[h.IP] || ctx.Err() != nil {
+			continue
+		}
+		ip, hadSNMP := h.IP, h.Snmp != nil
+		hasIPP := r.d.IPP != nil && slices.Contains(h.OpenPorts, ippPort)
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			r.pollPrinter(ctx, ip, hadSNMP, hasIPP)
+		}()
+	}
+	wg.Wait()
+}
+
+// pollPrinter refreshes one printer. A failed poll changes nothing (and adds
+// no errors), so a single lost packet never clears or raises alerts.
+func (r *runner) pollPrinter(ctx context.Context, ip string, hadSNMP, hasIPP bool) {
+	var res *snmpprobe.Result
+	if hadSNMP {
+		var err error
+		if res, err = r.d.SNMP.Probe(ctx, ip, r.req.Community); err != nil || res == nil || ctx.Err() != nil {
+			return
+		}
+		r.setTarget(ip, res.Status)
+	}
+	var ippRes *ipp.Result
+	if hasIPP {
+		ippRes, _ = r.d.IPP.GetPrinterAttributes(ctx, ip, ippPort)
+		if ippRes != nil && ippRes.Printer == nil && ippRes.State == "" {
+			ippRes = nil
+		}
+	}
+	if ctx.Err() != nil || (res == nil && ippRes == nil) {
+		return
+	}
+	r.st.update(ip, func(h *model.Host) {
+		var p *model.PrinterInfo
+		if res != nil {
+			h.Snmp = res.Snmp
+			p = withSNMPSource(res.Printer)
+		}
+		if ippRes != nil {
+			p = mergePrinter(p, ippRes)
+		}
+		if p != nil {
+			h.Printer = p
+		}
+		classify(h, r.gateway)
+	})
+}
+
+// statusEvery is the current status poll interval: Deps.StatusPoll (tests),
+// else the printerStatusPollSec setting, else StatusPollInterval.
+func (r *runner) statusEvery() time.Duration {
+	if r.d.StatusPoll > 0 {
+		return r.d.StatusPoll
+	}
+	r.smu.Lock()
+	sec := r.settings.PrinterStatusPollSec
+	r.smu.Unlock()
+	if sec > 0 {
+		return time.Duration(sec) * time.Second
+	}
+	return StatusPollInterval
+}
+
+// setTarget records (or forgets, for nil) where ip's printer status lives.
+func (r *runner) setTarget(ip string, t *snmpprobe.StatusTarget) {
+	r.tmu.Lock()
+	defer r.tmu.Unlock()
+	if t == nil {
+		delete(r.targets, ip)
+		return
+	}
+	r.targets[ip] = *t
+}
+
+func (r *runner) statusTargets() map[string]snmpprobe.StatusTarget {
+	r.tmu.Lock()
+	defer r.tmu.Unlock()
+	return maps.Clone(r.targets)
+}
+
+// startStatusPoll runs the fast printer status loop for live mode: every
+// statusEvery it GETs only the status objects of each known, online
+// SNMP printer and, when the alert-relevant part differs from the host
+// record, runs a full printer poll at once. The returned func stops nothing
+// by itself; it waits for the loop, which ends when ctx is cancelled.
+func (r *runner) startStatusPoll(ctx context.Context) (wait func()) {
+	sp, ok := r.d.SNMP.(SNMPStatusPoller)
+	if !ok {
+		return func() {}
+	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var jobs sync.WaitGroup
+		defer jobs.Wait()
+		var bmu sync.Mutex
+		busy := map[string]bool{} // one poll per printer in flight
+		timer := time.NewTimer(r.statusEvery())
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+			}
+			timer.Reset(r.statusEvery()) // picks up Settings changes
+			targets := r.statusTargets()
+			if len(targets) == 0 {
+				continue
+			}
+			for _, h := range r.st.snapshot() {
+				t, ok := targets[h.IP]
+				if !ok || !h.IsPrinter || !h.Online {
+					continue
+				}
+				bmu.Lock()
+				if busy[h.IP] {
+					bmu.Unlock()
+					continue
+				}
+				busy[h.IP] = true
+				bmu.Unlock()
+				jobs.Add(1)
+				go func() {
+					defer jobs.Done()
+					defer func() {
+						bmu.Lock()
+						delete(busy, h.IP)
+						bmu.Unlock()
+					}()
+					s, err := sp.PollStatus(ctx, h.IP, r.req.Community, t)
+					if err != nil || ctx.Err() != nil {
+						return // the PrinterPollInterval poll refreshes the target
+					}
+					if s.Key() != snmpprobe.StatusOf(h.Snmp).Key() {
+						r.pollPrinter(ctx, h.IP, true, r.d.IPP != nil && slices.Contains(h.OpenPorts, ippPort))
+					}
+				}()
+			}
+		}
+	}()
+	return wg.Wait
 }

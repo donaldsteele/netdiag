@@ -17,6 +17,7 @@ var CSVColumns = []string{
 	"page_count", "supplies", "printer_status", "errors", "web_urls", "web_titles",
 	"online", "last_seen",
 	"mdns_name", "mdns_services", "printer_source", "conflicts",
+	"device_type",
 }
 
 // WriteCSV writes one row per host (numeric IP order) after a header row.
@@ -94,6 +95,7 @@ func csvRow(h model.Host) []string {
 		join(mdnsServices),
 		printerSource,
 		join(h.Conflicts),
+		h.DeviceType,
 	}
 }
 

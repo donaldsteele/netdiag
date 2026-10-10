@@ -124,6 +124,10 @@ func hostChanges(b, c model.Host) []model.DiffFieldChange {
 	if b.Online != c.Online {
 		add("online", strconv.FormatBool(b.Online), strconv.FormatBool(c.Online))
 	}
+	// Only when both sides carry a type, so old files never yield spurious changes.
+	if b.DeviceType != "" && c.DeviceType != "" && b.DeviceType != c.DeviceType {
+		add("deviceType", b.DeviceType, c.DeviceType)
+	}
 	if bs, cs := printerState(b), printerState(c); bs != cs {
 		add("printer.state", bs, cs)
 	}

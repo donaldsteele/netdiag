@@ -58,6 +58,16 @@ function printerEpson() {
   };
 }
 
+// Device classification per address (all 12 backend types appear); others are unknown.
+const DEVICE_TYPES = {
+  1: ['gateway', 'default gateway'], 50: ['self', 'this computer'],
+  10: ['printer', 'hrDeviceType=printer'], 20: ['printer', 'hrDeviceType=printer'],
+  30: ['nas', 'vendor Netgear ReadyNAS, port 5000'], 31: ['camera', 'RTSP port 554 open'],
+  200: ['server', 'HTTP on port 8080'], 4: ['computer', 'vendor Dell, SMB ports'],
+  12: ['phone', 'vendor Apple, no open ports'], 16: ['tv', 'mDNS _googlecast._tcp'],
+  24: ['network', 'vendor Ubiquiti, SNMP sysDescr'], 28: ['iot', 'vendor Espressif'],
+};
+
 // hosts(): the full 254-address /24 as the server reports it after a scan.
 export function hosts() {
   const out = [];
@@ -101,6 +111,9 @@ export function hosts() {
       h.web = [{ port: 8080, scheme: 'http', url: 'http://192.168.2.200:8080/', status: 0, title: '', server: '', tls: null, error: 'connection reset' }];
     }
     if (n === 123) { h.errors = ['snmp: timeout']; }
+    const dt = DEVICE_TYPES[n];
+    h.deviceType = dt ? dt[0] : 'unknown';
+    h.deviceTypeReason = dt ? dt[1] : 'no identifying signals';
     out.push(h);
   }
   return out;
@@ -147,7 +160,7 @@ export function interfaces() {
 
 export function settings() {
   return {
-    schemaVersion: 1, community: 'public',
+    schemaVersion: 1, community: 'public', printerStatusPollSec: 5,
     webServer: { url: '', mustContain: '', expectStatus: 200 },
     internetCheckURL: '',
     alerts: {

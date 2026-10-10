@@ -16,12 +16,16 @@ import (
 const settingsFile = "settings.json"
 
 // DefaultSettings returns the built-in defaults.
+// DefaultPrinterStatusPollSec is the default live-mode printer status poll.
+const DefaultPrinterStatusPollSec = 5
+
 func DefaultSettings() model.Settings {
 	return model.Settings{
-		SchemaVersion:    model.SettingsSchemaVersion,
-		Community:        model.DefaultCommunity,
-		WebServer:        model.SettingsWebServer{ExpectStatus: 200},
-		InternetCheckURL: "http://connectivitycheck.gstatic.com/generate_204",
+		SchemaVersion:        model.SettingsSchemaVersion,
+		Community:            model.DefaultCommunity,
+		PrinterStatusPollSec: DefaultPrinterStatusPollSec,
+		WebServer:            model.SettingsWebServer{ExpectStatus: 200},
+		InternetCheckURL:     "http://connectivitycheck.gstatic.com/generate_204",
 		Alerts: model.SettingsAlerts{
 			Sound: true, CooldownSec: 300, SupplyThresholdPct: 15,
 			Triggers: model.SettingsTriggers{
@@ -46,6 +50,12 @@ func NormalizeSettings(s model.Settings) (model.Settings, error) {
 	s.Community = strings.TrimSpace(s.Community)
 	if s.Community == "" {
 		s.Community = model.DefaultCommunity
+	}
+	if s.PrinterStatusPollSec == 0 {
+		s.PrinterStatusPollSec = DefaultPrinterStatusPollSec
+	}
+	if s.PrinterStatusPollSec < 2 || s.PrinterStatusPollSec > 300 {
+		return s, errors.New("printerStatusPollSec must be 2-300")
 	}
 	s.WebServer.URL = strings.TrimSpace(s.WebServer.URL)
 	if s.WebServer.URL != "" {
