@@ -31,3 +31,30 @@ func (s *Server) hostAllowed(host string) bool {
 	s.mu.Unlock()
 	return port != "" && (host == "127.0.0.1:"+port || host == "localhost:"+port)
 }
+
+// originAllowed permits an absent Origin or the server's own loopback origin.
+func (s *Server) originAllowed(r *http.Request) bool {
+	o := r.Header.Get("Origin")
+	if o == "" {
+		return true
+	}
+	s.mu.Lock()
+	port := s.port
+	s.mu.Unlock()
+	return o == "http://127.0.0.1:"+port || o == "http://localhost:"+port
+}
+
+// mcpGate applies the Origin check and the runtime enable switch before next.
+func (s *Server) mcpGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.originAllowed(r) {
+			writeError(w, http.StatusForbidden, "forbidden origin")
+			return
+		}
+		if !s.mcpOn.Load() {
+			writeError(w, http.StatusNotFound, "MCP is disabled; enable it in Settings > Agent access")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

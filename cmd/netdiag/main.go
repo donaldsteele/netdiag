@@ -13,7 +13,7 @@ import (
 var version = "dev"
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: netdiag [ui [flags] | scan [flags] | history | compare [flags] | interfaces | version]")
+	fmt.Fprintln(os.Stderr, "usage: netdiag [ui [flags] | scan [flags] | history | compare [flags] | interfaces | mcp [flags] | version]")
 }
 
 func main() {
@@ -39,6 +39,8 @@ func run(args []string) int {
 		return runHistory(args[1:], os.Stdout, os.Stderr)
 	case "compare":
 		return runCompare(args[1:], os.Stdout, os.Stderr)
+	case "mcp":
+		return runMCP(args[1:], os.Stdin, os.Stdout, os.Stderr)
 	case "interfaces":
 		if fs.Parse(args[1:]) != nil {
 			return 2

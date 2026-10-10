@@ -287,3 +287,5 @@ legend .ico{margin-right:6px}
 .drawerhead .ico.big{width:20px;height:20px}
 button>.ico:not([class*=" s-"]),summary>.ico,legend>.ico{color:inherit}
 .tile .tileico{color:var(--fg-muted)}
+
+.mcpurl{margin:4px 0;font-size:14px;overflow-wrap:anywhere}.mcpurl .mono{overflow-wrap:anywhere}

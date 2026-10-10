@@ -116,3 +116,6 @@ func (r *Registry) List() []*Scan {
 	}
 	return out
 }
+
+// Orchestrator returns the orchestrator backing the registry.
+func (r *Registry) Orchestrator() *Orchestrator { return r.o }

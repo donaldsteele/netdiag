@@ -143,8 +143,10 @@ document.addEventListener('alpine:init', () => {
     openSettings() {
       if (!this.settings) { this.settingsError = this.storeDown ? 'The data store is unavailable, so settings cannot be changed.' : 'Settings are not loaded yet.'; }
       else { this.settingsError = ''; }
-      this.draft = JSON.parse(JSON.stringify(this.settings || {community: '', webServer: {}, alerts: {triggers: {}}, ignoredConflictMACs: []}));
+      this.draft = JSON.parse(JSON.stringify(this.settings || {community: '', webServer: {}, alerts: {triggers: {}}, ignoredConflictMACs: [], mcp: {enabled: false}}));
       this.draft.ignoredConflictMACs = this.draft.ignoredConflictMACs || [];
+      this.draft.mcp = this.draft.mcp || {enabled: false};
+      this.draft.mcp.enabled = !!this.draft.mcp.enabled;
       this.$nextTick(() => { const d = this.$refs.dlg; if (d && !d.open) d.showModal(); });
     },
     closeSettings() { const d = this.$refs.dlg; if (d && d.open) d.close(); },

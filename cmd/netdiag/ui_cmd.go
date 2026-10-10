@@ -38,6 +38,7 @@ func runUI(args []string, stdout, stderr io.Writer) int {
 		Registry: scan.NewRegistry(scan.New(scan.DefaultDeps())),
 		Static:   web.FS(),
 		Store:    st,
+		Version:  version,
 	})
 	if err := srv.Listen(*port); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
@@ -46,6 +47,11 @@ func runUI(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	fmt.Fprintf(stdout, "netdiag UI: %s (Ctrl+C to quit)\n", srv.URL())
+	if srv.MCPEnabled() {
+		fmt.Fprintf(stdout, "netdiag MCP: %s (enabled)\n", srv.MCPURL())
+	} else {
+		fmt.Fprintf(stdout, "netdiag MCP: %s (disabled — turn on in Settings > Agent access)\n", srv.MCPURL())
+	}
 	if !*noBrowser {
 		if err := browser.OpenURL(srv.URL()); err != nil {
 			fmt.Fprintln(stderr, "could not open browser:", err)

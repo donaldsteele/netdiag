@@ -36,3 +36,21 @@ test('docs screenshot: device drawer, light theme', async ({ page }) => {
   await fs.mkdir(DOCS_OUT, { recursive: true });
   await page.screenshot({ path: path.join(DOCS_OUT, 'drawer-light.png'), scale: 'css' });
 });
+
+test('docs screenshot: settings, MCP agent access, dark theme', async ({ page }) => {
+  await prepare(page, 'dark');
+  await page.locator('#nav-settings').click();
+  const dialog = page.locator('#settings-dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.locator('#mcp-enabled').check();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await page.locator('#nav-settings').click();
+  await expect(dialog.locator('#mcp-endpoint')).toBeVisible();
+  await dialog.locator('#mcp-enabled').scrollIntoViewIfNeeded();
+  await fs.mkdir(DOCS_OUT, { recursive: true });
+  const out = path.join(DOCS_OUT, 'settings-mcp.png');
+  await dialog.screenshot({ path: out, scale: 'css' });
+  await fs.mkdir(path.resolve('..', '..', 'docs', 'img'), { recursive: true });
+  await fs.copyFile(out, path.resolve('..', '..', 'docs', 'img', 'settings-mcp.png'));
+});

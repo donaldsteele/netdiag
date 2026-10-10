@@ -10,11 +10,16 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"netdiag/internal/health"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"netdiag/internal/mcpserver"
+	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
 	"netdiag/internal/scan"
+	"netdiag/internal/service"
 	"netdiag/internal/store"
 )
 
@@ -26,11 +31,14 @@ type Config struct {
 	Store      *store.Store                    // settings + history; nil makes those endpoints return 503
 	Health     scan.HealthChecker              // defaults to health.NewRunner()
 	Gateway    func() (string, error)          // defaults to the OS default route
+	Service    *service.Service                // optional; built from the fields above when nil
+	Version    string                          // reported to MCP clients; default "dev"
 }
 
 // Server is the HTTP server. Create with New, then Listen and Serve.
 type Server struct {
 	cfg       Config
+	svc       *service.Service
 	keepalive time.Duration
 
 	baseCtx context.Context
@@ -40,23 +48,57 @@ type Server struct {
 	port string
 	ln   net.Listener
 
+	mcpSrv     *mcp.Server
+	mcpHandler http.Handler
+	mcpOn      atomic.Bool
+
 	quit     chan struct{}
 	quitOnce sync.Once
 }
 
 // New returns a server for cfg.
 func New(cfg Config) *Server {
-	if cfg.Interfaces == nil {
-		cfg.Interfaces = netinfo.Interfaces
-	}
-	if cfg.Health == nil {
-		cfg.Health = health.NewRunner()
-	}
-	if cfg.Gateway == nil {
-		cfg.Gateway = defaultGateway
-	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Server{cfg: cfg, keepalive: 15 * time.Second, baseCtx: ctx, cancel: cancel, quit: make(chan struct{})}
+	svc := cfg.Service
+	if svc == nil {
+		svc = service.New(service.Config{Registry: cfg.Registry, Store: cfg.Store, Health: cfg.Health,
+			Interfaces: cfg.Interfaces, Gateway: cfg.Gateway, BaseCtx: ctx})
+	}
+	s := &Server{cfg: cfg, svc: svc, keepalive: 15 * time.Second, baseCtx: ctx, cancel: cancel, quit: make(chan struct{})}
+	s.mcpSrv = mcpserver.New(svc, mcpserver.Options{Transport: "http", Version: cfg.Version})
+	s.mcpHandler = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.mcpSrv },
+		&mcp.StreamableHTTPOptions{MaxRequestBodyBytes: 1 << 20})
+	if svc.HasStore() {
+		if set, err := svc.LoadSettings(); err == nil {
+			s.mcpOn.Store(set.MCP.Enabled)
+		}
+	}
+	svc.SetOnSettingsSaved(s.settingsSaved)
+	return s
+}
+
+// settingsSaved updates the MCP runtime gate; disabling closes live sessions.
+func (s *Server) settingsSaved(set model.Settings) {
+	was := s.mcpOn.Swap(set.MCP.Enabled)
+	if was && !set.MCP.Enabled {
+		for ss := range s.mcpSrv.Sessions() {
+			_ = ss.Close()
+		}
+	}
+}
+
+// MCPEnabled reports whether the MCP endpoint is currently enabled.
+func (s *Server) MCPEnabled() bool { return s.mcpOn.Load() }
+
+// MCPURL returns the MCP endpoint URL; valid after Listen.
+func (s *Server) MCPURL() string { return s.URL() + "/mcp" }
+
+// settingsView is the settings JSON plus the read-only mcpUrl.
+func (s *Server) settingsView(set model.Settings) any {
+	return struct {
+		model.Settings
+		MCPURL string `json:"mcpUrl"`
+	}{set, s.MCPURL()}
 }
 
 // Listen binds 127.0.0.1:port (0 picks a random free port).
@@ -99,6 +141,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/compare", s.handleCompare)
 	mux.HandleFunc("GET /api/compare/export", s.handleCompareExport)
 	mux.HandleFunc("POST /api/conflicts/ignore", s.handleIgnore)
+	for _, m := range []string{"GET", "POST", "DELETE"} {
+		mux.Handle(m+" /mcp", s.mcpGate(s.mcpHandler))
+	}
 	if s.cfg.Static != nil {
 		mux.Handle("GET /", http.FileServerFS(s.cfg.Static))
 	}

@@ -396,3 +396,15 @@ func TestIconLicenseAndVersionsEmbedded(t *testing.T) {
 		t.Errorf("vendor/VERSIONS.txt does not mention lucide-static")
 	}
 }
+
+func TestMCPSettingsUI(t *testing.T) {
+	b, err := readAsset("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`id="mcp-enabled"`, `role="switch"`, `Agent access (MCP)`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+}

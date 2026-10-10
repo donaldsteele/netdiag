@@ -4,6 +4,8 @@ netdiag is a single-binary network diagnostic tool for event staff. It discovers
 
 It answers, within about 10 seconds: what is alive on the network, which devices are printers and what state they are in (toner, paper, alerts), which devices offer a web page you can open, whether the gateway, DHCP, DNS and the event web server are working, and whether two devices are fighting over the same IP address.
 
+> netdiag can also be used by Claude or other AI agents for troubleshooting. See **Connect Claude** below.
+
 First time? Read **HOW-TO-OPEN.txt** (included in your zip). It explains the SmartScreen (Windows) and Gatekeeper (Mac) steps.
 
 ## Quickstart
@@ -20,6 +22,7 @@ First time? Read **HOW-TO-OPEN.txt** (included in your zip). It explains the Sma
    - Click the IP address of a device (or anywhere on its row) to open its **details drawer**: printer model, supplies, SNMP, web links, conflicts and mDNS, with copy buttons for the IP and MAC.
 6. Export with **JSON** or **CSV** (the **Export** menu) if you need to send the results to someone.
 7. Click **Quit** when finished (or press Ctrl+C in the Terminal or console window).
+8. Want Claude to help you read the results? See **Connect Claude** below.
 
 ![netdiag Devices view in the dark theme](docs/img/devices-dark.png)
 
@@ -38,6 +41,109 @@ First time? Read **HOW-TO-OPEN.txt** (included in your zip). It explains the Sma
 ![netdiag details drawer in the light theme](docs/img/drawer-light.png)
 
 Nothing is installed. No administrator rights are needed. The tool only listens on `127.0.0.1` (this computer), with no login. The web page itself makes no requests to the internet. The only outside request netdiag makes is the optional **internet check** (one quick request to a test address, described under Health panel), which runs from this computer.
+
+## Connect Claude (AI agent access via MCP)
+
+netdiag speaks MCP (Model Context Protocol), so Claude or another AI agent on this computer can use it. Claude can read scan results, device details, health checks and history, and it can start scans. It cannot change settings, delete history or ignore MAC addresses.
+
+### Option A: Claude Code (recommended, no window needed)
+
+Open a Terminal (Mac) or Command Prompt / PowerShell (Windows) and run the command for your computer. Use the real path to netdiag.
+
+Windows:
+
+```
+claude mcp add netdiag -- "C:\path\to\netdiag.exe" mcp
+```
+
+Mac:
+
+```
+claude mcp add netdiag -- /path/to/netdiag mcp
+```
+
+Check that it is connected:
+
+```
+claude mcp list
+```
+
+You should see `netdiag` with `✔ Connected`. Then ask Claude something like:
+
+> Use netdiag to scan the network and tell me why the Brother printer is offline.
+
+### Option B: Claude Desktop
+
+Open the Claude Desktop config file. Create it if it does not exist.
+
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- Mac: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+Paste this block, changing the `command` path to where you unzipped netdiag. On Windows, keep the double backslashes.
+
+```json
+{
+  "mcpServers": {
+    "netdiag": {
+      "command": "C:\\path\\to\\netdiag.exe",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+If the file already has other entries, add `"netdiag"` inside the existing `mcpServers` block. Then restart Claude Desktop. netdiag does not need to be open for this option.
+
+### Option C: share the open netdiag window (HTTP)
+
+With this option, Claude sees the same live scan you see in the netdiag window.
+
+1. Start netdiag on a fixed port: `netdiag ui --port 8787`
+2. In the netdiag window, open **Settings** and turn on **Agent access (MCP)** (the switch is off by default).
+3. Copy the address shown there, which looks like `http://127.0.0.1:8787/mcp`.
+4. Add it to Claude Code:
+
+```
+claude mcp add --transport http netdiag http://127.0.0.1:8787/mcp
+```
+
+This only works while the netdiag window is running. If you already added Option A, remove it first with `claude mcp remove netdiag`.
+
+![Settings with the Agent access (MCP) switch and the endpoint address](docs/img/settings-mcp.png)
+
+### What you can ask Claude
+
+Each prompt below uses one of netdiag's built-in playbooks, so Claude knows which checks to run.
+
+- **Triage the network:** "Use netdiag to check the event network and tell me what needs attention first." (`triage_network`)
+- **Printer problems:** "Use netdiag to diagnose the printer at 192.168.1.40." (`diagnose_printer`)
+- **IP conflicts:** "Use netdiag to explain the conflict on 192.168.1.23." (`explain_conflict`)
+- **A missing device:** "The FRONTDESK laptop is not showing up. Use netdiag to find out why." (`device_missing`)
+- **What changed:** "What changed on the network since the last scan? Use netdiag to compare them." (`what_changed`)
+
+### Safety
+
+- Claude can only reach netdiag on this computer (`127.0.0.1`). Nothing on the event network can connect to it.
+- The HTTP option is off until you turn on **Agent access (MCP)**. Claude cannot turn it on itself.
+- Claude cannot change settings, delete history, ignore MAC addresses or quit netdiag.
+- The SNMP community string is never shown to Claude.
+- A scan that Claude starts sends network traffic, just like a click on **Scan**. Only ask Claude to scan networks you are allowed to scan.
+
+### Troubleshooting
+
+**Claude says it has no netdiag tools.**
+Check the path in the command or config file, then restart Claude Desktop or start a new Claude Code session. Run `claude mcp list` to see whether netdiag is connected.
+
+**"connection refused" (HTTP option).**
+The netdiag window is not running, or **Agent access (MCP)** is off in Settings. Start `netdiag ui --port 8787` again and check the switch.
+
+**Mac: "cannot be opened" or Gatekeeper blocks netdiag.**
+Follow the Gatekeeper steps in **HOW-TO-OPEN.txt** (included in your zip) before the first `claude mcp add`. Claude cannot start netdiag while macOS blocks it.
+
+**Windows: SmartScreen blocks netdiag.**
+Choose "More info", then "Run anyway", as described in **HOW-TO-OPEN.txt**. Claude cannot start netdiag until SmartScreen allows it.
+
+For the full list of tools, resources and prompts, and the settings details, see [docs/mcp.md](docs/mcp.md).
 
 ## What it checks
 
@@ -191,6 +297,8 @@ netdiag compare --base ID --current ID --csv diff.csv
 netdiag interfaces                            # list candidate network adapters
 netdiag ui --no-browser                       # start the UI without opening a browser
 netdiag ui --port 8765                        # fixed port (80 and 443 are refused)
+netdiag mcp                                   # AI agent access over stdio (see Connect Claude)
+netdiag mcp --store-dir D:\netdiag-data       # same, using another data folder
 netdiag version
 ```
 

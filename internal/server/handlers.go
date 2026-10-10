@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"netdiag/internal/model"
-	"netdiag/internal/netinfo"
 	"netdiag/internal/report"
 	"netdiag/internal/scan"
 )
@@ -25,16 +24,10 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 }
 
 func (s *Server) handleInterfaces(w http.ResponseWriter, r *http.Request) {
-	list, err := s.cfg.Interfaces()
+	list, err := s.svc.Interfaces()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-	if list == nil {
-		list = []netinfo.Iface{}
-	}
-	for i := range list {
-		list[i].Suggested, _ = netinfo.SuggestTarget(list[i])
 	}
 	writeJSON(w, http.StatusOK, list)
 }
@@ -46,7 +39,7 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	sc, err := s.cfg.Registry.Start(s.baseCtx, req)
+	sc, err := s.svc.Start(req)
 	switch {
 	case errors.Is(err, scan.ErrBusy):
 		writeError(w, http.StatusConflict, err.Error())
@@ -60,7 +53,7 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
-	sc, ok := s.cfg.Registry.Get(r.PathValue("id"))
+	sc, ok := s.svc.Get(r.PathValue("id"))
 	if !ok {
 		writeError(w, http.StatusNotFound, "unknown scan")
 		return
@@ -69,7 +62,7 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.Registry.Cancel(r.PathValue("id")) {
+	if !s.svc.Cancel(r.PathValue("id")) {
 		writeError(w, http.StatusNotFound, "unknown scan")
 		return
 	}
@@ -77,7 +70,7 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
-	sc, ok := s.cfg.Registry.Get(r.PathValue("id"))
+	sc, ok := s.svc.Get(r.PathValue("id"))
 	if !ok {
 		writeError(w, http.StatusNotFound, "unknown scan")
 		return

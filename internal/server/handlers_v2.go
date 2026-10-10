@@ -2,30 +2,40 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"netdiag/internal/diff"
-	"netdiag/internal/health"
 	"netdiag/internal/model"
-	"netdiag/internal/netinfo"
+	"netdiag/internal/service"
 	"netdiag/internal/store"
 )
 
-const healthRunCap = 10 * time.Second
-
 func (s *Server) needStore(w http.ResponseWriter) bool {
-	if s.cfg.Store == nil {
+	if !s.svc.HasStore() {
 		writeError(w, http.StatusServiceUnavailable, "data store unavailable")
 		return false
 	}
 	return true
+}
+
+// svcErr maps a service error to its HTTP response.
+func (s *Server) svcErr(w http.ResponseWriter, err error) {
+	var bad *service.BadRequestError
+	var nf *service.NotFoundError
+	switch {
+	case errors.Is(err, service.ErrNoStore):
+		writeError(w, http.StatusServiceUnavailable, "data store unavailable")
+	case errors.As(err, &bad):
+		writeError(w, http.StatusBadRequest, bad.Msg)
+	case errors.As(err, &nf):
+		writeError(w, http.StatusNotFound, nf.Msg)
+	default:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	}
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -37,33 +47,12 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	if !s.needStore(w) {
+	set, err := s.svc.LoadSettings()
+	if err != nil {
+		s.svcErr(w, err)
 		return
 	}
-	set, err := s.cfg.Store.LoadSettings()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, set)
-}
-
-// saveSettings validates, persists and live-applies settings.
-func (s *Server) saveSettings(w http.ResponseWriter, in model.Settings) (model.Settings, bool) {
-	norm, err := store.NormalizeSettings(in)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return norm, false
-	}
-	out, err := s.cfg.Store.SaveSettings(norm)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return out, false
-	}
-	if sc, ok := s.cfg.Registry.Running(); ok {
-		sc.ApplySettings(out)
-	}
-	return out, true
+	writeJSON(w, http.StatusOK, s.settingsView(set))
 }
 
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
@@ -74,9 +63,12 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &in) {
 		return
 	}
-	if out, ok := s.saveSettings(w, in); ok {
-		writeJSON(w, http.StatusOK, out)
+	out, err := s.svc.SaveSettings(in)
+	if err != nil {
+		s.svcErr(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, s.settingsView(out))
 }
 
 func (s *Server) handleIgnore(w http.ResponseWriter, r *http.Request) {
@@ -89,56 +81,16 @@ func (s *Server) handleIgnore(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	hw, err := net.ParseMAC(strings.TrimSpace(req.MAC))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid mac")
+	if err := s.svc.IgnoreMAC(req.MAC); err != nil {
+		s.svcErr(w, err)
 		return
 	}
-	mac := strings.ToUpper(hw.String())
-	set, err := s.cfg.Store.LoadSettings()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	found := false
-	for _, m := range set.IgnoredConflictMACs {
-		if strings.EqualFold(m, mac) {
-			found = true
-		}
-	}
-	if !found {
-		set.IgnoredConflictMACs = append(set.IgnoredConflictMACs, mac)
-	}
-	if _, ok := s.saveSettings(w, set); ok {
-		w.WriteHeader(http.StatusNoContent)
-	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	var best *model.HealthReport
-	consider := func(h *model.HealthReport) {
-		if h != nil && (best == nil || h.CheckedAt > best.CheckedAt) {
-			best = h
-		}
-	}
-	if sc, ok := s.cfg.Registry.Running(); ok {
-		consider(sc.Snapshot().Health)
-	}
-	if best == nil {
-		for _, sc := range s.cfg.Registry.List() {
-			consider(sc.Snapshot().Health)
-		}
-	}
-	if best == nil && s.cfg.Store != nil {
-		list, _ := s.cfg.Store.ListHistory()
-		for _, e := range list {
-			if res, err := s.cfg.Store.LoadScan(e.ID); err == nil && res.Health != nil {
-				best = res.Health
-				break
-			}
-		}
-	}
-	if best == nil {
+	best, ok := s.svc.LatestHealth()
+	if !ok {
 		writeError(w, http.StatusNotFound, "no health report yet")
 		return
 	}
@@ -153,42 +105,14 @@ func (s *Server) handleHealthRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	in := health.Input{}
-	if list, err := s.cfg.Interfaces(); err == nil && len(list) > 0 {
-		f := list[0]
-		for _, c := range list {
-			if req.Interface != "" && c.Name == req.Interface {
-				f = c
-				break
-			}
-		}
-		in.Iface, in.IfaceIP = f.Name, f.IP
-	}
-	if gw, err := s.cfg.Gateway(); err == nil {
-		in.Gateway = gw
-	}
-	if s.cfg.Store != nil {
-		if set, err := s.cfg.Store.LoadSettings(); err == nil {
-			in.Config = health.Config{WebURL: set.WebServer.URL, MustContain: set.WebServer.MustContain,
-				ExpectStatus: set.WebServer.ExpectStatus, InternetURL: set.InternetCheckURL}
-		}
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), healthRunCap)
-	defer cancel()
-	writeJSON(w, http.StatusOK, s.cfg.Health.Run(ctx, in))
+	writeJSON(w, http.StatusOK, s.svc.RunHealth(r.Context(), req.Interface))
 }
 
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
-	if !s.needStore(w) {
-		return
-	}
-	list, err := s.cfg.Store.ListHistory()
+	list, err := s.svc.ListHistory()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.svcErr(w, err)
 		return
-	}
-	if list == nil {
-		list = []model.HistoryEntry{}
 	}
 	writeJSON(w, http.StatusOK, list)
 }
@@ -198,14 +122,11 @@ func (s *Server) storeErr(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "unknown history id")
 		return
 	}
-	writeError(w, http.StatusInternalServerError, err.Error())
+	s.svcErr(w, err)
 }
 
 func (s *Server) handleHistoryGet(w http.ResponseWriter, r *http.Request) {
-	if !s.needStore(w) {
-		return
-	}
-	res, err := s.cfg.Store.LoadScan(r.PathValue("id"))
+	res, err := s.svc.LoadScan(r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -214,75 +135,23 @@ func (s *Server) handleHistoryGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHistoryDelete(w http.ResponseWriter, r *http.Request) {
-	if !s.needStore(w) {
-		return
-	}
-	if err := s.cfg.Store.DeleteScan(r.PathValue("id")); err != nil {
+	if err := s.svc.DeleteScan(r.PathValue("id")); err != nil {
 		s.storeErr(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// resolveScan finds a scan by id in the live registry, then in history.
-func (s *Server) resolveScan(id string) (model.ScanResult, error) {
-	if sc, ok := s.cfg.Registry.Get(id); ok {
-		return sc.Snapshot(), nil
-	}
-	if s.cfg.Store == nil {
-		return model.ScanResult{}, store.ErrNotFound
-	}
-	return s.cfg.Store.LoadScan(id)
-}
-
-// buildDiff resolves base/current from the query and compares them. On
-// failure it has already written the error response.
+// buildDiff compares the scans named in the query. On failure it has already
+// written the error response.
 func (s *Server) buildDiff(w http.ResponseWriter, r *http.Request) (model.Diff, bool) {
 	q := r.URL.Query()
-	curID, baseID := q.Get("current"), q.Get("base")
-	if curID == "" {
-		writeError(w, http.StatusBadRequest, "current is required")
-		return model.Diff{}, false
-	}
-	cur, err := s.resolveScan(curID)
+	d, err := s.svc.Compare(q.Get("base"), q.Get("current"))
 	if err != nil {
-		s.compareErr(w, err, "current scan not found")
+		s.svcErr(w, err)
 		return model.Diff{}, false
 	}
-	if baseID == "" {
-		if s.cfg.Store == nil {
-			writeError(w, http.StatusNotFound, "no baseline available")
-			return model.Diff{}, false
-		}
-		e, ok, err := s.cfg.Store.Previous(cur.Request.CIDR, cur.ID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return model.Diff{}, false
-		}
-		if !ok {
-			writeError(w, http.StatusNotFound, "no previous scan of "+cur.Request.CIDR)
-			return model.Diff{}, false
-		}
-		baseID = e.ID
-	}
-	if baseID == curID || baseID == cur.ID {
-		writeError(w, http.StatusBadRequest, "base and current must differ")
-		return model.Diff{}, false
-	}
-	base, err := s.resolveScan(baseID)
-	if err != nil {
-		s.compareErr(w, err, "base scan not found")
-		return model.Diff{}, false
-	}
-	return diff.Compare(base, cur), true
-}
-
-func (s *Server) compareErr(w http.ResponseWriter, err error, msg string) {
-	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, msg)
-		return
-	}
-	writeError(w, http.StatusInternalServerError, err.Error())
+	return d, true
 }
 
 func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
@@ -317,16 +186,4 @@ func (s *Server) handleCompareExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	_, _ = w.Write(buf.Bytes())
-}
-
-// defaultGateway is the production Config.Gateway.
-func defaultGateway() (string, error) {
-	r, err := netinfo.DefaultRoute()
-	if err != nil {
-		return "", err
-	}
-	if !r.Gateway.IsValid() {
-		return "", errors.New("no default gateway")
-	}
-	return r.Gateway.String(), nil
 }

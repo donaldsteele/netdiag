@@ -34,7 +34,8 @@ const matchId = (re, p) => {
 export async function installMocks(page, { scenario = 'scan' } = {}) {
   const rec = { requests: [], unmatched: [], external: [], sse: [] };
   const origin = new URL(BASE_URL).origin;
-  let settings = fx.settings();
+  const MCP_URL = 'http://127.0.0.1:8787/mcp';
+  let settings = { ...fx.settings(), mcpUrl: MCP_URL };
   let history = fx.history();
 
   const json = (route, status, body) =>
@@ -55,7 +56,7 @@ export async function installMocks(page, { scenario = 'scan' } = {}) {
     if (method === 'GET' && p === '/api/interfaces') return json(route, 200, fx.interfaces());
     if (method === 'GET' && p === '/api/settings') return json(route, 200, settings);
     if (method === 'PUT' && p === '/api/settings') {
-      settings = JSON.parse(body);
+      settings = { ...JSON.parse(body), mcpUrl: MCP_URL };
       return json(route, 200, settings);
     }
     if (method === 'GET' && p === '/api/health') return json(route, 200, fx.health());

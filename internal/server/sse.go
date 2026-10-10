@@ -12,7 +12,7 @@ import (
 // handleEvents streams a scan's events as server-sent events. The bus replays
 // a snapshot to new subscribers, so late connections see current state first.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
-	sc, ok := s.cfg.Registry.Get(r.PathValue("id"))
+	sc, ok := s.svc.Get(r.PathValue("id"))
 	if !ok {
 		writeError(w, http.StatusNotFound, "unknown scan")
 		return

@@ -257,3 +257,67 @@ func TestReadBackfillsDeviceType(t *testing.T) {
 		t.Fatalf("not back-filled: %+v", r.Hosts)
 	}
 }
+
+func TestTwoStoresSameDir(t *testing.T) {
+	d := t.TempDir()
+	a, err := Open(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Open(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 32)
+	for i, s := range []*Store{a, b} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				if err := s.SaveScan(scan(fmt.Sprintf("w%d-%d", i, j), j, "10.0.0.0/24")); err != nil {
+					errs <- err
+				}
+				if _, err := s.SaveSettings(DefaultSettings()); err != nil {
+					errs <- err
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+	c, err := Open(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := c.ListHistory()
+	if err != nil || len(l) != 10 {
+		t.Fatalf("history %d %v", len(l), err)
+	}
+	filepath.WalkDir(d, func(p string, e os.DirEntry, _ error) error {
+		if e != nil && strings.HasPrefix(e.Name(), ".tmp-") {
+			t.Errorf("stale temp %s", p)
+		}
+		return nil
+	})
+}
+
+func TestSettingsMCPFlag(t *testing.T) {
+	s := open(t)
+	os.WriteFile(filepath.Join(s.Dir(), "settings.json"), []byte(`{"schemaVersion":1,"community":"x"}`), 0o644)
+	d, err := s.LoadSettings()
+	if err != nil || d.MCP.Enabled {
+		t.Fatalf("old file must load disabled: %+v %v", d.MCP, err)
+	}
+	d.MCP.Enabled = true
+	if _, err := s.SaveSettings(d); err != nil {
+		t.Fatal(err)
+	}
+	back, _ := s.LoadSettings()
+	if !back.MCP.Enabled {
+		t.Fatal("mcp.enabled not persisted")
+	}
+}

@@ -119,6 +119,9 @@ type Deps struct {
 	Settings SettingsSource // community, health, alert and conflict settings
 	// CheckpointInterval overrides CheckpointInterval when > 0 (tests).
 	CheckpointInterval time.Duration
+	// LocalPrefixes lists the local interface subnets ProbeHost accepts. When
+	// nil it is derived from netinfo.Interfaces (tests inject a fake).
+	LocalPrefixes func() ([]netip.Prefix, error)
 }
 
 // DefaultDeps returns the production dependencies, including health, mDNS,

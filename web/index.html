@@ -474,6 +474,14 @@
             </template>
           </ul>
         </fieldset>
+        <fieldset><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-network"></use></svg>Agent access (MCP)</legend>
+          <label class="check"><input type="checkbox" role="switch" id="mcp-enabled" x-model="draft.mcp.enabled" aria-describedby="mcp-help"> Allow AI agents to connect (MCP)</label>
+          <p class="sub" id="mcp-help">Lets Claude or other agents on this computer read scan results and run scans. Agents cannot change settings.</p>
+          <p class="sub" id="mcp-status">Status: <span class="hs" :class="settings && settings.mcp && settings.mcp.enabled ? 'hs-ok' : 'hs-info'"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#' + (settings && settings.mcp && settings.mcp.enabled ? 'i-circle-check' : 'i-info')"></use></svg> <span x-text="settings && settings.mcp && settings.mcp.enabled ? 'Enabled' : 'Disabled'"></span></span></p>
+          <p class="mcpurl" id="mcp-endpoint" x-show="settings && settings.mcp && settings.mcp.enabled && settings.mcpUrl">Endpoint: <span class="mono" x-text="settings.mcpUrl"></span> <button type="button" class="iconbtn" @click="copy(settings.mcpUrl, 'MCP endpoint')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-copy"></use></svg><span class="sr">Copy MCP endpoint</span></button></p>
+          <p class="sub" id="mcp-pending" x-show="settings && draft.mcp.enabled !== !!(settings.mcp && settings.mcp.enabled)">Takes effect when you click Save.</p>
+          <p class="sub">Claude Code can also start netdiag itself with the command netdiag mcp — see the README.</p>
+        </fieldset>
       </div>
     </template>
     <p class="actions">

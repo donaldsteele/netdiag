@@ -169,6 +169,7 @@ export function settings() {
         newDevice: true, ipConflict: true, healthFailed: true },
     },
     ignoredConflictMACs: [],
+    mcp: { enabled: false },
   };
 }
 

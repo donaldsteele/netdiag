@@ -17,6 +17,12 @@ type Settings struct {
 	InternetCheckURL     string            `json:"internetCheckURL"`
 	Alerts               SettingsAlerts    `json:"alerts"`
 	IgnoredConflictMACs  []string          `json:"ignoredConflictMACs"`
+	MCP                  SettingsMCP       `json:"mcp"`
+}
+
+// SettingsMCP controls the HTTP MCP endpoint (agent access). Off by default.
+type SettingsMCP struct {
+	Enabled bool `json:"enabled"`
 }
 
 // SettingsWebServer configures the optional web server health check.
