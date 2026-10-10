@@ -201,6 +201,7 @@ Requires Go 1.26.9 or newer (go.mod pins `toolchain go1.26.9`; the Go tool downl
 
 ```
 bash scripts/build.sh      # writes dist/netdiag-<os>-<arch>.zip for all four targets
+pwsh scripts/build.ps1     # same, from PowerShell on Windows
 ```
 
 Set `VERSION=1.2.0` to stamp a version; otherwise `git describe` is used. Each zip contains the binary, this README and HOW-TO-OPEN.txt.
