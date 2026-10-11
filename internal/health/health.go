@@ -1,5 +1,5 @@
 // Package health runs the local network health checks shown in the health
-// panel: gateway, DHCP, DNS, event web server, internet and Wi-Fi.
+// panel: gateway, DHCP, DNS, web server, internet and Wi-Fi.
 package health
 
 import (
@@ -104,7 +104,7 @@ var checkMeta = []struct{ id, label string }{
 	{"gateway", "Gateway reachable"},
 	{"dhcp", "DHCP lease"},
 	{"dns", "DNS resolving"},
-	{"webserver", "Event web server"},
+	{"webserver", "Web server"},
 	{"internet", "Internet reachability"},
 	{"wifi", "Wi-Fi"},
 }
@@ -248,7 +248,7 @@ func (r *Runner) checkDNS(ctx context.Context, in Input) model.HealthCheck {
 func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 	cfg := in.Config
 	if strings.TrimSpace(cfg.WebURL) == "" {
-		return mk(3, model.HealthInfo, "no event web server configured (set one in Settings)", 0)
+		return mk(3, model.HealthInfo, "no web server configured (set one in Settings)", 0)
 	}
 	want := cfg.ExpectStatus
 	if want == 0 {

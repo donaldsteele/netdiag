@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>netdiag · local network diagnostics in one binary</title>
+<meta name="description" content="netdiag finds every device on your local network in about ten seconds: printers and their supplies, web pages, IP conflicts and the health of the gateway, DHCP, DNS and Wi-Fi. One binary, no install, works offline, and Claude can use it over MCP.">
+<meta name="color-scheme" content="dark light">
+<meta property="og:title" content="netdiag: local network diagnostics in one binary">
+<meta property="og:description" content="Every device, printer, web page and conflict on your local network in about ten seconds. No install, offline, MCP-ready.">
+<meta property="og:image" content="https://donaldsteele.github.io/netdiag/assets/shots/devices-dark.png">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+<script>
+  // Apply the saved theme before first paint; no saved choice follows the system.
+  try { var t = localStorage.getItem('netdiag-site-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="#top" aria-label="netdiag home">netdiag<span class="caret" aria-hidden="true"></span></a>
+    <nav aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#tour">Tour</a>
+      <a href="#claude">Claude</a>
+      <a href="#download" class="persist">Download</a>
+      <a href="https://github.com/donaldsteele/netdiag" class="persist">GitHub</a>
+    </nav>
+    <button type="button" class="themebtn" id="themebtn" aria-label="Switch to light theme">
+      <svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-sun"></use></svg>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" id="top">
+    <div class="wrap narrow">
+      <p class="pill"><span class="pulse" aria-hidden="true"></span> v0.5.3 · Windows &amp; macOS · one binary</p>
+      <h1>Know what is on your network in <em>ten&nbsp;seconds</em>.</h1>
+      <p class="capability">Printers, web pages, IP conflicts, and the health of the gateway, DHCP, DNS and Wi-Fi, in one window.</p>
+      <p class="lede">netdiag sweeps the local subnet with ping, ARP, port probes, SNMP, mDNS and IPP, then shows what answered, what it is, and what is wrong with it. Built for whoever gets the call when the printer stops or the Wi-Fi “is down”.</p>
+      <div class="cta">
+        <a class="button primary" href="#download"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-download"></use></svg>Download</a>
+        <a class="button ghost" href="https://github.com/donaldsteele/netdiag">View on GitHub<svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-external-link"></use></svg></a>
+      </div>
+      <p class="micro">Free · Offline · No install · No admin rights · Listens on 127.0.0.1 only</p>
+    </div>
+    <figure class="shot hero-shot">
+      <div class="window">
+        <div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">127.0.0.1 · netdiag · Devices</span></div>
+        <button type="button" class="zoom" aria-label="Enlarge screenshot: Devices view">
+          <img class="t-dark" src="assets/shots/devices-dark.png" width="2560" height="1600" alt="netdiag Devices view: 65 devices alive, 2 printers, 32 web pages, 2 conflicts, health pills and the device table">
+          <img class="t-light" src="assets/shots/devices-light.png" width="2560" height="1600" alt="netdiag Devices view in the light theme" loading="lazy">
+        </button>
+      </div>
+    </figure>
+  </section>
+
+  <section class="stats" aria-label="At a glance">
+    <div class="wrap grid4">
+      <div class="stat"><b>~10 s</b><span>to sweep a /24</span></div>
+      <div class="stat"><b>1 file</b><span>nothing to install</span></div>
+      <div class="stat"><b>0 requests</b><span>to the internet from the page</span></div>
+      <div class="stat"><b>13 tools</b><span>for Claude over MCP</span></div>
+    </div>
+  </section>
+
+  <section class="band" id="features">
+    <div class="wrap">
+      <p class="eyebrow">What it finds</p>
+      <h2>Everything that answered, and what is wrong with it.</h2>
+      <p class="sub">Every status has a shape and a word, never colour alone. Nothing is changed on any device: every probe is read-only.</p>
+      <div class="cards">
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-radar"></use></svg><h3>Every device</h3><p>Parallel ping sweep plus the ARP table, so devices that block ping still show up. Vendor from the MAC, names from DNS and mDNS.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-printer"></use></svg><h3>Printers, in detail</h3><p>Model, serial, page count, toner and drum levels, trays, covers and alerts over SNMP and IPP. Jams and open doors in seconds in live mode.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-globe"></use></svg><h3>Web pages</h3><p>Ports 80, 443, 8080 and 8443 probed for status, title, server and certificate, with a link to open each one.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-heart-pulse"></use></svg><h3>Network health</h3><p>Gateway, DHCP lease, DNS, a web server you rely on, internet reachability and Wi-Fi signal, each with a plain-word status.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-shield-alert"></use></svg><h3>IP conflicts</h3><p>Two devices fighting over one address, one MAC on many IPs, or duplicate names. Mesh nodes and extenders can be ignored in one click.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-bell-ring"></use></svg><h3>Live alerts</h3><p>Leave it running: banners, a beep and optional desktop notifications when a printer jams, a supply runs low or a device drops off.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-type-computer"></use></svg><h3>Device types</h3><p>Printer, TV, NAS, phone, camera, network gear, smart home and more, from real signals. Unknown stays unknown: no guessing.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-git-compare"></use></svg><h3>History &amp; compare</h3><p>Every scan is saved. Compare any two to see what was added, removed or changed, and export it as JSON or CSV.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="tour">
+    <div class="wrap">
+      <p class="eyebrow">A tour</p>
+      <h2>One window for the whole network.</h2>
+      <p class="sub">These are real screens, captured from the app by the same test harness that checks its layout and accessibility.</p>
+
+      <div class="feature">
+        <div class="copy">
+          <p class="reading-label">Device details</p>
+          <h3>Click any row to see everything netdiag knows.</h3>
+          <p>The drawer shows the device's status, addresses with copy buttons, vendor and type with the reason for it, then the printer section: console display, supply bars, trays, covers and alerts. It stays open and updates while live mode runs.</p>
+          <ul class="readings"><li class="r-warn">toner 15% (low)</li><li>SNMP + IPP</li><li>state idle</li></ul>
+        </div>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Devices · 192.168.2.10</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: device details drawer"><img src="assets/shots/drawer.png" width="2560" height="1600" loading="lazy" alt="Details drawer for a Brother printer: low black toner at 15 percent, tray, cover and alert details"></button></div></figure>
+      </div>
+
+      <div class="feature flip">
+        <div class="copy">
+          <p class="reading-label">Health</p>
+          <h3>Is it the network, or the device?</h3>
+          <p>One card per check with a status word, the detail and the response time. A health problem never stops a scan, and the internet check is information only, because plenty of local networks have no internet at all.</p>
+          <ul class="readings"><li class="r-ok">gateway 1.4 ms</li><li class="r-ok">DNS 18.2 ms</li><li class="r-warn">Wi-Fi 48%</li></ul>
+        </div>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Health</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: health view"><img src="assets/shots/health.png" width="2560" height="1600" loading="lazy" alt="Health view with cards for gateway, DHCP, DNS, web server, internet and Wi-Fi"></button></div></figure>
+      </div>
+
+      <div class="feature">
+        <div class="copy">
+          <p class="reading-label">Activity</p>
+          <h3>A running log of what changed.</h3>
+          <p>Scan stages, new and offline devices, conflicts, health changes and printer notices, each with the time. Filter by kind with the chips and copy the visible lines to send to someone.</p>
+          <ul class="readings"><li>500 lines kept</li><li class="r-warn">conflict</li><li class="r-info">notice</li></ul>
+        </div>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Activity</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: activity log"><img src="assets/shots/activity.png" width="2560" height="1600" loading="lazy" alt="Activity log showing scan stages, an IP conflict and a toner-low notice"></button></div></figure>
+      </div>
+
+      <div class="feature flip">
+        <div class="copy">
+          <p class="reading-label">History</p>
+          <h3>What changed since the last scan?</h3>
+          <p>The last 20 scans are kept. Pick a baseline and a current scan to see devices added, removed and changed (addresses, ports, printer state, supplies), with from-to text for each change.</p>
+          <ul class="readings"><li class="r-ok">1 added</li><li class="r-bad">1 removed</li><li class="r-warn">2 changed</li></ul>
+        </div>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">History &amp; compare</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: history and compare"><img src="assets/shots/history.png" width="2560" height="1600" loading="lazy" alt="History list of saved scans and a comparison with added, removed and changed devices"></button></div></figure>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="band claude" id="claude">
+    <div class="wrap">
+      <p class="eyebrow">New in 0.5</p>
+      <h2>Ask Claude what is wrong with the network.</h2>
+      <p class="sub">netdiag speaks MCP (Model Context Protocol), so Claude or another AI agent on this computer can read scan results and run diagnostics, and explain them in plain words.</p>
+
+      <div class="split">
+        <div>
+          <div class="term">
+            <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Terminal · Claude Code</span></div>
+            <div class="cmd"><code><span class="prompt">$</span> claude mcp add netdiag -- "C:\path\to\netdiag.exe" mcp</code><button type="button" class="copybtn" data-copy='claude mcp add netdiag -- "C:\path\to\netdiag.exe" mcp'>Copy</button></div>
+            <div class="cmd"><code><span class="prompt">$</span> claude mcp list</code><button type="button" class="copybtn" data-copy="claude mcp list">Copy</button></div>
+            <div class="out"><code>netdiag: … mcp - <span class="ok">✔ Connected</span></code></div>
+            <div class="out ask"><code><span class="you">&gt;</span> Use netdiag to scan the network and tell me why the Brother printer is offline.</code></div>
+          </div>
+          <p class="note">On a Mac use <code>/path/to/netdiag mcp</code>. Claude Desktop and sharing the open window over HTTP are covered in the <a href="https://github.com/donaldsteele/netdiag#connect-claude-ai-agent-access-via-mcp">README</a>.</p>
+          <h3 class="minor">Built-in playbooks</h3>
+          <ul class="plays">
+            <li><code>triage_network</code> What needs attention first?</li>
+            <li><code>diagnose_printer</code> Why is this printer not printing?</li>
+            <li><code>explain_conflict</code> Who is fighting over this IP?</li>
+            <li><code>device_missing</code> Why is this laptop not showing up?</li>
+            <li><code>what_changed</code> What is different since the last scan?</li>
+          </ul>
+        </div>
+        <div>
+          <figure class="shot dialog-shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Settings · Agent access</span></div>
+            <button type="button" class="zoom" aria-label="Enlarge screenshot: agent access settings"><img src="assets/shots/settings-mcp.png" width="1180" height="482" loading="lazy" alt="Settings dialog with the Agent access (MCP) switch turned on and the endpoint address with a copy button"></button></div></figure>
+          <ul class="safety">
+            <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-circle-check"></use></svg>Read and diagnose only: agents cannot change settings, delete history or quit.</li>
+            <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-circle-check"></use></svg>The SNMP community string is never shown to the agent.</li>
+            <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-circle-check"></use></svg>This computer only (127.0.0.1). HTTP access is off until you switch it on.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="download">
+    <div class="wrap">
+      <p class="eyebrow">Download</p>
+      <h2>Unzip it, run it, click Scan.</h2>
+      <p class="sub">No installer and no administrator rights. Your browser opens to netdiag on this computer. First time? Read <code>HOW-TO-OPEN.txt</code> in the zip for the SmartScreen (Windows) and Gatekeeper (Mac) steps.</p>
+      <div class="dl">
+        <div class="plat">
+          <h3><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-monitor"></use></svg>Windows</h3>
+          <a class="button primary" href="https://github.com/donaldsteele/netdiag/releases/latest/download/netdiag-windows-amd64.zip">Intel / AMD (x64)</a>
+          <a class="button ghost" href="https://github.com/donaldsteele/netdiag/releases/latest/download/netdiag-windows-arm64.zip">ARM (Snapdragon)</a>
+          <p>Double-click <code>netdiag.exe</code>.</p>
+        </div>
+        <div class="plat">
+          <h3><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-laptop"></use></svg>macOS</h3>
+          <a class="button primary" href="https://github.com/donaldsteele/netdiag/releases/latest/download/netdiag-darwin-arm64.zip">Apple silicon (M1 and later)</a>
+          <a class="button ghost" href="https://github.com/donaldsteele/netdiag/releases/latest/download/netdiag-darwin-amd64.zip">Intel</a>
+          <p>Run <code>./netdiag</code> in Terminal.</p>
+        </div>
+      </div>
+      <ol class="steps">
+        <li><b>Connect</b> to the network you want to check, by Wi-Fi or cable.</li>
+        <li><b>Start netdiag.</b> The interface and address range are filled in for you.</li>
+        <li><b>Click Scan</b> and read the tiles: alive, printers, web, mDNS, offline, conflicts.</li>
+      </ol>
+      <p class="sub small">All releases and notes: <a href="https://github.com/donaldsteele/netdiag/releases">github.com/donaldsteele/netdiag/releases</a></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="wordmark small">netdiag<span class="caret" aria-hidden="true"></span></span>
+    <span class="fine">Only scan networks you are allowed to scan. Fonts: Inter and JetBrains Mono (SIL OFL). Icons: Lucide (ISC).</span>
+    <nav aria-label="Footer"><a href="https://github.com/donaldsteele/netdiag">GitHub</a><a href="https://github.com/donaldsteele/netdiag/releases">Releases</a><a href="mcp.html">MCP reference</a></nav>
+  </div>
+</footer>
+
+<dialog id="lightbox" aria-label="Screenshot">
+  <form method="dialog"><button class="close" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-x"></use></svg></button></form>
+  <img alt="">
+</dialog>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

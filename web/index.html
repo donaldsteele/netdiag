@@ -187,11 +187,11 @@
       <template x-for="h in visible()" :key="h.ip">
           <tr class="host" :class="{isnew: h.isNew, offline: isOffline(h), selected: drawerIP === h.ip}" @click="rowClick($event, h.ip)">
             <th scope="row">
-              <svg class="ico sico" :class="statusClass(h)" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusIcon(h)"></use></svg>
+              <span class="ipline"><svg class="ico sico" :class="statusClass(h)" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusIcon(h)"></use></svg>
               <span class="sr" x-text="dotText(h) + ': '"></span>
               <button type="button" class="rowbtn mono" :data-ip="h.ip" aria-haspopup="dialog"
                       :aria-expanded="drawerIP === h.ip" aria-controls="drawer"
-                      @click.stop="openDrawer(h.ip)"><span x-text="h.ip"></span><span class="sr"> - show details</span></button>
+                      @click.stop="openDrawer(h.ip)"><span x-text="h.ip"></span><span class="sr"> - show details</span></button></span>
               <span class="badge new" x-show="h.isNew"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-sparkles"></use></svg>NEW<span class="sr"> device found while live</span></span>
               <span class="badge offline" x-show="isOffline(h)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-wifi-off"></use></svg>OFFLINE<span class="sr"> - device stopped responding</span></span>
               <span class="badge conflict" x-show="hasConflict(h)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg>CONFLICT<span class="sr"> - see details</span></span>

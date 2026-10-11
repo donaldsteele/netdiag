@@ -135,7 +135,7 @@ export function health() {
       { id: 'gateway', label: 'Default gateway', status: 'ok', detail: `Reachable at ${GATEWAY}`, latencyMs: 1.4 },
       { id: 'dhcp', label: 'DHCP', status: 'ok', detail: 'Lease active, 23h remaining', latencyMs: 0 },
       { id: 'dns', label: 'DNS', status: 'ok', detail: 'Resolved in 18 ms', latencyMs: 18.2 },
-      { id: 'webserver', label: 'Event web server', status: 'unavailable', detail: 'No web server URL configured', latencyMs: 0 },
+      { id: 'webserver', label: 'Web server', status: 'unavailable', detail: 'No web server URL configured', latencyMs: 0 },
       { id: 'internet', label: 'Internet', status: 'ok', detail: 'Reachable', latencyMs: 42.7 },
       { id: 'wifi', label: 'Wi-Fi', status: 'warn', detail: 'Signal 48% on 5 GHz', latencyMs: 0 },
     ],

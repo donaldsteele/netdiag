@@ -1,4 +1,4 @@
-// Command netdiag is a network diagnostic tool for event staff.
+// Command netdiag is a local network diagnostic tool.
 package main
 
 import (

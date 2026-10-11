@@ -1,8 +1,8 @@
 # netdiag
 
-netdiag is a single-binary network diagnostic tool for event staff. It discovers devices on the local subnet (ICMP, ARP, port probes, SNMP, mDNS, IPP) and reports printers, web services and the health of the event network through a local browser UI.
+netdiag is a single-binary diagnostic tool for local networks. It discovers devices on the local subnet (ICMP, ARP, port probes, SNMP, mDNS, IPP) and reports printers, web services and the health of the network through a local browser UI.
 
-It answers, within about 10 seconds: what is alive on the network, which devices are printers and what state they are in (toner, paper, alerts), which devices offer a web page you can open, whether the gateway, DHCP, DNS and the event web server are working, and whether two devices are fighting over the same IP address.
+It answers, within about 10 seconds: what is alive on the network, which devices are printers and what state they are in (toner, paper, alerts), which devices offer a web page you can open, whether the gateway, DHCP, DNS and your web server are working, and whether two devices are fighting over the same IP address.
 
 > netdiag can also be used by Claude or other AI agents for troubleshooting. See **Connect Claude** below.
 
@@ -10,12 +10,12 @@ First time? Read **HOW-TO-OPEN.txt** (included in your zip). It explains the Sma
 
 ## Quickstart
 
-1. Plug into the event network (router Wi-Fi or cable).
+1. Connect to the network you want to check (Wi-Fi or cable).
 2. Unzip the file for your computer and start `netdiag` (double-click `netdiag.exe` on Windows, or `./netdiag` in Terminal on Mac).
 3. Your browser opens to the netdiag page on this computer only.
 4. Check the interface and address range (pre-filled). Click **Scan**.
 5. Read the results:
-   - **Devices** (the default view): the stat tiles (Alive, Printers, Web, mDNS, Offline, Conflicts). Click a tile to filter the table to those devices. Below them is the health strip (gateway, DHCP, DNS, internet, Wi-Fi and event web server) and the hosts table (see below).
+   - **Devices** (the default view): the stat tiles (Alive, Printers, Web, mDNS, Offline, Conflicts). Click a tile to filter the table to those devices. Below them is the health strip (gateway, DHCP, DNS, internet, Wi-Fi and web server) and the hosts table (see below).
    - **Health** (sidebar, or click a health pill): one card per check, with its status, detail and response time (see **Health panel** below).
    - **Activity**: the live activity log of the scan and of live-mode events (see below).
    - **History**: earlier scans, and a **Compare** view that shows what changed between two of them.
@@ -115,7 +115,7 @@ This only works while the netdiag window is running. If you already added Option
 
 Each prompt below uses one of netdiag's built-in playbooks, so Claude knows which checks to run.
 
-- **Triage the network:** "Use netdiag to check the event network and tell me what needs attention first." (`triage_network`)
+- **Triage the network:** "Use netdiag to check the network and tell me what needs attention first." (`triage_network`)
 - **Printer problems:** "Use netdiag to diagnose the printer at 192.168.1.40." (`diagnose_printer`)
 - **IP conflicts:** "Use netdiag to explain the conflict on 192.168.1.23." (`explain_conflict`)
 - **A missing device:** "The FRONTDESK laptop is not showing up. Use netdiag to find out why." (`device_missing`)
@@ -123,7 +123,7 @@ Each prompt below uses one of netdiag's built-in playbooks, so Claude knows whic
 
 ### Safety
 
-- Claude can only reach netdiag on this computer (`127.0.0.1`). Nothing on the event network can connect to it.
+- Claude can only reach netdiag on this computer (`127.0.0.1`). Nothing else on the network can connect to it.
 - The HTTP option is off until you turn on **Agent access (MCP)**. Claude cannot turn it on itself.
 - Claude cannot change settings, delete history, ignore MAC addresses or quit netdiag.
 - The SNMP community string is never shown to Claude.
@@ -153,7 +153,7 @@ For the full list of tools, resources and prompts, and the settings details, see
 - **SNMP v2c** (falling back to v1) read-only queries using the community string (default `public`): system name and description, printer model, serial, page count, supplies, trays, covers, alerts. netdiag never changes device settings.
 - **mDNS (Bonjour)** browse on the chosen network: names such as "Brother HL-L2350DW" and the services a device advertises (printing, web, AirPlay and so on). This also finds devices that block ping. See **Printer discovery** below.
 - **IPP** (port 631): for printers that answer, the printer's state and supply levels are read when SNMP is off or incomplete. Read-only.
-- **Health checks** on the event network (see **Health panel**).
+- **Health checks** on the local network (see **Health panel**).
 - The **gateway (router)** and **this computer** are labelled.
 
 Scans are limited to ranges of /22 (1024 addresses) or smaller. A /24 typically finishes in under 10 seconds.
@@ -166,9 +166,9 @@ The health panel sits above the hosts table. Each row shows an icon, a text stat
 |---|---|
 | **Gateway reachable** | The router answers a ping. A fail means this computer cannot reach the router at all. |
 | **DHCP lease** | Whether this computer got its address from DHCP (normal) or is using a static address. An address in the 169.254.x.x range (APIPA) means DHCP failed, and the check reports `fail`. |
-| **DNS resolving** | Whether names such as the event web server can be looked up. |
-| **Event web server** | Your event's own web page (set the address in **Settings**, "Web server URL"). netdiag reports the HTTP status, the response time and, if you set one, whether the page contains your "must contain" text. If you have not set a URL the check shows "not configured" (info, not a fault). |
-| **Internet reachability** | Information only. It asks a test address (`http://connectivitycheck.gstatic.com/generate_204` by default, changeable in Settings) whether the internet is reachable. It never shows `fail`, because an offline event network is normal. |
+| **DNS resolving** | Whether names such as your web server can be looked up. |
+| **Web server** | A web page you rely on, such as your own site or an intranet page (set the address in **Settings**, "Web server URL"). netdiag reports the HTTP status, the response time and, if you set one, whether the page contains your "must contain" text. If you have not set a URL the check shows "not configured" (info, not a fault). |
+| **Internet reachability** | Information only. It asks a test address (`http://connectivitycheck.gstatic.com/generate_204` by default, changeable in Settings) whether the internet is reachable. It never shows `fail`, because a network without internet access is normal for many local setups. |
 | **Wi-Fi** | SSID (network name), signal strength, channel, band and link speed, when the computer is on Wi-Fi. A wired computer shows "not on Wi-Fi" (info). On Windows in a non-English language, or when the details cannot be read, it shows "unavailable". On a Mac, macOS can hide the network name unless the app has Location permission; netdiag then shows "hidden by macOS". |
 
 Statuses: `ok` (fine), `warn` (worth a look), `fail` (broken), `info` (for information, including "not configured" and "not on Wi-Fi"), and `unavailable` (netdiag could not read this check, with the reason in the detail). A health problem never stops a scan.
@@ -190,7 +190,7 @@ Conflicts show as a red or amber **CONFLICT** label on the affected rows, are li
 - **mDNS** finds devices that announce themselves on the local network. netdiag sends its questions from an ephemeral (random) UDP port and does not take over the standard mDNS port, so it does not disturb macOS or Windows. The device's Bonjour name is shown under its IP address, and the services it advertises appear in the detail panel. A device that only shows up through mDNS is marked "mdns service _ipp._tcp" (or similar) as the reason it is treated as a printer.
 - **IPP** asks a printer that has port 631 open for its state (idle, processing, stopped), its state reasons (for example "media empty") and its supply levels. The printer's source tag reads **via IPP**, **via SNMP** or **via SNMP + IPP** (both were used, with SNMP values taking priority).
 - If nothing answers mDNS, the scan shows the note "mdns: no responses". This is information only and the scan carries on. A firewall (Windows Defender Firewall, or a VPN client) can block mDNS, and some guest networks do not forward it.
-- netdiag uses the network you chose on the first screen. If you have more than one adapter (for example Wi-Fi and a docking station), pick the one connected to the event network.
+- netdiag uses the network you chose on the first screen. If you have more than one adapter (for example Wi-Fi and a docking station), pick the one connected to the network you want to check.
 
 ## Device types
 
@@ -313,13 +313,13 @@ Ranges can be CIDR (`192.168.1.0/24`), a dash range (`192.168.1.10-192.168.1.50`
 ## Troubleshooting
 
 **Only the router (gateway) responds, or only a few devices show up.**
-Wi-Fi "client isolation" (sometimes called AP isolation or guest mode) stops devices from seeing each other. netdiag shows this warning when only the gateway answers. Connect to the event's main network (not a guest network), or ask the venue to turn off client isolation. A wired connection to the event switch usually avoids the problem.
+Wi-Fi "client isolation" (sometimes called AP isolation or guest mode) stops devices from seeing each other. netdiag shows this warning when only the gateway answers. Connect to the main network (not a guest network), or ask the network owner to turn off client isolation. A wired connection to the switch usually avoids the problem.
 
 **A printer shows an error on its own screen but netdiag shows it green.**
 Printer status is only watched in live mode, so make sure **Live mode** is on. The printer must also answer SNMP with the community set in Settings: its details panel shows **Data via SNMP** and an SNMP system section. A printer found only through IPP or mDNS is refreshed every 60 seconds instead of every few seconds.
 
 **The printer is found but has no supply or model details.**
-SNMP is probably disabled on the printer, or it uses a community string other than `public`. Enable SNMP in the printer's web page (or its front-panel network menu) and set the read community to the event's value, then type that value in the **Community** box and scan again. The printer is still flagged as a printer because its printing ports (9100, 631, 515) are open.
+SNMP is probably disabled on the printer, or it uses a community string other than `public`. Enable SNMP in the printer's web page (or its front-panel network menu) and set the read community to your network's value, then type that value in the **Community** box and scan again. The printer is still flagged as a printer because its printing ports (9100, 631, 515) are open.
 
 **A device is missing even though you know it is on.**
 Some devices block ping. netdiag also reads the ARP table, so a device that has talked to this computer recently should appear. Ask the device to send traffic (open its web page or print a test page), then scan again. Check that you chose the right network in the interface list. The wrong adapter (VPN, virtual machine, Docker) can scan an empty subnet.
@@ -336,8 +336,8 @@ netdiag is not code-signed. In SmartScreen choose "More info", then "Run anyway"
 **Mac says the app cannot be opened.**
 Run `xattr -d com.apple.quarantine netdiag` in the folder where you unzipped it, then `./netdiag`. See HOW-TO-OPEN.txt.
 
-**The health panel says "not configured" for the event web server.**
-That is information, not a fault. Open **Settings** and enter the event web server address in "Web server URL" (and optionally the text the page must contain). Then press **Recheck**.
+**The health panel says "not configured" for the web server.**
+That is information, not a fault. Open **Settings** and enter the web server address in "Web server URL" (and optionally the text the page must contain). Then press **Recheck**.
 
 **The health panel says "not on Wi-Fi" or "unavailable" for Wi-Fi.**
 "Not on Wi-Fi" means this computer is on a cable (or Wi-Fi is off), which is fine. "Unavailable" means the Wi-Fi details could not be read. On recent Windows 11 versions this happens when **Location** is off, because Windows treats Wi-Fi details as location data: open Settings > Privacy & security > Location, turn on **Location services** and **Let desktop apps access your location**, then press **Recheck**. It also happens with a non-English language setting or when the WLAN AutoConfig service is stopped; the panel says which. The rest of the scan is not affected.
@@ -346,7 +346,7 @@ That is information, not a fault. Open **Settings** and enter the event web serv
 This computer did not get an address from the router. Check the cable or Wi-Fi connection, and restart the network connection or the computer. Ask the venue to check the DHCP server if it keeps happening.
 
 **"mdns: no responses" in the scan notes.**
-No device answered the Bonjour (mDNS) query. Devices may still be found through ping, ARP and ports. Check that the firewall is not blocking netdiag, and that you picked the adapter connected to the event network.
+No device answered the Bonjour (mDNS) query. Devices may still be found through ping, ARP and ports. Check that the firewall is not blocking netdiag, and that you picked the adapter connected to the network you want to check.
 
 **A "CONFLICT" appears on a device that is fine (for example a Wi-Fi extender).**
 Click **Ignore this MAC** in the detail panel. The MAC is saved in Settings.

@@ -79,7 +79,7 @@ document.addEventListener('alpine:init', () => {
     healthStrip() {
       const by = {};
       for (const c of ((this.health || {}).checks || [])) by[c.id] = c;
-      const ids = [['gateway', 'Gateway'], ['dhcp', 'DHCP'], ['dns', 'DNS'], ['internet', 'Internet'], ['wifi', 'Wi-Fi'], ['webserver', 'Event web']];
+      const ids = [['gateway', 'Gateway'], ['dhcp', 'DHCP'], ['dns', 'DNS'], ['internet', 'Internet'], ['wifi', 'Wi-Fi'], ['webserver', 'Web server']];
       return ids.map(([id, label]) => {
         const c = by[id];
         if (!c) return {id, label, icon: this.checkIcon(id), status: 'unavailable', value: 'not checked'};

@@ -172,7 +172,7 @@ Agent access is off. Open **Settings**, turn on **Allow AI agents to connect (MC
 The request came from a different address or Origin. Use `http://127.0.0.1:<port>/mcp` (not a LAN address or a host name).
 
 **Windows Firewall asks about netdiag.**
-The HTTP method listens only on `127.0.0.1`, so it is reachable from this computer only. The stdio method opens no network port. Scans still send traffic to the event network, and a firewall or VPN client can block some of it. See the main README troubleshooting section.
+The HTTP method listens only on `127.0.0.1`, so it is reachable from this computer only. The stdio method opens no network port. Scans still send traffic to the local network, and a firewall or VPN client can block some of it. See the main README troubleshooting section.
 
 **A scan started by an agent finds the wrong network.**
 Call `list_interfaces` to see the adapters and their suggested ranges, then pass `interface` or `cidr` to `start_scan` explicitly. A VPN or virtual adapter can be picked by default.

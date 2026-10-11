@@ -10,7 +10,7 @@ by a person on physical hardware. Do not tick an item without observing it.
 Machines required:
 - [ ] One Windows 11 PC (amd64, standard user account, no admin rights)
 - [ ] One Mac with Apple Silicon (darwin-arm64, standard user account)
-- [ ] A real event-style router or access point
+- [ ] A real consumer or small-business router or access point
 - [ ] At least one network printer with SNMP enabled and a web page
 
 ## 1. Build and packaging
@@ -60,10 +60,10 @@ Tick only after observing the behaviour on real hardware.
 ### Health panel
 - [ ] Gateway row shows `ok` with a latency; unplugging the router shows `fail` text, not colour alone
 - [ ] DHCP row shows `ok` on a DHCP lease and `fail` on a 169.254.x.x (APIPA) address
-- [ ] DNS row resolves the event web server name
-- [ ] Event web server row shows HTTP status, latency and the must-contain result, once a URL is set in Settings
-- [ ] Event web server row shows "not configured" (info) when no URL is set
-- [ ] Internet row is `info` (never `fail`) on an offline event network
+- [ ] DNS row resolves the web server name
+- [ ] Web server row shows HTTP status, latency and the must-contain result, once a URL is set in Settings
+- [ ] Web server row shows "not configured" (info) when no URL is set
+- [ ] Internet row is `info` (never `fail`) on an offline local network
 - [ ] Wi-Fi row shows SSID, signal and channel on Wi-Fi; "not on Wi-Fi" on a cable
 - [ ] Wi-Fi row shows "unavailable" (not wrong data) on a non-English Windows install
 - [ ] macOS Wi-Fi row shows "hidden by macOS" without Location permission

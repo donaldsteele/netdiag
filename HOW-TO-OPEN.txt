@@ -74,7 +74,7 @@ WHAT YOU WILL SEE
   and paper levels when the printer allows it.
 - Click the web links to open a device's own settings page.
 - Export JSON or CSV to save or send the results.
-- The Health panel shows whether the router, DHCP, DNS and the event web
+- The Health panel shows whether the router, DHCP, DNS and the web
   server are working. Recheck runs the checks again.
 - Conflicts are listed when two devices share an address. Routers and
   Wi-Fi extenders often do this on purpose; use "Ignore this MAC" if so.

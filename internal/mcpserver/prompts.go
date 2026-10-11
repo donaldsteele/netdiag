@@ -15,7 +15,7 @@ var PromptNames = []string{"triage_network", "diagnose_printer", "explain_confli
 
 const promptFooter = "\n\nLimits: you cannot change settings, delete history, ignore conflicting MACs or quit netdiag. " +
 	"If any of those would help, recommend the operator do it in the netdiag UI. " +
-	"In your final answer use plain language suitable for event staff: what is wrong, which device, and the next physical or UI action to take."
+	"In your final answer use plain language suitable for non-technical staff: what is wrong, which device, and the next physical or UI action to take."
 
 func registerPrompts(s *mcp.Server, _ *service.Service) {
 	add := func(name, title, desc string, args []*mcp.PromptArgument, build func(a map[string]string) string) {
@@ -46,7 +46,7 @@ func registerPrompts(s *mcp.Server, _ *service.Service) {
 			if a["cidr"] != "" {
 				start = fmt.Sprintf("start_scan with cidr=%q and waitSec=60", a["cidr"])
 			}
-			return "Triage this event network. Follow these steps:\n" +
+			return "Triage this local network. Follow these steps:\n" +
 				"1. Call " + start + ". If stillRunning is true, poll get_scan with the returned scanId until state is done.\n" +
 				"2. Read the summary: stats (online/offline/new devices), health, conflicts and printer alerts.\n" +
 				"3. Call get_health (or run_health_check if the report is missing or old). Note any check that is not ok: gateway, DNS, DHCP, internet, web server.\n" +

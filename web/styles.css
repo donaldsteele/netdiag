@@ -255,7 +255,7 @@ tr.host.isnew{animation:rowin .6s ease-out}
 .kv dl div{align-items:center;min-height:30px}
 .kv dd{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap}
 .kv .iconbtn{padding:2px 4px;line-height:0}
-#hosts .rowbtn{white-space:nowrap}
+#hosts .ipline{white-space:nowrap}
 #hosts td a{overflow-wrap:anywhere}
 #hosts tbody th[scope=row] .badge{white-space:nowrap}
 .stline{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px}.stline .badge{margin-left:0}
