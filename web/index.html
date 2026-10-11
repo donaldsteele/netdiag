@@ -221,10 +221,11 @@
               </template>
               <span x-show="!(h.web || []).length">-</span>
             </td>
-            <td>
+            <td class="stcell">
+              <div class="stline"><span x-text="statusWord(h)"></span>
               <span class="badge printer" x-show="h.isPrinter"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-printer"></use></svg>printer</span>
-              <span class="badge" x-show="h.isPrinter && printerSource(h.printer)" x-text="printerSource(h.printer)"></span>
-              <span x-text="statusText(h)"></span>
+              <span class="badge" x-show="h.isPrinter && printerSource(h.printer)" x-text="printerSource(h.printer)"></span></div>
+              <template x-for="d in printerLines(h)" :key="d"><div class="stdet" x-text="d"></div></template>
             </td>
           </tr>
       </template>

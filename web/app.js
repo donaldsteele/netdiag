@@ -601,16 +601,17 @@ document.addEventListener('alpine:init', () => {
       return {ipp: 'via IPP', snmp: 'via SNMP', 'snmp+ipp': 'via SNMP + IPP'}[p && p.source] || '';
     },
     mdnsName(h) { return h.mdns ? (h.mdns.instance || h.mdns.hostname || '') : ''; },
-    statusText(h) {
-      const parts = [this.isOffline(h) ? 'offline' : h.alive ? 'up' : 'no ping'];
-      if (h.isPrinter && h.printer) {
-        if (h.printer.model) parts.push(h.printer.model);
-        const al = h.printer.alerts || [];
-        if (al.length) parts.push(al.slice(0, 2).map(a => a.description || a.code).join(', ') + (al.length > 2 ? ' +' + (al.length - 2) + ' more' : ''));
-        const low = (h.printer.supplies || []).filter(s => s.state === 'low' || s.state === 'empty').length;
-        if (low) parts.push(low + ' supply low/empty');
-      }
-      return parts.join(' - ');
+    statusWord(h) { return this.isOffline(h) ? 'offline' : h.alive ? 'up' : 'no ping'; },
+    // Printer details for the Status column, one short line each.
+    printerLines(h) {
+      if (!h.isPrinter || !h.printer) return [];
+      const lines = [];
+      if (h.printer.model) lines.push(h.printer.model);
+      const al = h.printer.alerts || [];
+      if (al.length) lines.push(al.slice(0, 2).map(a => a.description || a.code).join(', ') + (al.length > 2 ? ' +' + (al.length - 2) + ' more' : ''));
+      const low = (h.printer.supplies || []).filter(s => s.state === 'low' || s.state === 'empty').length;
+      if (low) lines.push(low + ' supply low/empty');
+      return lines;
     },
     webNote(w) {
       if (w.error) return 'unreachable (' + w.error + ')';

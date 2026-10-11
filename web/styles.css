@@ -253,6 +253,8 @@ tr.host.isnew{animation:rowin .6s ease-out}
 .kv .iconbtn{padding:2px 4px;line-height:0}
 #hosts tbody th[scope=row]{white-space:nowrap}
 #hosts tbody th[scope=row] .badge{white-space:nowrap}
+.stline{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px}.stline .badge{margin-left:0}
+.stdet{font-size:13px;color:var(--fg-muted);margin-top:2px}
 @media (max-width:759px){
 .topbar .controls{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);width:100%}
 .topbar .controls>label:first-child{grid-column:1/-1}
