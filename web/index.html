@@ -365,8 +365,8 @@
         </div>
         <button type="button" id="log-copy" @click="copy(logText(), 'activity log')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-copy"></use></svg>Copy log</button>
       </div>
-      <div id="log" class="logbox mono" role="log" aria-label="Activity log" aria-live="off" tabindex="0" x-ref="logBox"
-           @scroll.passive="logOnScroll($el)" x-effect="logShown().length; logFollow($refs.logBox)">
+      <div id="log" class="logbox mono" role="log" aria-label="Activity log" aria-live="off"
+           @scroll.window.passive="logOnScroll()" x-effect="logShown().length; logFollow()">
         <p class="empty" x-show="!log.length">&gt; no events yet - start a scan</p>
         <template x-for="e in logShown()" :key="e.id">
           <div class="logline"><span class="lt" x-text="logTime(e)"></span> <span class="lk" :class="'k-' + e.kind"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + kindIcon(e.kind)"></use></svg><span x-text="e.kind.toUpperCase()"></span></span> <span class="lx" x-text="e.text"></span></div>

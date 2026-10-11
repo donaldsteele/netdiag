@@ -27,8 +27,9 @@ document.addEventListener('alpine:init', () => {
     logLine(e) { return this.logTime(e) + '  ' + e.kind.toUpperCase().padEnd(8) + ' ' + e.text; },
     logText() { return this.logShown().map(e => this.logLine(e)).join('\n'); },
     logRecent() { return this.log.slice(-3); },
-    logOnScroll(el) { this.logStick = el.scrollTop + el.clientHeight >= el.scrollHeight - 8; },
-    logFollow(el) { if (el && this.logStick) this.$nextTick(() => { el.scrollTop = el.scrollHeight; }); },
+    // The log grows with the page (no inner scroller); follow new lines while the page is scrolled to the bottom.
+    logOnScroll() { const d = document.documentElement; this.logStick = d.scrollTop + d.clientHeight >= d.scrollHeight - 8; },
+    logFollow() { if (this.view === 'activity' && this.logStick) this.$nextTick(() => { const d = document.documentElement; d.scrollTop = d.scrollHeight; }); },
     logHealth(prev, cur) {
       if (!prev || !cur) return;
       const old = {};
@@ -95,6 +96,9 @@ document.addEventListener('alpine:init', () => {
       try { const sv = localStorage.getItem('netdiag.view'); if (this.views.includes(sv)) this.view = sv; } catch (e) {}
       if (this.view === 'history') this.loadHistory();
       setInterval(() => { this.nowMs = Date.now(); }, 1000);
+      // Sticky table headers sit just under the sticky alert banners.
+      const bn = document.getElementById('alerts');
+      if (bn && window.ResizeObserver) new ResizeObserver(() => document.documentElement.style.setProperty('--stick-top', bn.offsetHeight + 'px')).observe(bn);
       try {
         const r = await fetch('/api/interfaces');
         this.ifaces = (await r.json()) || [];
@@ -273,6 +277,7 @@ document.addEventListener('alpine:init', () => {
       this.navOpen = false;
       try { localStorage.setItem('netdiag.view', v); } catch (e) {}
       if (v === 'history') await this.loadHistory();
+      if (v === 'activity') { this.logStick = true; this.logFollow(); }
     },
     async loadHistory() {
       this.historyError = '';

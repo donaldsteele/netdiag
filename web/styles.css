@@ -148,7 +148,11 @@ ul.hstrip{display:flex;flex-wrap:wrap;gap:var(--s2);margin:var(--s3) 0 0;padding
 /* T5: device table + drawer */
 .searchrow{margin:var(--s2) 0}.searchrow input{width:100%;max-width:420px}
 /* position:relative keeps the .sr spans inside these scrollers, so they cannot widen the page. */
-.tablewrap{position:relative;max-height:calc(100vh - 150px);overflow:auto}
+/* The page is the only vertical scroller. Wide tables scroll sideways in their own box on
+   narrow screens; from 1100px the table fits, so the box is plain and headers stick to the page. */
+.tablewrap{position:relative;overflow-x:auto}
+@media (min-width:1100px){.tablewrap{overflow:visible}#hosts thead th{top:var(--stick-top,0px)}}
+@media (max-width:1099px){#hosts tbody th[scope=row]{white-space:nowrap}}
 .tablescroll{position:relative;overflow-x:auto;max-width:100%}
 thead th{position:sticky;top:0;z-index:2;background:var(--bg-elev2);box-shadow:0 1px 0 var(--line-strong)}
 tr.host{cursor:pointer}tr.host:hover>th,tr.host:hover>td{background:var(--bg-elev)}
@@ -157,7 +161,7 @@ tr.host.selected>th{box-shadow:inset 3px 0 0 var(--accent)}
 .rowbtn{border:0;background:none;padding:0 2px;font-weight:700;color:var(--fg);text-decoration:underline dotted;cursor:pointer}
 .sdot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle;box-sizing:border-box}
 .sdot.st-up{background:var(--ok)}.sdot.st-down{background:var(--warn)}.sdot.st-off{background:transparent;border:2px solid var(--fg-muted)}
-.typecell{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.typecell{display:inline-flex;align-items:center;gap:6px}
 .ico{width:18px;height:18px;flex:none;color:var(--fg-muted)}.ico.big{width:28px;height:28px;color:var(--link)}
 .iconbtn{display:inline-flex;align-items:center;justify-content:center;padding:3px;line-height:1;cursor:pointer}
 .drawer{position:fixed;top:0;right:0;bottom:0;width:min(480px,100vw);z-index:30;overflow-y:auto;background:var(--bg-elev);border-left:1px solid var(--line-strong);box-shadow:-8px 0 24px var(--shadow-soft)}
@@ -169,7 +173,7 @@ tr.host.selected>th{box-shadow:inset 3px 0 0 var(--accent)}
 .logbar{display:flex;gap:var(--s3);flex-wrap:wrap;align-items:center;justify-content:space-between;margin:var(--s2) 0}
 .logfilters{display:flex;gap:var(--s2);flex-wrap:wrap}
 .logchip[aria-pressed=false]{opacity:.7;text-decoration:line-through}
-.logbox{background:var(--bg-elev2);border:1px solid var(--line-strong);border-radius:var(--radius);padding:var(--s3);height:60vh;min-height:200px;overflow:auto;font-size:13px}
+.logbox{background:var(--bg-elev2);border:1px solid var(--line-strong);border-radius:var(--radius);padding:var(--s3);min-height:200px;font-size:13px}
 .logline{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}
 .lt{color:var(--fg-muted)}.lk{display:inline-block;min-width:8ch;font-weight:700}
 .k-scan{color:var(--fg-muted)}.k-host{color:var(--ok)}.k-offline,.k-error{color:var(--bad)}.k-online{color:var(--ok)}.k-conflict,.k-notice{color:var(--warn)}.k-health{color:var(--info)}
@@ -251,7 +255,8 @@ tr.host.isnew{animation:rowin .6s ease-out}
 .kv dl div{align-items:center;min-height:30px}
 .kv dd{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap}
 .kv .iconbtn{padding:2px 4px;line-height:0}
-#hosts tbody th[scope=row]{white-space:nowrap}
+#hosts .rowbtn{white-space:nowrap}
+#hosts td a{overflow-wrap:anywhere}
 #hosts tbody th[scope=row] .badge{white-space:nowrap}
 .stline{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px}.stline .badge{margin-left:0}
 .stdet{font-size:13px;color:var(--fg-muted);margin-top:2px}
