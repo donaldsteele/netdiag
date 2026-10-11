@@ -195,3 +195,34 @@ footer nav a{color:var(--dim);font-size:14px}
   *,*::before,*::after{animation:none!important;transition:none!important}
   .shot:hover .window,.card:hover,.button:hover{transform:none}
 }
+
+/* live monitoring */
+.live{position:relative}
+.live::before{content:"";position:absolute;inset:40px 0 auto;height:520px;pointer-events:none;background:radial-gradient(ellipse 45% 50% at 20% 30%,color-mix(in srgb,var(--bad) 12%,transparent),transparent 70%)}
+.live .wrap{position:relative}
+.live .sub b{color:var(--fg)}
+.timeline{position:relative;list-style:none;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:0 0 40px}
+.timeline::before{content:"";position:absolute;left:16px;right:16px;top:15px;height:2px;background:linear-gradient(90deg,var(--line-strong),var(--warn),var(--bad) 70%,var(--ok))}
+.tick{position:relative;display:flex;flex-direction:column;gap:4px;padding-top:36px;font-size:14px;color:var(--dim)}
+.tick::before{content:"";position:absolute;left:8px;top:8px;width:16px;height:16px;border-radius:50%;background:var(--bg);border:3px solid var(--line-strong);box-sizing:border-box}
+.tick.warmup::before{border-color:var(--warn)}
+.tick.hot::before{border-color:var(--bad);background:var(--bad);box-shadow:0 0 0 6px color-mix(in srgb,var(--bad) 22%,transparent)}
+.tick.ok::before{border-color:var(--ok);background:var(--ok)}
+.tick .t{font:700 12px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.tick b{color:var(--fg);font-size:15.5px}
+@media (max-width:820px){
+  .timeline{grid-template-columns:1fr;gap:18px;padding-left:36px}
+  .timeline::before{left:15px;right:auto;top:8px;bottom:8px;width:2px;height:auto;background:linear-gradient(180deg,var(--line-strong),var(--warn),var(--bad) 70%,var(--ok))}
+  .tick{padding-top:0}.tick::before{left:-28px;top:2px}
+}
+.live-shot .window::before{background:linear-gradient(90deg,var(--bad) 0 60%,var(--warn) 60% 85%,var(--ok) 85%)}
+.livegrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:40px 0 72px}
+.livegrid .card p b{color:var(--fg);font-weight:600}
+@media (max-width:1000px){.livegrid{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:560px){.livegrid{grid-template-columns:1fr}}
+.feature.slim{margin-bottom:24px}
+.card p a{font-weight:600}
+.realnote{display:flex;gap:10px;align-items:flex-start;margin:-16px 0 28px;color:var(--dim);font-size:14px}
+.realnote .ico{color:var(--accent);margin-top:3px}
+.feature.slim+.feature.slim{margin-top:48px}
+.feature p b{color:var(--fg)}

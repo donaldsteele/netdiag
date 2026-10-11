@@ -234,13 +234,13 @@ In live mode netdiag keeps watching every printer it found through SNMP, so a ja
 - **Back to normal.** When all of a printer's alerts clear, netdiag raises a **Printer OK again** notice that lists what cleared. If the printer fails again soon after, the new alert is shown straight away, without waiting for the alert cooldown. Earlier alert banners stay until you dismiss them.
 - Only printers that answer SNMP get the fast check. Printers found only through IPP or mDNS are refreshed every 60 seconds.
 
-![Zebra printer with its cover open: red status icon and two critical alert banners](docs/img/printer-error.png)
+![Zebra printer with its cover open: red status icon and two critical alert banners](docs/assets/shots/real-zebra-fault.png)
 
-![Details panel for the same printer, listing the alerts and the SNMP status](docs/img/printer-error-drawer.png)
+![Details panel for the same printer, listing the alerts and the SNMP status](docs/assets/shots/real-zebra-fault-drawer.png)
 
-![The printer fixed: green status and a Printer OK again notice](docs/img/printer-recovered.png)
+![The printer fixed: green status and a Printer OK again notice](docs/assets/shots/real-zebra-recovered.png)
 
-![Activity log with the two alerts and the recovery notice](docs/img/printer-activity.png)
+![Activity log with the two alerts and the recovery notice](docs/assets/shots/real-zebra-activity.png)
 
 ![Settings with the printer status check interval](docs/img/settings-printer-poll.png)
 
