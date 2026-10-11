@@ -50,6 +50,10 @@ type Engine struct {
 	now  func() time.Time
 	seq  int
 	last map[string]time.Time
+	// faults holds, per printer IP, every alert seen since the printer was last
+	// clear, in first-seen order, so Printer OK again names all of them even
+	// when they clear one at a time.
+	faults map[string][]string
 }
 
 // New creates an engine. A nil clock uses time.Now.
@@ -57,7 +61,7 @@ func New(cfg Config, clock func() time.Time) *Engine {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &Engine{cfg: cfg, now: clock, last: map[string]time.Time{}}
+	return &Engine{cfg: cfg, now: clock, last: map[string]time.Time{}, faults: map[string][]string{}}
 }
 
 // SetConfig replaces the config (dedupe history is kept).
@@ -153,17 +157,18 @@ func (e *Engine) Observe(prev, cur model.Host) []model.Notice {
 			for _, a := range pp.Alerts {
 				seen[a.Code+"|"+a.Description] = true
 			}
-			if len(pp.Alerts) > 0 && len(cur.Printer.Alerts) == 0 {
-				descs := make([]string, len(pp.Alerts))
-				for i, a := range pp.Alerts {
-					descs[i] = a.Description
-				}
+			e.recordFaults(ip, pp.Alerts)
+		}
+		e.recordFaults(ip, cur.Printer.Alerts)
+		if len(cur.Printer.Alerts) == 0 {
+			if pp != nil && len(pp.Alerts) > 0 {
 				// A fix is a transition: forget the cooldown of the cleared
 				// alerts so a relapse is reported straight away.
 				e.forget(model.TriggerPrinterAlert + "|" + ip + "|")
 				out = e.emit(out, model.TriggerPrinterAlert, "info", ip, "Printer OK again",
-					fmt.Sprintf("%s: cleared %s.", l, strings.Join(descs, ", ")), "cleared")
+					fmt.Sprintf("%s: cleared %s.", l, strings.Join(e.faults[ip], ", ")), "cleared")
 			}
+			delete(e.faults, ip)
 		}
 		for _, a := range cur.Printer.Alerts {
 			k := a.Code + "|" + a.Description
@@ -179,6 +184,22 @@ func (e *Engine) Observe(prev, cur model.Host) []model.Notice {
 		}
 	}
 	return out
+}
+
+// recordFaults adds alert descriptions not yet in the printer's fault episode.
+func (e *Engine) recordFaults(ip string, alerts []model.Alert) {
+	for _, a := range alerts {
+		dup := false
+		for _, d := range e.faults[ip] {
+			if d == a.Description {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			e.faults[ip] = append(e.faults[ip], a.Description)
+		}
+	}
 }
 
 // ObserveConflict emits a notice for a newly detected conflict.

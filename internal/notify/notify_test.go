@@ -112,6 +112,36 @@ func TestPrinterAlertClearedAndRelapse(t *testing.T) {
 	}
 }
 
+// A real Zebra ZD621 clears its alerts one at a time when the cover closes:
+// the door alert goes first, then offline. Printer OK again must name both.
+func TestPrinterAlertsClearedInSteps(t *testing.T) {
+	e, c := newEng()
+	door := model.Alert{Severity: "critical", Code: "hrPrinterDetectedErrorState.doorOpen", Description: "Door or cover open"}
+	off := model.Alert{Severity: "critical", Code: "hrPrinterDetectedErrorState.offline", Description: "Printer offline or paused"}
+	if n := e.Observe(printer(true, 50), printer(true, 50, door, off)); len(n) != 2 {
+		t.Fatalf("raise: %v", n)
+	}
+	c.t = c.t.Add(20 * time.Second)
+	if n := e.Observe(printer(true, 50, door, off), printer(true, 50, off)); len(n) != 0 {
+		t.Fatalf("partial clear: %v", n)
+	}
+	c.t = c.t.Add(20 * time.Second)
+	n := e.Observe(printer(true, 50, off), printer(true, 50))
+	if len(n) != 1 || n[0].Title != "Printer OK again" ||
+		!strings.Contains(n[0].Message, "cleared Door or cover open, Printer offline or paused.") {
+		t.Fatalf("cleared: %v", n)
+	}
+	// The next fault starts a fresh episode: only its own alert is named.
+	jam := model.Alert{Severity: "critical", Code: "hrPrinterDetectedErrorState.jammed", Description: "Paper jam"}
+	c.t = c.t.Add(20 * time.Second)
+	e.Observe(printer(true, 50), printer(true, 50, jam))
+	c.t = c.t.Add(20 * time.Second)
+	n = e.Observe(printer(true, 50, jam), printer(true, 50))
+	if len(n) != 1 || !strings.HasSuffix(n[0].Message, "cleared Paper jam.") {
+		t.Fatalf("second episode: %v", n)
+	}
+}
+
 func TestNewDevice(t *testing.T) {
 	e, _ := newEng()
 	if n := e.Observe(model.Host{}, model.Host{IP: "10.0.0.7", IsNew: true, Online: true}); len(n) != 1 || n[0].Trigger != model.TriggerNewDevice {
