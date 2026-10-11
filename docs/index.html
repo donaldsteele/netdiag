@@ -95,10 +95,10 @@
       <p class="sub">Turn on <b>Live mode</b> and netdiag keeps watching after the first scan: new devices, devices that drop off, IP conflicts, failing health checks, and above all printers. A jam, an open door or a paused printer shows up within seconds, and so does the fix.</p>
 
       <ol class="timeline" aria-label="A real fault on a Zebra ZD621, as netdiag logged it">
-        <li class="tick"><span class="t">12:12:17</span><b>Live monitoring starts</b><span>The first scan finishes; the Zebra is up and green.</span></li>
+        <li class="tick"><span class="t">12:35:55</span><b>Live monitoring starts</b><span>The first scan finishes; the Zebra is up and green.</span></li>
         <li class="tick warmup"><span class="t">cover opened</span><b>Fast status check</b><span>Every 5 s, one small SNMP request reads device status, printer status and error flags.</span></li>
-        <li class="tick hot"><span class="t">12:12:47</span><b>Two critical alerts</b><span>Door or cover open, and printer offline or paused. Red banners, a beep, a desktop notification.</span></li>
-        <li class="tick ok"><span class="t">12:13:32</span><b>Printer OK again</b><span>Cover closed: netdiag says what cleared, so you know it is safe to print.</span></li>
+        <li class="tick hot"><span class="t">12:36:20</span><b>Two critical alerts</b><span>Door or cover open, and printer offline or paused. Red banners, a beep, a desktop notification.</span></li>
+        <li class="tick ok"><span class="t">12:36:45</span><b>Printer OK again</b><span>Cover closed: netdiag says what cleared, so you know it is safe to print.</span></li>
       </ol>
       <p class="realnote"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-camera"></use></svg>Real hardware, not a mock-up: these screenshots were captured from netdiag watching a Zebra ZD621 label printer while someone opened and closed its cover.</p>
 
@@ -127,7 +127,7 @@
         <div class="copy">
           <p class="reading-label">And when it is fixed</p>
           <h3>Green again, with a note saying why.</h3>
-          <p>As soon as the cover closes and the flags clear, the row turns green and a <b>Printer OK again</b> notice says what cleared. The earlier banners stay until you dismiss them, so nobody misses that something happened.</p>
+          <p>As soon as the cover closes and the flags clear, the row turns green and a <b>Printer OK again</b> notice names everything that cleared, here both the open door and the offline state. The earlier banners stay until you dismiss them, so nobody misses that something happened.</p>
           <ul class="readings"><li class="r-ok">Printer OK again</li><li class="r-info">notice</li></ul>
         </div>
         <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Live · Zebra ZD621 · recovered</span></div>
@@ -138,11 +138,11 @@
         <div class="copy">
           <p class="reading-label">The record</p>
           <h3>Every step, timestamped.</h3>
-          <p>The activity log keeps the whole story: the scan, the two alerts, a device elsewhere on the network that dropped off, and the recovery 45 seconds later. Copy it into a ticket or a chat in one click.</p>
-          <ul class="readings"><li>12:12:47 alert</li><li class="r-ok">12:13:32 OK again</li></ul>
+          <p>The activity log keeps the whole story: the scan, the two alerts, a device elsewhere on the network that dropped off, and the recovery 25 seconds later, naming both alerts that cleared. Copy it into a ticket or a chat in one click.</p>
+          <ul class="readings"><li>12:36:20 alert</li><li class="r-ok">12:36:45 OK again</li></ul>
         </div>
         <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Activity</span></div>
-          <button type="button" class="zoom" aria-label="Enlarge screenshot: activity log of the printer fault"><img src="assets/shots/real-zebra-activity.png" width="2560" height="1600" loading="lazy" alt="Activity log from the real run: scan stages, two printer alerts at 12:12:47, a device going offline, and Printer OK again at 12:13:32"></button></div></figure>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: activity log of the printer fault"><img src="assets/shots/real-zebra-activity.png" width="2560" height="1600" loading="lazy" alt="Activity log from the real run: scan stages, two printer alerts at 12:36:20, a device going offline, and Printer OK again at 12:36:45 naming both cleared alerts"></button></div></figure>
       </div>
     </div>
   </section>
