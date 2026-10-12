@@ -4,6 +4,9 @@ dist/
 coverage*
 *.coverprofile
 
+# go-winres output, generated (and removed) by scripts/build.*
+cmd/netdiag/rsrc_windows_*.syso
+
 # tools/uitest: Node deps and generated screenshots/reports (T2)
 tools/uitest/node_modules/
 tools/uitest/out/

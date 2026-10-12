@@ -44,6 +44,12 @@ try {
     Invoke-Native go @('build', '-o', $mkzip, './tools/mkzip')
     Write-Host "netdiag version: $Version"
 
+    # Version info, manifest and icon for netdiag.exe (cmd/netdiag/winres). go
+    # build links the generated rsrc_windows_*.syso into the Windows targets only.
+    Invoke-Native go @('tool', 'go-winres', 'make', '--in', 'cmd/netdiag/winres/winres.json',
+        '--out', 'cmd/netdiag/rsrc', '--arch', 'amd64,arm64',
+        '--product-version', $Version, '--file-version', $Version)
+
     foreach ($target in $Targets) {
         $goos, $goarch = $target -split '/'
         $bin = if ($goos -eq 'windows') { 'netdiag.exe' } else { 'netdiag' }
@@ -68,4 +74,5 @@ try {
 finally {
     foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $stage
+    Remove-Item -Force -ErrorAction SilentlyContinue cmd/netdiag/rsrc_windows_*.syso
 }

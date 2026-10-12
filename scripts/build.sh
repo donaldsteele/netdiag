@@ -17,7 +17,7 @@ for f in README.md HOW-TO-OPEN.txt; do
 done
 
 stage="$(mktemp -d)"
-trap 'rm -rf "$stage"' EXIT
+trap 'rm -rf "$stage" cmd/netdiag/rsrc_windows_*.syso' EXIT
 
 # make_zip <dest.zip> <dir-containing-files>  (files are added at the zip root)
 # Uses tools/mkzip (pure Go) so the build is identical on every OS and the
@@ -32,6 +32,11 @@ mkdir -p "$DIST"
 mkzip="$stage/mkzip"
 go build -o "$mkzip" ./tools/mkzip
 echo "netdiag version: $VERSION"
+
+# Version info, manifest and icon for netdiag.exe (cmd/netdiag/winres). go
+# build links the generated rsrc_windows_*.syso into the Windows targets only.
+go tool go-winres make --in cmd/netdiag/winres/winres.json --out cmd/netdiag/rsrc \
+  --arch amd64,arm64 --product-version "$VERSION" --file-version "$VERSION"
 
 for target in $TARGETS; do
   goos="${target%/*}"
