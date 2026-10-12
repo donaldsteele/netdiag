@@ -7,48 +7,20 @@ import (
 	"testing"
 )
 
-func TestParseWindows(t *testing.T) {
-	b, err := os.ReadFile("../../testdata/arp_windows.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []Entry{
-		{IP: "192.168.1.1", MAC: "A4:2B:B0:12:34:56", Iface: "192.168.1.50", Type: "dynamic"},
-		{IP: "192.168.1.20", MAC: "00:1B:A9:AA:BB:CC", Iface: "192.168.1.50", Type: "dynamic"},
-		{IP: "10.0.0.9", MAC: "3C:22:FB:01:02:03", Iface: "10.0.0.5", Type: "dynamic"},
-	}
-	if got := ParseWindows(string(b)); !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v want %v", got, want)
-	}
-}
-
-// multiRaw is the undeduplicated parse of testdata/arp_windows_multi.txt.
-// Index 3 is 192.168.1.1 under the 10.0.0.5 block; index 4 is 10.0.0.1 under
+// multiRaw is an undeduplicated two-adapter table as read on Windows. Index 3
+// is 192.168.1.1 under the 10.0.0.5 adapter; index 4 is 10.0.0.1 under
 // 10.0.0.5 with a different MAC than under 192.168.1.50 (index 2).
-func multiRaw(t *testing.T) []Entry {
-	t.Helper()
-	b, err := os.ReadFile("../../testdata/arp_windows_multi.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return ParseWindows(string(b))
-}
-
-func TestParseWindowsMultiKeepsDuplicates(t *testing.T) {
-	raw := multiRaw(t)
-	if len(raw) != 6 {
-		t.Fatalf("raw rows = %d want 6: %v", len(raw), raw)
-	}
-	if raw[0].IP != "192.168.1.1" || raw[3].IP != "192.168.1.1" {
-		t.Fatalf("192.168.1.1 not listed under both blocks: %v", raw)
-	}
-	if raw[3].Iface != "10.0.0.5" || raw[2].Type != "static" {
-		t.Fatalf("iface/type tagging wrong: %v", raw)
-	}
+var multiRaw = []Entry{
+	{IP: "192.168.1.1", MAC: "A4:2B:B0:12:34:56", Iface: "192.168.1.50", Type: "dynamic"},
+	{IP: "192.168.1.20", MAC: "00:1B:A9:AA:BB:CC", Iface: "192.168.1.50", Type: "dynamic"},
+	{IP: "10.0.0.1", MAC: "00:50:56:AA:BB:01", Iface: "192.168.1.50", Type: "static"},
+	{IP: "192.168.1.1", MAC: "A4:2B:B0:12:34:56", Iface: "10.0.0.5", Type: "dynamic"},
+	{IP: "10.0.0.1", MAC: "00:50:56:CC:DD:02", Iface: "10.0.0.5", Type: "dynamic"},
+	{IP: "10.0.0.9", MAC: "3C:22:FB:01:02:03", Iface: "10.0.0.5", Type: "dynamic"},
 }
 
 func TestDedupeMultiAdapter(t *testing.T) {
-	raw := multiRaw(t)
+	raw := multiRaw
 	cases := []struct {
 		name string
 		pref string
@@ -119,7 +91,7 @@ func TestDedupeFirstWhenNoDynamic(t *testing.T) {
 }
 
 func TestDefaultIface(t *testing.T) {
-	raw := multiRaw(t)
+	raw := multiRaw
 	orig := localIPv4s
 	defer func() { localIPv4s = orig }()
 

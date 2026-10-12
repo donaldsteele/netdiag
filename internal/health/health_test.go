@@ -8,7 +8,6 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -24,27 +23,6 @@ func fixture(t *testing.T, name string) string {
 	return string(b)
 }
 
-func TestParseIpconfigAll(t *testing.T) {
-	i, err := parseIpconfigAll(fixture(t, "ipconfig_all_en.txt"), "192.168.1.50")
-	if err != nil || !i.Enabled || i.APIPA || i.Server != "192.168.1.1" || i.LeaseExpires == "" {
-		t.Fatalf("%+v %v", i, err)
-	}
-	i, err = parseIpconfigAll(fixture(t, "ipconfig_all_en.txt"), "172.20.0.1")
-	if err != nil || i.Enabled {
-		t.Fatalf("static: %+v %v", i, err)
-	}
-	i, err = parseIpconfigAll(fixture(t, "ipconfig_all_apipa.txt"), "169.254.12.34")
-	if err != nil || !i.APIPA {
-		t.Fatalf("apipa: %+v %v", i, err)
-	}
-	if _, err = parseIpconfigAll(fixture(t, "ipconfig_all_de.txt"), "192.168.178.20"); err == nil {
-		t.Fatal("localized sample must be rejected")
-	}
-	if _, err = parseIpconfigAll(fixture(t, "ipconfig_all_en.txt"), "10.9.9.9"); err == nil {
-		t.Fatal("unknown ip must error")
-	}
-}
-
 func TestParseGetPacket(t *testing.T) {
 	i := parseGetPacket(fixture(t, "ipconfig_getpacket.txt"))
 	if !i.Enabled || i.Server != "192.168.1.1" || i.LeaseSeconds != 86400 || i.IP != "192.168.1.77" {
@@ -52,37 +30,6 @@ func TestParseGetPacket(t *testing.T) {
 	}
 	if parseGetPacket("").Enabled {
 		t.Fatal("empty must be static")
-	}
-}
-
-func TestParseNetsh(t *testing.T) {
-	w, err := parseNetshWlan(fixture(t, "netsh_wlan_en.txt"))
-	if err != nil || !w.Connected || w.SSID != "EventNet" || w.SignalPct != 87 || w.Channel != 36 ||
-		w.Band != "5 GHz" || w.TxRateMbps != 780 || w.BSSID != "11:22:33:44:55:66" {
-		t.Fatalf("%+v %v", w, err)
-	}
-	w, err = parseNetshWlan(fixture(t, "netsh_wlan_disconnected.txt"))
-	if err != nil || w.Connected {
-		t.Fatalf("%+v %v", w, err)
-	}
-	if _, err = parseNetshWlan(fixture(t, "netsh_wlan_de.txt")); err == nil {
-		t.Fatal("localized sample must be rejected")
-	}
-}
-
-func TestNetshWlanError(t *testing.T) {
-	exit := errors.New("exit status 1")
-	loc := "There is 1 interface on the system: \r\nNetwork shell commands need location permission to access WLAN information. " +
-		"Turn on Location services on the Location page in Privacy & security settings.\r\n" +
-		"Function WlanQueryInterface returns error 5:\r\nThe requested operation requires elevation (Run as administrator).\r\n"
-	for _, tc := range []struct{ out, want string }{
-		{loc, "Location services"},
-		{"The Wireless AutoConfig Service (wlansvc) is not running.\r\n", "WLAN AutoConfig"},
-		{"", "netsh wlan: exit status 1"},
-	} {
-		if got := netshWlanError(tc.out, exit).Error(); !strings.Contains(got, tc.want) {
-			t.Errorf("netshWlanError(%q) = %q, want it to contain %q", tc.out, got, tc.want)
-		}
 	}
 }
 
@@ -122,6 +69,12 @@ func newTestRunner(p fakePinger, res fakeResolver, execOut string) *Runner {
 	r := &Runner{Pinger: p, Resolver: res, Now: func() time.Time { return time.Unix(1000, 0) },
 		Exec: func(ctx context.Context, name string, args ...string) ([]byte, error) {
 			return nil, errors.New("exec disabled in test")
+		},
+		WiFi: func(ctx context.Context, iface string) (WiFiInfo, error) {
+			return WiFiInfo{}, errors.New("wi-fi disabled in test")
+		},
+		DHCP: func(ctx context.Context, iface, ip string) (DHCPInfo, error) {
+			return DHCPInfo{}, errors.New("dhcp disabled in test")
 		}}
 	_ = execOut
 	r.defaults()
@@ -177,14 +130,14 @@ func TestRunChecks(t *testing.T) {
 func TestWiFiCache(t *testing.T) {
 	r := newTestRunner(fakePinger{}, fakeResolver{}, "")
 	calls := 0
-	r.Exec = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+	r.WiFi = func(ctx context.Context, iface string) (WiFiInfo, error) {
 		calls++
-		return nil, errors.New("x")
+		return WiFiInfo{}, errors.New("x")
 	}
 	for i := 0; i < 3; i++ {
 		r.checkWiFi(context.Background(), Input{Iface: "en0"})
 	}
-	if calls > 1 {
-		t.Fatalf("expected cached wifi, exec calls=%d", calls)
+	if calls != 1 {
+		t.Fatalf("expected cached wifi, reader calls=%d", calls)
 	}
 }

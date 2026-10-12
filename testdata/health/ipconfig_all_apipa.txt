@@ -1,7 +1,0 @@
-Ethernet adapter Ethernet:
-
-   Description . . . . . . . . . . . : Realtek PCIe GbE Family Controller
-   DHCP Enabled. . . . . . . . . . . : Yes
-   Autoconfiguration IPv4 Address. . : 169.254.12.34(Preferred)
-   Subnet Mask . . . . . . . . . . . : 255.255.0.0
-   Default Gateway . . . . . . . . . : 

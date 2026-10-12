@@ -46,60 +46,6 @@ func splitKV(line string) (key, val string, ok bool) {
 	return key, val, key != ""
 }
 
-// parseIpconfigAll finds the adapter owning ip in `ipconfig /all` output
-// (English keys only; anything else yields an error).
-func parseIpconfigAll(out, ip string) (DHCPInfo, error) {
-	var blocks [][]string
-	var cur []string
-	for _, ln := range strings.Split(strings.ReplaceAll(out, "\r", ""), "\n") {
-		if ln != "" && ln[0] != ' ' && ln[0] != '\t' && strings.HasSuffix(strings.TrimSpace(ln), ":") {
-			if cur != nil {
-				blocks = append(blocks, cur)
-			}
-			cur = []string{}
-			continue
-		}
-		if cur != nil {
-			cur = append(cur, ln)
-		}
-	}
-	if cur != nil {
-		blocks = append(blocks, cur)
-	}
-	for _, b := range blocks {
-		kv := map[string]string{}
-		found := false
-		for _, ln := range b {
-			k, v, ok := splitKV(ln)
-			if !ok {
-				continue
-			}
-			if _, dup := kv[k]; !dup {
-				kv[k] = v
-			}
-			if ip != "" && strings.HasPrefix(v, ip) && (len(v) == len(ip) || v[len(ip)] == '(') {
-				found = true
-			}
-		}
-		if !found {
-			continue
-		}
-		en, ok := kv["DHCP Enabled"]
-		if !ok {
-			return DHCPInfo{}, errUnrecognized
-		}
-		return DHCPInfo{
-			IP:            ip,
-			Enabled:       strings.EqualFold(en, "yes"),
-			Server:        kv["DHCP Server"],
-			LeaseObtained: kv["Lease Obtained"],
-			LeaseExpires:  kv["Lease Expires"],
-			APIPA:         strings.HasPrefix(ip, "169.254."),
-		}, nil
-	}
-	return DHCPInfo{}, fmt.Errorf("no adapter with address %q found", ip)
-}
-
 // parseGetPacket parses macOS `ipconfig getpacket <if>`. Empty or
 // lease-less output means no DHCP lease (static configuration).
 func parseGetPacket(out string) DHCPInfo {
@@ -133,8 +79,6 @@ func parseGetPacket(out string) DHCPInfo {
 	return info
 }
 
-var pctRe = regexp.MustCompile(`^(\d+)`)
-
 func bandFromChannel(ch int) string {
 	switch {
 	case ch <= 0:
@@ -144,76 +88,6 @@ func bandFromChannel(ch int) string {
 	default:
 		return "5 GHz"
 	}
-}
-
-// netshWlanError explains a failed `netsh wlan show interfaces` run using its
-// output; netsh exits 1 with only a generic process error otherwise.
-func netshWlanError(out string, err error) error {
-	low := strings.ToLower(out)
-	switch {
-	case strings.Contains(low, "location permission") || strings.Contains(low, "ms-settings:privacy-location"):
-		return errors.New("Windows blocks Wi-Fi details until Location is on: Settings > Privacy & security > Location, turn on Location services and Let desktop apps access your location")
-	case strings.Contains(low, "wlansvc") || strings.Contains(low, "wireless autoconfig"):
-		return errors.New("Wi-Fi service (WLAN AutoConfig) is not running")
-	}
-	return fmt.Errorf("netsh wlan: %w", err)
-}
-
-// parseNetshWlan parses English `netsh wlan show interfaces`. Output is
-// only trusted when the English "State" key is present.
-func parseNetshWlan(out string) (WiFiInfo, error) {
-	var blocks []map[string]string
-	var cur map[string]string
-	for _, ln := range strings.Split(strings.ReplaceAll(out, "\r", ""), "\n") {
-		if ln == "" || (ln[0] != ' ' && ln[0] != '\t') {
-			continue
-		}
-		k, v, ok := splitKV(ln)
-		if !ok {
-			continue
-		}
-		if k == "Name" || cur == nil {
-			cur = map[string]string{}
-			blocks = append(blocks, cur)
-		}
-		if _, dup := cur[k]; !dup {
-			cur[k] = v
-		}
-	}
-	var pick map[string]string
-	for _, b := range blocks {
-		st, ok := b["State"]
-		if !ok {
-			continue
-		}
-		if pick == nil {
-			pick = b
-		}
-		if strings.EqualFold(st, "connected") {
-			pick = b
-			break
-		}
-	}
-	if pick == nil {
-		return WiFiInfo{}, errUnrecognized
-	}
-	if !strings.EqualFold(pick["State"], "connected") {
-		return WiFiInfo{Connected: false}, nil
-	}
-	w := WiFiInfo{Connected: true, SSID: pick["SSID"], BSSID: pick["BSSID"], PHY: pick["Radio type"], Band: pick["Band"]}
-	if w.BSSID == "" {
-		w.BSSID = pick["AP BSSID"]
-	}
-	if m := pctRe.FindString(pick["Signal"]); m != "" {
-		w.SignalPct, _ = strconv.Atoi(m)
-		w.RSSI = w.SignalPct/2 - 100
-	}
-	w.Channel, _ = strconv.Atoi(pick["Channel"])
-	if w.Band == "" {
-		w.Band = bandFromChannel(w.Channel)
-	}
-	w.TxRateMbps, _ = strconv.ParseFloat(pick["Transmit rate (Mbps)"], 64)
-	return w, nil
 }
 
 var (

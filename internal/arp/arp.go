@@ -4,7 +4,6 @@ package arp
 import (
 	"context"
 	"net"
-	"os/exec"
 	"time"
 )
 
@@ -12,17 +11,16 @@ import (
 type Entry struct {
 	IP  string // dotted IPv4
 	MAC string // normalized AA:BB:CC:DD:EE:FF
-	// Iface is the IPv4 address of the Windows "Interface:" block the row was
-	// listed under. Empty on darwin/other, which have no such blocks.
+	// Iface is the IPv4 address of the Windows adapter the row belongs to
+	// (the "Interface:" line of `arp -a`). Empty on darwin/other.
 	Iface string
-	// Type is the lowercased ARP type column ("dynamic", "static", ...) on
-	// Windows. Empty on darwin/other.
+	// Type is "dynamic" or "static" on Windows. Empty on darwin/other.
 	Type string
 }
 
-const execTimeout = 2 * time.Second
+const readTimeout = 2 * time.Second
 
-// Table runs the platform ARP command (2s timeout) and returns valid entries,
+// Table reads the OS ARP cache (2s timeout) and returns valid entries,
 // deduplicated to one row per IP (see Dedupe). The preferred interface is
 // chosen by defaultIface; use TableFor when the scanned interface is known.
 func Table(ctx context.Context) ([]Entry, error) {
@@ -33,13 +31,12 @@ func Table(ctx context.Context) ([]Entry, error) {
 // listed under several Windows adapters, the row from the adapter whose
 // address is ifaceIP wins. An empty ifaceIP falls back to defaultIface.
 func TableFor(ctx context.Context, ifaceIP string) ([]Entry, error) {
-	ctx, cancel := context.WithTimeout(ctx, execTimeout)
+	ctx, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, command[0], command[1:]...).Output()
+	entries, err := readTable(ctx)
 	if err != nil {
 		return nil, err
 	}
-	entries := parse(string(out))
 	if ifaceIP == "" {
 		ifaceIP = defaultIface(entries)
 	}
@@ -47,8 +44,8 @@ func TableFor(ctx context.Context, ifaceIP string) ([]Entry, error) {
 }
 
 // Dedupe collapses entries that share an IP into one row per IP, keeping
-// first-seen IP order. Windows `arp -a` lists an IP once per adapter, so
-// duplicates are normal there. For each IP the candidate is chosen in order:
+// first-seen IP order. Windows lists an IP once per adapter, so duplicates
+// are normal there. For each IP the candidate is chosen in order:
 //
 //  1. the entry whose Iface equals preferIfaceIP (when preferIfaceIP is set);
 //  2. else the first entry with Type "dynamic";
@@ -107,13 +104,13 @@ var localIPv4s = func() []net.IP {
 	return out
 }
 
-// defaultIface returns the Interface block IP to prefer when the caller does
-// not know the scanned interface: the first block (in order of appearance)
+// defaultIface returns the adapter IP (Entry.Iface) to prefer when the caller
+// does not know the scanned interface: the first adapter (in table order)
 // whose IP shares a /24 with a local IPv4 address, or "" if none does (or
-// there are no blocks, as on darwin/other). Because a block's own address is
-// local, this normally selects the first adapter block; the /24 test guards
-// against blocks for addresses that are no longer configured. Ties fall
-// through to Dedupe's dynamic-then-first rule.
+// rows carry no adapter, as on darwin/other). Because an adapter's own
+// address is local, this normally selects the first adapter; the /24 test
+// guards against addresses that are no longer configured. Ties fall through
+// to Dedupe's dynamic-then-first rule.
 func defaultIface(entries []Entry) string {
 	locals := localIPv4s()
 	seen := make(map[string]bool)

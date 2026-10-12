@@ -169,7 +169,7 @@ The health panel sits above the hosts table. Each row shows an icon, a text stat
 | **DNS resolving** | Whether names such as your web server can be looked up. |
 | **Web server** | A web page you rely on, such as your own site or an intranet page (set the address in **Settings**, "Web server URL"). netdiag reports the HTTP status, the response time and, if you set one, whether the page contains your "must contain" text. If you have not set a URL the check shows "not configured" (info, not a fault). |
 | **Internet reachability** | Information only. It asks a test address (`http://connectivitycheck.gstatic.com/generate_204` by default, changeable in Settings) whether the internet is reachable. It never shows `fail`, because a network without internet access is normal for many local setups. |
-| **Wi-Fi** | SSID (network name), signal strength, channel, band and link speed, when the computer is on Wi-Fi. A wired computer shows "not on Wi-Fi" (info). On Windows in a non-English language, or when the details cannot be read, it shows "unavailable". On a Mac, macOS can hide the network name unless the app has Location permission; netdiag then shows "hidden by macOS". |
+| **Wi-Fi** | SSID (network name), signal strength, channel, band and link speed, when the computer is on Wi-Fi. A wired computer shows "not on Wi-Fi" (info). When the details cannot be read, it shows "unavailable". On a Mac, macOS can hide the network name unless the app has Location permission; netdiag then shows "hidden by macOS". |
 
 Statuses: `ok` (fine), `warn` (worth a look), `fail` (broken), `info` (for information, including "not configured" and "not on Wi-Fi"), and `unavailable` (netdiag could not read this check, with the reason in the detail). A health problem never stops a scan.
 
@@ -340,7 +340,7 @@ Run `xattr -d com.apple.quarantine netdiag` in the folder where you unzipped it,
 That is information, not a fault. Open **Settings** and enter the web server address in "Web server URL" (and optionally the text the page must contain). Then press **Recheck**.
 
 **The health panel says "not on Wi-Fi" or "unavailable" for Wi-Fi.**
-"Not on Wi-Fi" means this computer is on a cable (or Wi-Fi is off), which is fine. "Unavailable" means the Wi-Fi details could not be read. On recent Windows 11 versions this happens when **Location** is off, because Windows treats Wi-Fi details as location data: open Settings > Privacy & security > Location, turn on **Location services** and **Let desktop apps access your location**, then press **Recheck**. It also happens with a non-English language setting or when the WLAN AutoConfig service is stopped; the panel says which. The rest of the scan is not affected.
+"Not on Wi-Fi" means this computer is on a cable (or Wi-Fi is off), which is fine. "Unavailable" means the Wi-Fi details could not be read. On recent Windows 11 versions this happens when **Location** is off, because Windows treats Wi-Fi details as location data: open Settings > Privacy & security > Location, turn on **Location services** and **Let desktop apps access your location**, then press **Recheck**. It also happens when the WLAN AutoConfig service is stopped; the panel says which. The rest of the scan is not affected.
 
 **The health panel says "self-assigned 169.254.x.x address" (DHCP fail).**
 This computer did not get an address from the router. Check the cable or Wi-Fi connection, and restart the network connection or the computer. Ask the venue to check the DHCP server if it keeps happening.

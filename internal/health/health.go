@@ -60,6 +60,10 @@ type Runner struct {
 	Resolver Resolver
 	Exec     ExecFunc
 	Now      func() time.Time
+	// WiFi and DHCP read the OS Wi-Fi association and DHCP lease; nil uses
+	// the platform readers.
+	WiFi func(ctx context.Context, iface string) (WiFiInfo, error)
+	DHCP func(ctx context.Context, iface, ip string) (DHCPInfo, error)
 
 	mu       sync.Mutex
 	wifiAt   time.Time
@@ -97,6 +101,12 @@ func (r *Runner) defaults() {
 	}
 	if r.Now == nil {
 		r.Now = time.Now
+	}
+	if r.WiFi == nil {
+		r.WiFi = func(ctx context.Context, iface string) (WiFiInfo, error) { return readWiFi(ctx, r, iface) }
+	}
+	if r.DHCP == nil {
+		r.DHCP = func(ctx context.Context, iface, ip string) (DHCPInfo, error) { return readDHCP(ctx, r, iface, ip) }
 	}
 }
 
@@ -196,7 +206,7 @@ func (r *Runner) checkGateway(ctx context.Context, in Input) model.HealthCheck {
 }
 
 func (r *Runner) checkDHCP(ctx context.Context, in Input) model.HealthCheck {
-	info, err := readDHCP(ctx, r, in.Iface, in.IfaceIP)
+	info, err := r.DHCP(ctx, in.Iface, in.IfaceIP)
 	if err != nil {
 		return mk(1, model.HealthUnavailable, err.Error(), 0)
 	}
@@ -321,7 +331,7 @@ func (r *Runner) checkWiFi(ctx context.Context, in Input) model.HealthCheck {
 		r.mu.Unlock()
 	} else {
 		r.mu.Unlock()
-		w, err = readWiFi(ctx, r, in.Iface)
+		w, err = r.WiFi(ctx, in.Iface)
 		if ctx.Err() == nil {
 			r.mu.Lock()
 			r.wifiKey, r.wifiAt, r.wifiInfo, r.wifiErr = key, r.Now(), w, err

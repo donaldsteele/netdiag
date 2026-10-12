@@ -65,7 +65,7 @@ Tick only after observing the behaviour on real hardware.
 - [ ] Web server row shows "not configured" (info) when no URL is set
 - [ ] Internet row is `info` (never `fail`) on an offline local network
 - [ ] Wi-Fi row shows SSID, signal and channel on Wi-Fi; "not on Wi-Fi" on a cable
-- [ ] Wi-Fi row shows "unavailable" (not wrong data) on a non-English Windows install
+- [ ] Wi-Fi and DHCP rows show real data (not "unavailable") on a non-English Windows install
 - [ ] macOS Wi-Fi row shows "hidden by macOS" without Location permission
 - [ ] Recheck finishes within about 10 seconds
 - [ ] Header summary chip reads "Health: N fail, M warn" (or "Health: OK")

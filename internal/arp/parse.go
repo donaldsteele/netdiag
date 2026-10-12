@@ -6,34 +6,7 @@ import (
 	"strings"
 )
 
-var (
-	winRe   = regexp.MustCompile(`^\s*(\d{1,3}(?:\.\d{1,3}){3})\s+([0-9a-fA-F]{1,2}(?:-[0-9a-fA-F]{1,2}){5})\s+(\S+)`)
-	winIfRe = regexp.MustCompile(`^\s*Interface:\s+(\d{1,3}(?:\.\d{1,3}){3})\b`)
-	macRe   = regexp.MustCompile(`\((\d{1,3}(?:\.\d{1,3}){3})\) at ([0-9a-fA-F]{1,2}(?::[0-9a-fA-F]{1,2}){5})\b`)
-)
-
-// ParseWindows parses `arp -a` output from Windows. Rows are tagged with the
-// IP of the "Interface:" block they appear under and their lowercased type.
-// Duplicates across blocks are kept here; Dedupe collapses them.
-func ParseWindows(s string) []Entry {
-	var out []Entry
-	iface := ""
-	for _, line := range strings.Split(s, "\n") {
-		if m := winIfRe.FindStringSubmatch(line); m != nil {
-			iface = m[1]
-			continue
-		}
-		if m := winRe.FindStringSubmatch(line); m != nil {
-			n := len(out)
-			out = appendEntry(out, m[1], m[2])
-			if len(out) > n {
-				out[n].Iface = iface
-				out[n].Type = strings.ToLower(m[3])
-			}
-		}
-	}
-	return out
-}
+var macRe = regexp.MustCompile(`\((\d{1,3}(?:\.\d{1,3}){3})\) at ([0-9a-fA-F]{1,2}(?::[0-9a-fA-F]{1,2}){5})\b`)
 
 // ParseDarwin parses `arp -an` output from macOS (incomplete rows are skipped).
 func ParseDarwin(s string) []Entry {
