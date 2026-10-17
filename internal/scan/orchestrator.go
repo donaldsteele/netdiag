@@ -356,6 +356,34 @@ func (s *Scan) Wait() model.ScanResult {
 	return s.Snapshot()
 }
 
+// MaxPorts is the most TCP ports one scan may check on each device.
+const MaxPorts = 64
+
+// validPorts returns the ports to probe: the defaults when none are given,
+// otherwise the given ports in order with duplicates removed. Every port
+// must be 1..65535 and there may be at most MaxPorts of them.
+func validPorts(in []int) ([]int, error) {
+	if len(in) == 0 {
+		return slices.Clone(model.DefaultPorts), nil
+	}
+	seen := make(map[int]bool, min(len(in), MaxPorts+1))
+	out := make([]int, 0, min(len(in), MaxPorts))
+	for _, p := range in {
+		if p < 1 || p > 65535 {
+			return nil, fmt.Errorf("%w: %d is not a port number (use 1 to 65535)", ErrInvalidRequest, p)
+		}
+		if seen[p] {
+			continue
+		}
+		if len(out) == MaxPorts {
+			return nil, fmt.Errorf("%w: too many ports (a scan can check at most %d)", ErrInvalidRequest, MaxPorts)
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out, nil
+}
+
 // Validate normalises req (default community/ports) and expands its targets.
 // Errors wrap ErrInvalidRequest.
 func Validate(req model.ScanRequest) (model.ScanRequest, []netip.Addr, error) {
@@ -373,8 +401,8 @@ func Validate(req model.ScanRequest) (model.ScanRequest, []netip.Addr, error) {
 	if req.Community == "" {
 		req.Community = model.DefaultCommunity
 	}
-	if len(req.Ports) == 0 {
-		req.Ports = slices.Clone(model.DefaultPorts)
+	if req.Ports, err = validPorts(req.Ports); err != nil {
+		return req, nil, err
 	}
 	if req.Live {
 		if req.LiveIntervalSec == 0 {

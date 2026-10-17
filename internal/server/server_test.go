@@ -160,6 +160,9 @@ func TestBadRange(t *testing.T) {
 	if r, _ := do(t, "POST", u+"/api/scans", `not json`, ""); r.StatusCode != 400 {
 		t.Fatalf("bad json: %d", r.StatusCode)
 	}
+	if r, b := do(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/30","ports":[80,99999]}`, ""); r.StatusCode != 400 || !strings.Contains(b, "99999 is not a port number") {
+		t.Fatalf("bad port: %d %q", r.StatusCode, b)
+	}
 	if r, _ := do(t, "GET", u+"/api/scans/nope", "", ""); r.StatusCode != 404 {
 		t.Fatalf("unknown: %d", r.StatusCode)
 	}
