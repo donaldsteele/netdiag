@@ -48,9 +48,11 @@ const matchId = (re, p) => {
 // so the page reattaches on load, and POST /api/scans without replaceLive
 // answers 409 like handleStart. identity: 'ok', 'down' (no answer) or
 // 'restarted' (another instanceId) for the heartbeat. Specs may change
-// rec.running, rec.identity and rec.frames (the event stream) while the page runs.
+// rec.running, rec.identity and rec.frames (the event stream, or a function
+// of the scan id that returns it) while the page runs, and rec.scanId: the id
+// POST /api/scans answers and GET /api/scans/running reports (fx.SCAN_ID).
 export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired, health: healthState = 'default', osOpen = 204, running = false, identity = 'ok' } = {}) {
-  const rec = { requests: [], unmatched: [], external: [], sse: [], running, identity, frames: null, identityCalls: 0 };
+  const rec = { requests: [], unmatched: [], external: [], sse: [], running, identity, frames: null, identityCalls: 0, runningCalls: 0, scanId: fx.SCAN_ID };
   const origin = new URL(BASE_URL).origin;
   const MCP_URL = 'http://127.0.0.1:8787/mcp';
   let settings = { ...(initialSettings || fx.settings()), mcpUrl: MCP_URL };
@@ -105,12 +107,13 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     if (method === 'POST' && p === '/api/scans') {
       // Mirrors Registry.Start: a scan that is watching is replaced only with replaceLive.
       if (rec.running && !JSON.parse(body || '{}').replaceLive) {
-        return json(route, 409, { error: 'netdiag is watching this network.', watching: fx.watching() });
+        return json(route, 409, { error: 'netdiag is watching this network.', watching: fx.watching(rec.scanId) });
       }
-      return json(route, 202, { id: fx.SCAN_ID });
+      return json(route, 202, { id: rec.scanId });
     }
     if (method === 'GET' && p === '/api/scans/running') {
-      return json(route, 200, { scan: rec.running ? fx.runningScan() : null });
+      rec.runningCalls++;
+      return json(route, 200, { scan: rec.running ? fx.runningScan(rec.scanId) : null });
     }
     if (method === 'GET' && p === '/api/identity') {
       rec.identityCalls++;
@@ -141,7 +144,8 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     const scanId = matchId(/^\/api\/scans\/([^/]+)\/events$/, p);
     if (method === 'GET' && scanId) {
       rec.sse.push(scanId);
-      const frames = rec.frames || customFrames || (scenario === 'live' ? fx.liveFrames() : fx.scanFrames());
+      const set = typeof rec.frames === 'function' ? rec.frames(scanId) : rec.frames;
+      const frames = set || customFrames || (scenario === 'live' ? fx.liveFrames() : fx.scanFrames());
       return route.fulfill({
         status: 200,
         headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },

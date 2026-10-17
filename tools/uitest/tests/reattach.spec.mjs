@@ -1,7 +1,8 @@
 // F9a "Never lose netdiag": a reloaded page attaches to the scan that is
-// watching (silently), Restart watching asks first, a stale tab cannot stop
-// the watching, the heartbeat notices when netdiag stops or restarts, and
-// only one tab beeps.
+// watching (silently, a fixed alert as Fixed), Restart watching asks first, a
+// stale tab cannot stop the watching, the heartbeat notices when netdiag
+// stops or restarts, every tab follows the scan that is watching, and only
+// one of the tabs following it beeps.
 import { test, expect } from '@playwright/test';
 import { installMocks, initStorage } from '../support/mock.mjs';
 import * as fx from '../fixtures/index.mjs';
@@ -26,6 +27,26 @@ function soundOn() {
   s.alerts.sound = true;
   return s;
 }
+
+// Sound and desktop alerts on.
+function loudSettings() {
+  const s = soundOn();
+  s.alerts.desktop = true;
+  return s;
+}
+
+// Records desktop notifications, with permission granted.
+async function spyNotes(page) {
+  await page.addInitScript(() => {
+    window.__notes = [];
+    window.Notification = class {
+      constructor(title, opts) { window.__notes.push({ title, ...opts }); }
+      static get permission() { return 'granted'; }
+      static requestPermission() { return Promise.resolve('granted'); }
+    };
+  });
+}
+const notes = (page) => page.evaluate(() => window.__notes);
 
 // The browser logs every 409 answer; the stale tab test expects one.
 function watchErrors(page) {
@@ -55,7 +76,7 @@ test('reload while live brings back the table, health, banners and live pill wit
   const rec = await installMocks(page, { scenario: 'live', settings: soundOn() });
   await page.goto('/');
   await page.getByRole('button', { name: 'Scan', exact: true }).click();
-  await expect(page.locator('.livepill')).toContainText('Live');
+  await expect(page.locator('.livepill')).toBeVisible();
   await expect(page.locator('#alerts div.banner:not(.more)')).toContainText('Device offline');
   await expect.poll(() => beeps(page), { message: 'the live notice beeps before the reload' }).toBeGreaterThan(0);
 
@@ -65,7 +86,7 @@ test('reload while live brings back the table, health, banners and live pill wit
   await page.reload();
 
   // 254 rows can take a while on a busy machine.
-  await expect(page.locator('.livepill')).toContainText('Live', { timeout: 15_000 });
+  await expect(page.locator('.livepill')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('#hosts tbody tr.host')).toHaveCount(fx.TOTAL_HOSTS, { timeout: 15_000 });
   await expect(page.locator('#hosts tr.host').filter({ hasText: '192.168.2.200' }).locator('.badge.offline')).toBeVisible();
   await expect(page.locator('.hstrip .hpill')).toHaveCount(6);
@@ -100,8 +121,13 @@ test('a stale tab cannot stop the watching: Scan asks, Keep watching attaches', 
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Scan', exact: true })).toBeVisible();
   expect(rec.sse).toEqual([]);
+  // The page looked for a running scan on load and after the first
+  // heartbeat; the next look is 15 s away.
+  await expect.poll(() => rec.runningCalls).toBeGreaterThanOrEqual(2);
+  await page.waitForTimeout(200);
 
-  // Another tab (or a second launch) started watching after this page loaded.
+  // Another tab (or a second launch) started watching after this page last
+  // looked.
   rec.running = true;
   rec.frames = fx.replayFrames();
   await page.getByRole('button', { name: 'Scan', exact: true }).click();
@@ -115,7 +141,7 @@ test('a stale tab cannot stop the watching: Scan asks, Keep watching attaches', 
 
   await dlg.getByRole('button', { name: 'Keep watching', exact: true }).click();
   await expect(dlg).toHaveJSProperty('open', false);
-  await expect(page.locator('.livepill')).toContainText('Live');
+  await expect(page.locator('.livepill')).toBeVisible();
   await expect(page.locator('#hosts tbody tr.host')).toHaveCount(fx.TOTAL_HOSTS);
   await expect(page.locator('#restart-btn')).toBeFocused();
   expect(posts(rec), 'Keep watching sends nothing').toHaveLength(1);
@@ -142,7 +168,7 @@ test('Restart watching asks first; Esc keeps watching and returns focus; Restart
   await page.keyboard.press('Escape');
   await expect(dlg).toHaveJSProperty('open', false);
   await expect(btn).toBeFocused();
-  await expect(page.locator('.livepill')).toContainText('Live');
+  await expect(page.locator('.livepill')).toBeVisible();
   expect(posts(rec), 'Esc sends nothing').toHaveLength(0);
 
   await btn.click();
@@ -151,7 +177,7 @@ test('Restart watching asks first; Esc keeps watching and returns focus; Restart
   await expect(dlg).toHaveJSProperty('open', false);
   await expect.poll(() => posts(rec).length).toBe(1);
   expect(JSON.parse(posts(rec)[0].body)).toMatchObject({ cidr: fx.CIDR, live: true, replaceLive: true });
-  await expect(page.locator('.livepill')).toContainText('Live');
+  await expect(page.locator('.livepill')).toBeVisible();
   expect(await app(page, (a) => a.log.some((e) => e.text.startsWith('Watching restarted: ')))).toBe(true);
 
   expect(errors, 'page errors').toEqual([]);
@@ -200,7 +226,7 @@ test('while live, a broken event stream checks every 5 s, so the stopped banner 
   await initStorage(page, { theme: 'dark', live: true });
   const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
   await page.goto('/');
-  await expect(page.locator('.livepill')).toContainText('Live');
+  await expect(page.locator('.livepill')).toBeVisible();
   // The mock stream ends after the replay, like a backend that went away.
   await expect.poll(() => app(page, (a) => a.sseErr)).toBe(true);
   rec.identity = 'down';
@@ -241,43 +267,223 @@ test('quitting stops the heartbeat and shows only the quit message', async ({ pa
   await expect(page.locator('#backend-stopped')).toBeHidden();
 });
 
-test('only the most recently focused tab beeps', async ({ page }) => {
+
+// A replayed OK notice turns its fault's banner into Fixed as silently as
+// the fault's banner came back: no Activity line, sound or desktop pop-up.
+test('a replayed fault and its OK come back as a Fixed banner, silently', async ({ page }) => {
+  const errors = watchErrors(page);
+  await spyBeeps(page);
+  await spyNotes(page);
+  await initStorage(page, { theme: 'dark', live: true });
+  const frames = [...fx.replayFrames(), { type: 'notice', data: { ...fx.fixedNotice(2), replay: true } }];
+  const rec = await installMocks(page, { scenario: 'live', settings: loudSettings(), running: true, frames });
+  await page.goto('/');
+  // 254 rows can take a while on a busy machine.
+  await expect(page.locator('.livepill')).toBeVisible({ timeout: 15_000 });
+  const banners = page.locator('#alerts div.banner:not(.more)');
+  const fixed = banners.filter({ hasText: 'Fixed: Device back online' });
+  await expect(fixed).toHaveCount(1, { timeout: 15_000 });
+  await expect(fixed).toHaveClass(/sev-ok/);
+  await expect(fixed).toContainText('(was down 12 min).');
+  // The fault's banner became the Fixed one; Toner low is still open.
+  await expect(banners).toHaveCount(2);
+  await expect(banners.filter({ hasText: 'Warning: Toner low' })).toHaveCount(1);
+  await expect.poll(() => app(page, (a) => a.settings !== null)).toBe(true);
+
+  await page.waitForTimeout(500);
+  expect(await beeps(page), 'beeps').toBe(0);
+  expect(await notes(page), 'desktop notifications').toEqual([]);
+  expect(await app(page, (a) => a.log.filter((e) => e.kind === 'notice').length), 'notice and Fixed lines').toBe(0);
+
+  // Reloading again rebuilds the same two banners, still silently.
+  await page.reload();
+  await expect(page.locator('.livepill')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('#alerts div.banner:not(.more)').filter({ hasText: 'Fixed: Device back online' })).toHaveCount(1, { timeout: 15_000 });
+  await expect(page.locator('#alerts div.banner:not(.more)')).toHaveCount(2);
+  await page.waitForTimeout(500);
+  expect(await beeps(page)).toBe(0);
+  expect(await notes(page)).toEqual([]);
+  expect(errors, 'page errors').toEqual([]);
+  expect(rec.unmatched, 'unmatched requests').toEqual([]);
+});
+
+// Two tabs of one browser share the BroadcastChannel. Each has its own
+// mocks, which the tests keep in step like one netdiag would.
+async function twoTabs(page, opts = {}) {
   const other = await page.context().newPage();
+  const recs = [];
   for (const p of [page, other]) {
     await spyBeeps(p);
-    await initStorage(p, { theme: 'dark', live: false });
+    await spyNotes(p);
+    await initStorage(p, { theme: 'dark', live: true });
+    recs.push(await installMocks(p, { scenario: 'live', settings: loudSettings(), ...opts }));
   }
-  const recA = await installMocks(page, { scenario: 'scan', settings: soundOn() });
-  const recB = await installMocks(other, { scenario: 'scan', settings: soundOn() });
-  await page.goto('/');
-  await expect.poll(() => recA.identityCalls).toBeGreaterThan(0);
-  await other.goto('/');
-  await expect.poll(() => recB.identityCalls).toBeGreaterThan(0);
-  await expect.poll(() => app(page, (a) => a.settings !== null)).toBe(true);
-  await expect.poll(() => app(other, (a) => a.settings !== null)).toBe(true);
+  return { other, recA: recs[0], recB: recs[1] };
+}
+// Attaching rebuilds 254 rows, which can take a while on a busy machine.
+const SLOW = { timeout: 15_000 };
+// (The live pill always holds the word Live, so the tests check that it shows.)
+const settled = (p) => expect.poll(() => app(p, (a) => a.settings !== null), SLOW).toBe(true);
+const notify = (p, n) => app(p, (a, x) => a.onNotice(x, a.scanId), n);
+const focusTab = (p) => p.evaluate(() => window.dispatchEvent(new Event('focus')));
+const NEW_ID = 'c0ffee00-0000-4000-8000-000000000002';
 
-  const notify = (p, id) => app(p, (a, n) => a.onNotice({ id: n, severity: 'warn', title: 'Toner low', message: 'test' }, 'tabs'), id);
+test('of the tabs following the scan, only the one focused last beeps', async ({ page }) => {
+  const { other, recA, recB } = await twoTabs(page, { running: true, frames: fx.replayFrames() });
+  await page.goto('/');
+  await expect(page.locator('.livepill')).toBeVisible(SLOW);
+  await other.goto('/');
+  await expect(other.locator('.livepill')).toBeVisible(SLOW);
+  await settled(page);
+  await settled(other);
 
   // The tab opened last plays the sound; the other only shows the banner.
-  await notify(page, 'n-1');
-  await notify(other, 'n-1');
-  await expect(page.locator('#alerts div.banner:not(.more)')).toHaveCount(1);
-  await expect(other.locator('#alerts div.banner:not(.more)')).toHaveCount(1);
+  await expect.poll(() => app(page, (a) => a.isBeeper()), SLOW).toBe(false);
+  expect(await app(other, (a) => a.isBeeper())).toBe(true);
+  const fault = { id: 'n-50', trigger: 'printerOffline', severity: 'warn', title: 'Printer offline',
+    message: 'test', key: 'printerOffline|00:1B:A9:12:34:56|', at: new Date().toISOString() };
+  await notify(page, fault);
+  await notify(other, fault);
+  await expect(page.locator('#alerts div.banner:not(.more)').filter({ hasText: 'Printer offline' })).toHaveCount(1);
+  await expect(other.locator('#alerts div.banner:not(.more)').filter({ hasText: 'Printer offline' })).toHaveCount(1);
   expect(await beeps(page), 'first tab').toBe(0);
   expect(await beeps(other), 'last opened tab').toBeGreaterThan(0);
+  expect(await notes(page)).toHaveLength(0);
+  expect(await notes(other)).toHaveLength(1);
 
   // Focusing the first tab makes it the one that beeps.
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect.poll(() => app(other, (a) => a.isBeeper())).toBe(false);
+  await focusTab(page);
+  await expect.poll(() => app(other, (a) => a.isBeeper()), SLOW).toBe(false);
+  expect(await app(page, (a) => a.isBeeper())).toBe(true);
+
+  // The Fixed desktop notification comes from the beeping tab only; both
+  // banners turn into Fixed.
+  const ok = { ...fault, id: 'n-51', severity: 'info', title: 'Printer back online', message: 'Printer answers again.',
+    ok: true, openedAt: fault.at, at: new Date().toISOString() };
+  await notify(page, ok);
+  await notify(other, ok);
+  for (const p of [page, other]) {
+    await expect(p.locator('#alerts div.banner:not(.more)').filter({ hasText: 'Fixed: Printer back online' })).toHaveCount(1);
+  }
+  expect((await notes(page)).map((n) => n.title)).toEqual(['Fixed: Printer back online']);
+  expect(await notes(other)).toHaveLength(1);
+
   const before = await beeps(other);
-  await notify(page, 'n-2');
-  await notify(other, 'n-2');
+  const next = { ...fault, id: 'n-52' };
+  await notify(page, next);
+  await notify(other, next);
   expect(await beeps(page), 'focused tab').toBeGreaterThan(0);
   expect(await beeps(other), 'other tab').toBe(before);
 
   // When the beeping tab closes, the one left beeps again.
   await page.close({ runBeforeUnload: true });
-  await expect.poll(() => app(other, (a) => a.isBeeper())).toBe(true);
+  await expect.poll(() => app(other, (a) => a.isBeeper()), SLOW).toBe(true);
   await other.close();
   expect(recA.unmatched.concat(recB.unmatched)).toEqual([]);
+});
+
+test('a tab that is not following the scan never takes the beeping, and follows the scan once it can', async ({ page }) => {
+  // page: open, idle, and (for now) told no scan is running. other: watching.
+  const { other, recA, recB } = await twoTabs(page);
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Scan', exact: true })).toBeVisible();
+  await other.goto('/');
+  await other.getByRole('button', { name: 'Scan', exact: true }).click();
+  await expect(other.locator('.livepill')).toBeVisible(SLOW);
+  await settled(page);
+  await settled(other);
+  expect(await app(other, (a) => a.isBeeper())).toBe(true);
+
+  // The person clicks the idle tab, for example to look at History.
+  await focusTab(page);
+  await page.waitForTimeout(300);
+  expect(await app(page, (a) => a.isBeeper()), 'idle tab').toBe(false);
+  expect(await app(other, (a) => a.isBeeper()), 'watching tab').toBe(true);
+  expect(await app(page, (a) => a.attached())).toBe(false);
+  const fault = { id: 'n-60', trigger: 'printerOffline', severity: 'warn', title: 'Printer offline', message: 'test',
+    key: 'printerOffline|00:1B:A9:12:34:56|', at: new Date().toISOString() };
+  // (The live stream's Device offline notice already beeped there.)
+  const tones = await beeps(other);
+  await notify(other, fault);
+  await expect.poll(() => beeps(other), 'the watching tab still beeps').toBeGreaterThan(tones);
+  expect((await notes(other)).filter((n) => n.title === 'Printer offline')).toHaveLength(1);
+  // A notice in a tab that follows no scan makes no sound either.
+  await notify(page, fault);
+  expect(await beeps(page)).toBe(0);
+
+  // The heartbeat finds the live scan and the idle tab follows it. It was
+  // focused last, so it beeps from then on.
+  recA.running = true;
+  recA.frames = fx.replayFrames();
+  await app(page, (a) => a.beat());
+  await expect(page.locator('.livepill')).toBeVisible(SLOW);
+  await expect(page.getByRole('button', { name: 'Scan', exact: true })).toBeHidden();
+  await expect.poll(() => app(page, (a) => a.isBeeper()), SLOW).toBe(true);
+  await expect.poll(() => app(other, (a) => a.isBeeper()), SLOW).toBe(false);
+  expect(recA.sse).toEqual([fx.SCAN_ID]);
+  expect(await app(page, (a) => a.log.some((e) => e.text.startsWith('Reconnected to the running scan')))).toBe(true);
+  expect(recA.unmatched.concat(recB.unmatched)).toEqual([]);
+  await other.close();
+});
+
+test('a scan without live mode in another tab does not pull this tab along', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { scenario: 'scan' });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Scan', exact: true })).toBeVisible();
+  await page.route('**/api/scans/running', (route) => route.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ scan: { ...fx.runningScan(), state: 'running', liveSince: undefined,
+      request: { cidr: fx.CIDR, interface: 'Wi-Fi', live: false } } }) }));
+  await app(page, (a) => a.beat());
+  await focusTab(page);
+  await page.waitForTimeout(300);
+  expect(rec.sse).toEqual([]);
+  await expect(page.getByRole('button', { name: 'Scan', exact: true })).toBeVisible();
+});
+
+test('Restart watching in one tab: the other tab follows the new scan', async ({ page }) => {
+  const { other, recA, recB } = await twoTabs(page, { running: true, frames: fx.replayFrames() });
+  await page.goto('/');
+  await expect(page.locator('.livepill')).toBeVisible(SLOW);
+  await other.goto('/');
+  await expect(other.locator('.livepill')).toBeVisible(SLOW);
+  await settled(page);
+  await settled(other);
+
+  // One netdiag: after the restart it reports the new scan to both tabs.
+  recA.scanId = NEW_ID;
+  recB.scanId = NEW_ID;
+  await page.getByRole('button', { name: 'Restart watching', exact: true }).click();
+  await page.locator('#restart-dialog').getByRole('button', { name: 'Restart', exact: true }).click();
+  await expect.poll(() => recA.sse, SLOW).toEqual([fx.SCAN_ID, NEW_ID]);
+  await expect.poll(() => recB.sse, { message: 'the other tab follows', ...SLOW }).toEqual([fx.SCAN_ID, NEW_ID]);
+  await expect(other.locator('.livepill')).toBeVisible(SLOW);
+  await expect(other.getByRole('button', { name: 'Restart watching', exact: true })).toBeVisible();
+  await expect(other.getByRole('button', { name: 'Scan', exact: true })).toBeHidden();
+  expect(await app(other, (a) => a.scanId)).toBe(NEW_ID);
+  // The tab the person used beeps.
+  await expect.poll(() => app(page, (a) => a.isBeeper()), SLOW).toBe(true);
+  await expect.poll(() => app(other, (a) => a.isBeeper()), SLOW).toBe(false);
+  expect(recA.unmatched.concat(recB.unmatched)).toEqual([]);
+  await other.close();
+});
+
+test('when watching is restarted elsewhere, the page follows the new scan instead of showing it finished', async ({ page }) => {
+  const errors = watchErrors(page);
+  await initStorage(page, { theme: 'dark', live: true });
+  const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
+  await page.goto('/');
+  await expect(page.locator('.livepill')).toBeVisible(SLOW);
+
+  // The old scan's stream ends with done (cancelled): another browser, or a
+  // tab that is not open here, restarted watching.
+  rec.scanId = NEW_ID;
+  await app(page, (a) => a.es.dispatchEvent(new MessageEvent('done', { data: JSON.stringify({ state: 'cancelled' }) })));
+  await expect.poll(() => rec.sse, SLOW).toEqual([fx.SCAN_ID, NEW_ID]);
+  await expect(page.locator('.livepill')).toBeVisible(SLOW);
+  await expect(page.getByRole('button', { name: 'Restart watching', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Scan', exact: true })).toBeHidden();
+  expect(await app(page, (a) => a.scanId)).toBe(NEW_ID);
+  expect(errors, 'page errors').toEqual([]);
+  expect(rec.unmatched, 'unmatched requests').toEqual([]);
 });

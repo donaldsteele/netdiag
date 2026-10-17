@@ -527,14 +527,14 @@ export function liveFrames() {
 export const LIVE_SINCE = '2026-10-10T09:30:12Z';
 
 // GET /api/scans/running while the fixture live scan watches the network.
-export function runningScan() {
-  return { id: SCAN_ID, state: 'live', startedAt: T0, liveSince: LIVE_SINCE,
+export function runningScan(id = SCAN_ID) {
+  return { id, state: 'live', startedAt: T0, liveSince: LIVE_SINCE,
     request: { cidr: CIDR, interface: 'Wi-Fi', live: true, liveIntervalSec: 15 } };
 }
 
 // The "watching" object of the 409 POST /api/scans answers while it watches.
-export function watching() {
-  return { id: SCAN_ID, cidr: CIDR, interface: 'Wi-Fi', since: LIVE_SINCE };
+export function watching(id = SCAN_ID) {
+  return { id, cidr: CIDR, interface: 'Wi-Fi', since: LIVE_SINCE };
 }
 
 // GET /api/identity; n picks the instance (2 = netdiag was restarted).

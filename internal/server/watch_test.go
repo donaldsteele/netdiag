@@ -126,4 +126,26 @@ func TestWatchGuardUI(t *testing.T) {
 	if n := strings.Count(string(js), "replaceLive"); n != 1 {
 		t.Errorf("app.js names replaceLive %d times, want once (in start)", n)
 	}
+	// Only a tab that follows the running scan beeps, and the other tabs
+	// follow a scan another tab started or restarted.
+	for _, want := range []string{"attached() { return !!this.es && this.running; }", "isBeeper() { return this.attached() &&",
+		"this.tellTabs({type: 'started', id: j.id});", "m.type === 'started'", "this.follow(false, id);", "return this.reattach(skip, true);"} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+	// A replayed OK notice flips its banner to Fixed before any log line or
+	// desktop notification, and only the beeping tab raises one.
+	src := string(js)
+	i := strings.Index(src, "onFixed(n, bid) {")
+	j := strings.Index(src, "bannerText(b) {")
+	if i < 0 || j < i {
+		t.Fatal("onFixed not found")
+	}
+	body := src[i:j]
+	replay, log := strings.Index(body, "if (n.replay) return;"), strings.Index(body, "this.logPush(")
+	beeper, note := strings.Index(body, "if (!this.isBeeper()) return;"), strings.Index(body, "new Notification(")
+	if replay < 0 || log < replay || beeper < log || note < beeper {
+		t.Errorf("onFixed must return on a replay before logPush, and check isBeeper before new Notification")
+	}
 }

@@ -18,7 +18,7 @@ document.addEventListener('alpine:init', () => {
     history: [], historyError: '', baseId: '', currentId: '', diff: null, diffError: '', diffBusy: false,
     shown: {},
     remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
-    watching: null, restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: '',
+    watching: null, restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: null, focusAt: 0, starting: false,
     log: [], logSeq: 0, logHidden: {}, logStick: true, logSeen: {},
     logKinds: [{id: 'scan', label: 'Scan'}, {id: 'host', label: 'New host'}, {id: 'offline', label: 'Offline'}, {id: 'online', label: 'Online'},
                {id: 'conflict', label: 'Conflict'}, {id: 'health', label: 'Health'}, {id: 'notice', label: 'Notice'}, {id: 'error', label: 'Error'}],
@@ -426,7 +426,8 @@ document.addEventListener('alpine:init', () => {
       if (this.seenNotices[key]) return;
       this.seenNotices[key] = true;
       // A replayed notice (the page was reloaded or reconnected) rebuilds its
-      // banner silently: no sound, desktop pop-up or log line.
+      // banner silently: no sound, desktop pop-up or log line. A replayed OK
+      // notice turns its banner into Fixed the same way.
       if (n.ok) { this.onFixed(n, key); return; }
       if (!n.replay) this.logPush('notice', (n.title || 'Notice') + (n.message ? ': ' + n.message : ''), n.ip);
       // A banner key is unique: never show two banners for one notice.
@@ -442,17 +443,23 @@ document.addEventListener('alpine:init', () => {
     // An OK notice closes the problem its key opened. The fault's banner turns
     // into a Fixed banner in place (a new one if it was dismissed), with no
     // sound, and a desktop notification replaces the fault's: same tag,
-    // silent (v0.6-D8).
+    // silent (v0.6-D8). A replayed OK notice only turns its banner into Fixed:
+    // no log line or desktop notification. Only the beeping tab raises the
+    // desktop notification, as for the fault.
     onFixed(n, bid) {
       // A fixed problem needs no advice: the fault's What to try goes.
       const fixed = {ok: true, severity: 'info', title: n.title, message: n.message, at: n.at, openedAt: n.openedAt, ip: n.ip, advice: null};
+      // A banner key is unique: never show two banners for one notice.
+      this.banners = this.banners.filter(x => x.bid !== bid);
       const b = n.key ? this.banners.find(x => x.key === n.key && !x.ok) : null;
       if (b) Object.assign(b, fixed);
       else {
         this.banners.unshift(Object.assign({}, n, fixed, {bid: bid}));
         if (this.banners.length > 50) this.banners.length = 50;
       }
+      if (n.replay) return;
       this.logPush('notice', 'Fixed: ' + (n.title || 'Notice') + ' ' + this.bannerText(fixed), n.ip);
+      if (!this.isBeeper()) return;
       if (this.settings && this.settings.alerts.desktop && this.desktopState() === 'granted') {
         try { new Notification('Fixed: ' + (n.title || 'netdiag'), {body: (n.message ? n.message + ' ' : '') + 'Fixed ' + this.fixedText(n), tag: n.key || n.id, silent: true}); } catch (e) {}
       }
@@ -683,6 +690,8 @@ document.addEventListener('alpine:init', () => {
     async start(replace) {
       this.error = '';
       const cidr = this.cidr.trim();
+      this.focusAt = Date.now(); // the person is using this tab
+      this.starting = true;
       try {
         const body = {cidr: cidr, interface: this.ifaceName, community: this.community, live: !!this.live};
         if (replace === true) body.replaceLive = true;
@@ -694,21 +703,26 @@ document.addEventListener('alpine:init', () => {
         this.scanId = j.id; this.running = true; this.state = 'running';
         this.logPush('scan', (replace === true ? 'Watching restarted: ' : 'Scan started: ') + cidr + (this.live ? ' (live)' : ''));
         this.listen(j.id);
+        // The other tabs follow the new scan.
+        this.tellTabs({type: 'started', id: j.id});
       } catch (e) { this.error = 'Could not start scan: ' + e.message; }
+      finally { this.starting = false; }
     },
 
     // ---- never lose netdiag (F9) ----
     // A reloaded or reopened page attaches to the scan that is running, so the
     // table, health, banners and live pill come back. The event stream
     // replays them; replayed notices rebuild their banners without a sound.
-    async reattach() {
+    // skip: a scan that just ended here, in case it is still reported. live:
+    // attach only to a scan in live mode.
+    async reattach(skip, live) {
       let sc = null;
       try {
         const r = await fetch('/api/scans/running');
         if (r.ok) sc = ((await r.json()) || {}).scan;
       } catch (e) {}
-      if (!sc || !sc.id) return false;
-      if (sc.id === this.scanId && this.es) return true;
+      if (!sc || !sc.id || sc.id === skip || (live && !(sc.request || {}).live)) return false;
+      if (sc.id === this.scanId && this.attached()) return true;
       const q = sc.request || {};
       this.resetScan();
       if (q.cidr) this.cidr = q.cidr;
@@ -718,6 +732,21 @@ document.addEventListener('alpine:init', () => {
       this.logPush('scan', 'Reconnected to the running scan: ' + (q.cidr || '') + (q.live ? ' (live)' : ''));
       this.listen(sc.id, true);
       return true;
+    },
+    // A tab that is not following the scan that is watching the network
+    // picks it up, so its alerts reach the tab the person uses: when another
+    // tab starts one, when the heartbeat answers, when the tab is focused and
+    // when its own scan ends (Restart watching in another tab ends it). Only
+    // a scan in live mode: a single scan ends by itself, and the person may
+    // still be reading the last results. force: another tab started a scan,
+    // so a tab still attached to the old one looks too. Never while the
+    // restart dialog asks the person.
+    async follow(force, skip) {
+      if (this.starting || this.quitted || this.backend !== 'ok') return false;
+      if (this.attached() && !force) return false;
+      const d = this.$refs.restartDlg;
+      if (d && d.open) return false;
+      return this.reattach(skip, true);
     },
     // Restart watching, and the answer to a 409 from a tab that did not know
     // a scan was watching (stale). w is the server's watching scan.
@@ -757,6 +786,7 @@ document.addEventListener('alpine:init', () => {
     async keepWatching() {
       const stale = this.restartStale, btn = document.getElementById('restart-btn');
       this.closeRestart();
+      this.focusAt = Date.now();
       if (stale && await this.reattach()) this.focusShown([btn]);
       else this.focusShown([restartOpener, btn]);
     },
@@ -797,34 +827,64 @@ document.addEventListener('alpine:init', () => {
       }
       this.hbFails = 0;
       if (!this.instanceId) this.instanceId = j.instanceId || '';
-      if (j.instanceId && j.instanceId !== this.instanceId) this.backend = 'restarted';
-      else if (this.backend === 'stopped') this.backend = 'ok';
+      if (j.instanceId && j.instanceId !== this.instanceId) { this.backend = 'restarted'; return; }
+      if (this.backend === 'stopped') this.backend = 'ok';
+      // A scan started by an agent or in another browser: follow it.
+      this.follow(false);
     },
     reloadPage() { window.location.reload(); },
 
-    // Every open netdiag tab shows the banners, but only the most recently
-    // focused one plays the sound and raises desktop pop-ups.
+    // Every open netdiag tab shows the banners, but only one plays the sound
+    // and raises desktop pop-ups: of the tabs following the running scan, the
+    // one the person focused or used last. The tabs tell each other on a
+    // BroadcastChannel: offer (id, and at: its last focus), bye (it stopped
+    // following or closed), who (a new tab asks for offers) and started (a
+    // scan started: follow it).
     initTabs() {
       this.tabId = Math.random().toString(36).slice(2) + Date.now().toString(36);
-      this.beeper = this.tabId;
+      this.focusAt = Date.now();
       if (typeof BroadcastChannel === 'undefined') return;
       try { tabs = new BroadcastChannel('netdiag'); } catch (e) { return; }
       tabs.onmessage = ev => {
         const m = ev.data || {};
-        if (m.type === 'focus' && m.id) this.beeper = m.id;
-        else if (m.type === 'bye' && m.id === this.beeper) this.beeper = '';
+        if (m.type === 'offer' && m.id) this.adoptBeeper({id: m.id, at: m.at || 0});
+        else if (m.type === 'bye' && this.beeper && m.id === this.beeper.id) { this.beeper = null; this.offerBeeper(); }
+        else if (m.type === 'who') this.offerBeeper();
+        else if (m.type === 'started' && m.id && m.id !== this.scanId) this.follow(true);
       };
-      const claim = () => {
-        this.beeper = this.tabId;
-        try { tabs.postMessage({type: 'focus', id: this.tabId}); } catch (e) {}
+      const focused = () => {
+        this.focusAt = Date.now();
+        if (this.attached()) this.offerBeeper(); else this.follow(false);
       };
-      window.addEventListener('focus', claim);
-      window.addEventListener('pageshow', ev => { if (ev.persisted) claim(); });
-      window.addEventListener('pagehide', () => { try { tabs.postMessage({type: 'bye', id: this.tabId}); } catch (e) {} });
-      claim();
+      window.addEventListener('focus', focused);
+      window.addEventListener('pageshow', ev => { if (ev.persisted) focused(); });
+      window.addEventListener('pagehide', () => this.leaveBeeper());
+      this.tellTabs({type: 'who'});
     },
-    // No beeper (it closed) means every tab may beep until one is focused.
-    isBeeper() { return !this.beeper || this.beeper === this.tabId; },
+    tellTabs(m) { if (tabs) try { tabs.postMessage(m); } catch (e) {} },
+    // The latest focus wins; a tie goes to the larger id, so every tab picks
+    // the same one.
+    adoptBeeper(c) {
+      const b = this.beeper;
+      if (!b || c.id === b.id || c.at > b.at || (c.at === b.at && c.id > b.id)) this.beeper = c;
+    },
+    offerBeeper() {
+      if (!this.attached()) return;
+      const c = {id: this.tabId, at: this.focusAt};
+      this.adoptBeeper(c);
+      this.tellTabs({type: 'offer', id: c.id, at: c.at});
+    },
+    // This tab stopped following the scan, or it is closing: the tabs still
+    // following choose again.
+    leaveBeeper() {
+      if (this.beeper && this.beeper.id === this.tabId) this.beeper = null;
+      this.tellTabs({type: 'bye', id: this.tabId});
+    },
+    // The tab is listening to the running scan (only one runs at a time).
+    attached() { return !!this.es && this.running; },
+    // A tab that is not following the scan never beeps. No beeper known (it
+    // closed) means every following tab may beep until one offers again.
+    isBeeper() { return this.attached() && (!this.beeper || this.beeper.id === this.tabId); },
 
     // resumed: attaching to a scan that was already running (reattach), so
     // the replay is not announced as a new start.
@@ -832,6 +892,7 @@ document.addEventListener('alpine:init', () => {
       if (this.es) this.es.close();
       const es = new EventSource('/api/scans/' + id + '/events');
       this.es = es; this.liveSynced = false;
+      this.offerBeeper();
       const on = (t, fn) => es.addEventListener(t, ev => { try { fn(JSON.parse(ev.data)); } catch (e) {} });
       on('host', h => {
         if (h.isNew && !this.logSeen['h:' + h.ip]) {
@@ -878,12 +939,15 @@ document.addEventListener('alpine:init', () => {
         this.state = r.state; this.running = false; this.stage = 'finished';
         this.logPush('scan', 'Scan ' + (r.state === 'cancelled' ? 'cancelled' : 'finished') + ': ' + this.hosts.length + ' hosts');
         es.close(); this.es = null;
+        this.leaveBeeper();
+        // Restart watching in another tab ends this scan: follow the new one.
+        this.follow(false, id);
       });
       on('error', m => { this.error = (m && m.message) || 'Scan error'; this.logPush('error', this.error); });
       es.onopen = () => { this.sseErr = false; };
       es.onerror = () => {
         if (es !== this.es) return;
-        if (es.readyState === EventSource.CLOSED) this.running = false;
+        if (es.readyState === EventSource.CLOSED) { this.running = false; this.leaveBeeper(); }
         // The stream broke: check that netdiag is still there sooner.
         if (!this.sseErr) { this.sseErr = true; if (!this.hbFails) this.hbSchedule(5000); }
       };
@@ -899,6 +963,7 @@ document.addEventListener('alpine:init', () => {
       try { await this.post('/api/quit'); } catch (e) {}
       this.running = false; this.quitted = true;
       clearTimeout(hbTimer);
+      this.leaveBeeper();
     },
 
     stageLabel() {
