@@ -2,15 +2,38 @@
 // netdiag reads it, and Settings says so once, naming the fields.
 import { test, expect } from '@playwright/test';
 import { installMocks, initStorage } from '../support/mock.mjs';
+import * as fx from '../fixtures/index.mjs';
 import { runAxe } from '../support/axe.mjs';
 import { THEMES } from '../support/config.mjs';
 
-const NOTE = 'Some settings were not valid and were reset: Supply threshold, Team chat alert level. Check them below.';
+// Team chat has no Settings section yet, so the notice names its level
+// without sending people below to look for it.
+const NOTE = 'Some settings were not valid and were reset: Supply threshold, Team chat alert level. Check Supply threshold below.';
+
+// Settings that are not the defaults in every section the dialog sends
+// back, so a save that rebuilt a section from defaults would show. The
+// repaired fields hold the defaults the server reset them to.
+function custom() {
+  const s = fx.settings();
+  s.community = 'frontdesk';
+  s.alerts.cooldownSec = 600;
+  s.alerts.triggers.newDevice = false;
+  s.ignoredConflictMACs = ['AA:BB:CC:DD:EE:01'];
+  s.mcp = { enabled: true };
+  s.chat = { enabled: true, minSeverity: 'warning' };
+  return s;
+}
+
+async function openSettings(page) {
+  const menu = page.locator('.menubtn');
+  if (await menu.isVisible() && (await menu.getAttribute('aria-expanded')) !== 'true') await menu.click();
+  await page.locator('#nav-settings').click();
+}
 
 for (const theme of THEMES) {
   test(`repaired settings notice ${theme}`, async ({ page }, testInfo) => {
     await initStorage(page, { theme, live: false });
-    const rec = await installMocks(page, { scenario: 'scan', repaired: ['alerts.supplyThresholdPct', 'chat.minSeverity'] });
+    const rec = await installMocks(page, { scenario: 'scan', settings: custom(), repaired: ['alerts.supplyThresholdPct', 'chat.minSeverity'] });
     await page.goto('/');
     const dialog = page.locator('#settings-dialog');
     const note = dialog.locator('#settings-repaired');
@@ -40,14 +63,35 @@ for (const theme of THEMES) {
     await expect(dialog).toBeHidden();
     const put = rec.requests.filter((r) => r.method === 'PUT' && r.path === '/api/settings').pop();
     const doc = JSON.parse(put.body);
+    const want = custom();
     expect(doc.repaired).toBeUndefined();
     expect(doc.alerts.supplyThresholdPct).toBe(15);
-    expect(doc.chat).toEqual({ enabled: false, minSeverity: 'warning' });
-    expect(doc.mcp.enabled).toBe(false);
+    expect(doc.community).toBe(want.community);
+    expect(doc.alerts).toEqual(want.alerts);
+    expect(doc.ignoredConflictMACs).toEqual(want.ignoredConflictMACs);
+    expect(doc.mcp).toEqual(want.mcp);
+    expect(doc.chat).toEqual(want.chat);
     expect(rec.unmatched).toEqual([]);
     expect(rec.external).toEqual([]);
   });
 }
+
+// A save made before Settings is opened (here Mute alerts in the header)
+// writes a valid file, so GET no longer reports the field; the page still
+// shows the notice it was given when it loaded.
+test('a save before Settings opens keeps the notice', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { scenario: 'scan', settings: custom(), repaired: ['alerts.cooldownSec'] });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Mute alerts' }).click();
+  await expect.poll(() => rec.requests.filter((r) => r.method === 'PUT' && r.path === '/api/settings').length).toBe(1);
+  const mute = JSON.parse(rec.requests.find((r) => r.method === 'PUT').body);
+  expect(mute.repaired).toBeUndefined();
+  expect(mute.chat).toEqual(custom().chat);
+  await openSettings(page);
+  const note = page.locator('#settings-repaired');
+  await expect(note).toHaveText('Some settings were not valid and were reset: Repeat-alert cooldown. Check them below.');
+});
 
 test('no repaired settings, no notice', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
@@ -59,14 +103,20 @@ test('no repaired settings, no notice', async ({ page }) => {
   await expect(dialog.locator('#settings-repaired')).toBeHidden();
 });
 
+test('reset fields with no control in Settings are named only', async ({ page }) => {
+  await initStorage(page, { theme: 'light', live: false });
+  await installMocks(page, { scenario: 'scan', repaired: ['webServer.trustedCert', 'chat'] });
+  await page.goto('/');
+  await openSettings(page);
+  await expect(page.locator('#settings-repaired')).toHaveText('Some settings were not valid and were reset: Trusted certificate, Team chat.');
+});
+
 test('unknown repaired field is named by its path', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { scenario: 'scan', repaired: ['alerts.cooldownSec', 'someNewField'] });
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto('/');
-  const menu = page.locator('.menubtn');
-  if (await menu.isVisible()) await menu.click();
-  await page.locator('#nav-settings').click();
+  await openSettings(page);
   const note = page.locator('#settings-repaired');
   await expect(note).toHaveText('Some settings were not valid and were reset: Repeat-alert cooldown, someNewField. Check them below.');
   const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

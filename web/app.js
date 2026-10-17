@@ -11,7 +11,7 @@ document.addEventListener('alpine:init', () => {
     theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
     view: 'devices', navOpen: false, views: ['devices', 'health', 'activity', 'history'], health: null, healthOpen: true, healthBusy: false, healthMsg: '',
     conflicts: [], banners: [], seenNotices: {},
-    settings: null, draft: null, settingsError: '', storeDown: false, desktopNote: '', audio: null, repairedNote: '', repairedSeen: '',
+    settings: null, draft: null, settingsError: '', storeDown: false, desktopNote: '', audio: null, repairedNote: '', repairedPending: [], repairedShown: [],
     history: [], historyError: '', baseId: '', currentId: '', diff: null, diffError: '', diffBusy: false,
     shown: {},
     remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
@@ -115,7 +115,10 @@ document.addEventListener('alpine:init', () => {
         const r = await fetch('/api/settings');
         if (r.status === 503) { this.storeDown = true; return; }
         if (!r.ok) return;
-        this.settings = await r.json();
+        const set = await r.json();
+        this.takeRepaired(set.repaired);
+        delete set.repaired;
+        this.settings = set;
         if (this.settings.community) this.community = this.settings.community;
       } catch (e) {}
     },
@@ -192,32 +195,53 @@ document.addEventListener('alpine:init', () => {
       this.draft.ignoredConflictMACs = this.draft.ignoredConflictMACs || [];
       this.draft.mcp = this.draft.mcp || {enabled: false};
       this.draft.mcp.enabled = !!this.draft.mcp.enabled;
-      delete this.draft.repaired;
       this.repairedNote = this.repairedText();
       this.$nextTick(() => { const d = this.$refs.dlg; if (d && !d.open) d.showModal(); });
     },
     // Settings fields that were not valid in the settings file and were
-    // reset when netdiag read it (GET /api/settings "repaired"). The notice
-    // shows once, the first time Settings opens; saving writes a valid file.
+    // reset when netdiag read it (GET /api/settings "repaired"). They wait
+    // in repairedPending until Settings opens, so a save made first (Mute
+    // alerts, Enable desktop alerts, Trust this certificate, Ignore this
+    // MAC), which writes a valid file, does not lose the notice. Each field
+    // is named once per page load.
+    takeRepaired(list) {
+      for (const p of (Array.isArray(list) ? list : [])) {
+        if (!this.repairedPending.includes(p) && !this.repairedShown.includes(p)) this.repairedPending.push(p);
+      }
+    },
+    // A label for every path a load can report (store.RepairPaths;
+    // TestSettingsRepairedUI keeps the two in step).
     repairedLabels: {
       community: 'SNMP community', printerStatusPollSec: 'Printer status check in live mode',
-      'webServer.url': 'Web server URL', 'webServer.mustContain': 'Page must contain',
+      webServer: 'Web server settings', 'webServer.url': 'Web server URL', 'webServer.mustContain': 'Page must contain',
       'webServer.expectStatus': 'Expected HTTP status', 'webServer.trustedCert': 'Trusted certificate',
-      internetCheckURL: 'Internet check URL', 'alerts.sound': 'Play a sound', 'alerts.desktop': 'Desktop notifications',
+      internetCheckURL: 'Internet check URL', alerts: 'Alert settings', 'alerts.sound': 'Play a sound', 'alerts.desktop': 'Desktop notifications',
       'alerts.supplyThresholdPct': 'Supply threshold', 'alerts.cooldownSec': 'Repeat-alert cooldown',
+      'alerts.triggers': 'Alert types',
       'alerts.triggers.printerOffline': 'Printer goes offline', 'alerts.triggers.deviceOffline': 'Any device goes offline',
       'alerts.triggers.supplyLow': 'Printer supply low', 'alerts.triggers.printerAlert': 'Printer alert',
       'alerts.triggers.newDevice': 'New device', 'alerts.triggers.ipConflict': 'IP or name conflict',
       'alerts.triggers.healthFailed': 'Health check fails', ignoredConflictMACs: 'Ignored conflict MACs',
-      'mcp.enabled': 'Allow AI agents to connect', 'chat.enabled': 'Send alerts to team chat', 'chat.minSeverity': 'Team chat alert level',
+      mcp: 'Agent access', 'mcp.enabled': 'Allow AI agents to connect',
+      chat: 'Team chat', 'chat.enabled': 'Send alerts to team chat', 'chat.minSeverity': 'Team chat alert level',
     },
+    // Reset fields that have no control in Settings, so the notice names
+    // them without sending people to look for them: team chat until its
+    // Settings section exists, and a trusted certificate, which shows only
+    // while one is set.
+    repairedOffPage: ['chat', 'chat.enabled', 'chat.minSeverity', 'webServer.trustedCert'],
     repairedText() {
-      const rep = (this.settings && Array.isArray(this.settings.repaired)) ? this.settings.repaired : [];
-      const key = rep.join(',');
-      if (!rep.length || key === this.repairedSeen) return '';
-      this.repairedSeen = key;
-      const names = [...new Set(rep.map(p => this.repairedLabels[p] || p))];
-      return 'Some settings were not valid and were reset: ' + names.join(', ') + '. Check them below.';
+      const rep = this.repairedPending;
+      if (!rep.length) return '';
+      this.repairedShown.push(...rep);
+      this.repairedPending = [];
+      const label = p => this.repairedLabels[p] || p;
+      const names = [...new Set(rep.map(label))];
+      const here = [...new Set(rep.filter(p => !this.repairedOffPage.includes(p)).map(label))];
+      let t = 'Some settings were not valid and were reset: ' + names.join(', ') + '.';
+      if (here.length === names.length) t += ' Check them below.';
+      else if (here.length) t += ' Check ' + here.join(', ') + ' below.';
+      return t;
     },
     closeSettings() { const d = this.$refs.dlg; if (d && d.open) d.close(); },
     async saveSettings() {

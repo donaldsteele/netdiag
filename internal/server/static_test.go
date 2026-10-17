@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -410,8 +411,11 @@ func TestMCPSettingsUI(t *testing.T) {
 	}
 }
 
-// Every field RepairSettings can reset has a plain label in app.js for the
-// "Some settings were not valid and were reset" notice in Settings.
+// Every path a settings load can list in repaired (store.RepairPaths: each
+// field and each object of fields) has a plain label in app.js
+// repairedLabels for the "Some settings were not valid and were reset"
+// notice, and there is no label for a path that does not exist. So a new
+// settings field, or a field that is renamed, cannot ship without one.
 func TestSettingsRepairedUI(t *testing.T) {
 	html, err := readAsset("index.html")
 	if err != nil {
@@ -427,22 +431,46 @@ func TestSettingsRepairedUI(t *testing.T) {
 	if !strings.Contains(string(js), "Some settings were not valid and were reset: ") {
 		t.Error("app.js missing the repaired settings notice")
 	}
+	block := func(name string) string {
+		m := regexp.MustCompile(`(?s)\n\s*` + name + `: [{\[](.*?)[}\]],\n`).FindStringSubmatch(string(js))
+		if m == nil {
+			t.Fatalf("app.js has no %s", name)
+		}
+		return m[1]
+	}
+	labels := map[string]string{}
+	for _, m := range regexp.MustCompile(`(?:'([\w.]+)'|(\w+)): '([^']*)'`).FindAllStringSubmatch(block("repairedLabels"), -1) {
+		labels[m[1]+m[2]] = m[3]
+	}
+	paths := store.RepairPaths()
+	for _, p := range paths {
+		if strings.TrimSpace(labels[p]) == "" {
+			t.Errorf("app.js repairedLabels has no label for %s", p)
+		}
+	}
+	for p := range labels {
+		if !slices.Contains(paths, p) {
+			t.Errorf("app.js repairedLabels has %s, which is not a settings path", p)
+		}
+	}
+	for _, m := range regexp.MustCompile(`'([^']*)'`).FindAllStringSubmatch(block("repairedOffPage"), -1) {
+		if !slices.Contains(paths, m[1]) {
+			t.Errorf("app.js repairedOffPage has %s, which is not a settings path", m[1])
+		}
+	}
+	// What RepairSettings resets is a subset of RepairPaths.
 	all := store.DefaultSettings()
 	all.PrinterStatusPollSec, all.WebServer.URL, all.WebServer.ExpectStatus = 1, "ftp://x", 1
 	all.WebServer.TrustedCert, all.InternetCheckURL = "abc", "nope"
 	all.Alerts.SupplyThresholdPct, all.Alerts.CooldownSec = 0, 1
 	all.IgnoredConflictMACs, all.Chat.MinSeverity = []string{"zz"}, "loud"
-	_, paths := store.RepairSettings(all)
-	if len(paths) != 9 {
-		t.Fatalf("repaired paths %v", paths)
+	_, fixed := store.RepairSettings(all)
+	if len(fixed) != 9 {
+		t.Fatalf("repaired paths %v", fixed)
 	}
-	for _, p := range paths {
-		key := p + ": '"
-		if strings.Contains(p, ".") {
-			key = "'" + p + "': '"
-		}
-		if !strings.Contains(string(js), key) {
-			t.Errorf("app.js repairedLabels has no label for %s", p)
+	for _, p := range fixed {
+		if !slices.Contains(paths, p) {
+			t.Errorf("RepairSettings reports %s, which RepairPaths does not list", p)
 		}
 	}
 }

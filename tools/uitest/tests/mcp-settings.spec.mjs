@@ -1,13 +1,18 @@
 // T7b: Agent access (MCP) section of the Settings dialog.
 import { test, expect } from '@playwright/test';
 import { installMocks, initStorage } from '../support/mock.mjs';
+import * as fx from '../fixtures/index.mjs';
 import { runAxe } from '../support/axe.mjs';
 import { THEMES } from '../support/config.mjs';
+
+// Team chat settings that are not the defaults, so a save that rebuilt them
+// from defaults would show.
+const CHAT = { enabled: true, minSeverity: 'critical' };
 
 for (const theme of THEMES) {
   test(`mcp settings ${theme}`, async ({ page }, testInfo) => {
     await initStorage(page, { theme, live: false });
-    const rec = await installMocks(page, { scenario: 'scan' });
+    const rec = await installMocks(page, { scenario: 'scan', settings: { ...fx.settings(), chat: { ...CHAT } } });
     await page.goto('/');
     const dialog = page.locator('#settings-dialog');
     const sw = dialog.locator('#mcp-enabled');
@@ -43,7 +48,8 @@ for (const theme of THEMES) {
     const last = rec.requests.filter((r) => r.method === 'PUT').pop();
     expect(JSON.parse(last.body).mcp.enabled).toBe(true);
     // Nor reset the team chat settings.
-    expect(JSON.parse(last.body).chat).toEqual({ enabled: false, minSeverity: 'warning' });
+    expect(JSON.parse(last.body).chat).toEqual(CHAT);
+    expect(JSON.parse(put.body).chat).toEqual(CHAT);
   });
 }
 
