@@ -63,6 +63,43 @@ func TestPrompts(t *testing.T) {
 	}
 }
 
+func promptText(t *testing.T, e *env, name string, args map[string]string) string {
+	t.Helper()
+	res, err := e.cs.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: name, Arguments: args})
+	if err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	return res.Messages[0].Content.(*mcp.TextContent).Text
+}
+
+// TestDiagnosePrinterUsesSupplyThreshold checks the prompt quotes the
+// configured alerts.supplyThresholdPct instead of a fixed 15%.
+func TestDiagnosePrinterUsesSupplyThreshold(t *testing.T) {
+	e := setup(t, "http", true, fakePinger{})
+	args := map[string]string{"ip": "10.0.0.50"}
+	if txt := promptText(t, e, "diagnose_printer", args); !strings.Contains(txt, "at or below 15%") {
+		t.Fatalf("default threshold missing: %s", txt)
+	}
+	set, err := e.st.LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	set.Alerts.SupplyThresholdPct = 30
+	if _, err := e.st.SaveSettings(set); err != nil {
+		t.Fatal(err)
+	}
+	txt := promptText(t, e, "diagnose_printer", args)
+	if !strings.Contains(txt, "at or below 30%") || strings.Contains(txt, "15%") {
+		t.Fatalf("configured threshold not used: %s", txt)
+	}
+
+	// Without a data store the default applies.
+	e2 := setup(t, "http", false, fakePinger{})
+	if txt := promptText(t, e2, "diagnose_printer", args); !strings.Contains(txt, "at or below 15%") {
+		t.Fatalf("no-store default missing: %s", txt)
+	}
+}
+
 func TestPromptMissingRequired(t *testing.T) {
 	e := setup(t, "http", true, fakePinger{})
 	for _, n := range []string{"diagnose_printer", "explain_conflict", "device_missing"} {

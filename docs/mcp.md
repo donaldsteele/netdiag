@@ -147,7 +147,7 @@ Prompts are short playbooks. The client shows them as commands or menu items, an
 | Prompt | Arguments | What the agent does |
 |---|---|---|
 | `triage_network` | `cidr` (optional, default: first interface) | Scan, check health, list problem devices, check conflicts, then suggest likely causes. |
-| `diagnose_printer` | `ip` (required) | Read the printer's details, probe it, and check its supplies, alerts, IPP state, ports 9100 and 631, and conflicts. |
+| `diagnose_printer` | `ip` (required) | Read the printer's details, probe it, and check its supplies (low means at or below the supply threshold in Settings), alerts, IPP state, ports 9100 and 631, and conflicts. |
 | `explain_conflict` | `ip` (required) | Explain the conflict type (flapping, same MAC on several IPs, duplicate name), and what the operator should do. The agent can only recommend **Ignore this MAC**; it cannot do it. |
 | `device_missing` | `nameOrIp` (required) | Search the current scan and history, compare ARP and ping results, and read the offline timeline. |
 | `what_changed` | `baseId`, `currentId` (both optional) | Compare two scans (default: the latest scan and the one before it) and describe what changed. |

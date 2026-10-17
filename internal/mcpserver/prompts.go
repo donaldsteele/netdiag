@@ -17,7 +17,7 @@ const promptFooter = "\n\nLimits: you cannot change settings, delete history, ig
 	"If any of those would help, recommend the operator do it in the netdiag UI. " +
 	"In your final answer use plain language suitable for non-technical staff: what is wrong, which device, and the next physical or UI action to take."
 
-func registerPrompts(s *mcp.Server, _ *service.Service) {
+func registerPrompts(s *mcp.Server, svc *service.Service) {
 	add := func(name, title, desc string, args []*mcp.PromptArgument, build func(a map[string]string) string) {
 		s.AddPrompt(&mcp.Prompt{Name: name, Title: title, Description: desc, Arguments: args},
 			func(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
@@ -62,12 +62,12 @@ func registerPrompts(s *mcp.Server, _ *service.Service) {
 			ip := a["ip"]
 			return fmt.Sprintf("Diagnose the printer at %s. Follow these steps:\n"+
 				"1. Call list_history (limit=1) or start_scan to get a scanId that includes the printer.\n"+
-				"2. Call get_device with scanId and ip=%q. Inspect the printer block: state, alerts, and supplies (percent for each toner/ink/drum; below about 15%% is low).\n"+
+				"2. Call get_device with scanId and ip=%q. Inspect the printer block: state, alerts, and supplies (percent for each toner/ink/drum; a supply at or below %d%%, the supply threshold in netdiag Settings, is low, as is any supply whose state is low or empty).\n"+
 				"3. Check openPorts: 9100 (raw printing) and 631 (IPP) should be open on a working network printer. If both are closed the printer may be asleep, offline, or have printing services disabled.\n"+
 				"4. Call probe_host with ip=%q for a fresh live check (sends real traffic, saves nothing) and compare with the scan.\n"+
 				"5. Call get_events with the scanId to see recent printer changes (state, alerts, supplies).\n"+
 				"6. If the device is offline, call list_devices with filter=\"conflicts\" to see whether its IP or MAC is in a conflict.\n"+
-				"7. Conclude: working, degraded (low supplies or alerts) or unreachable, with the physical action (paper, toner, power, cable).", ip, ip, ip)
+				"7. Conclude: working, degraded (low supplies or alerts) or unreachable, with the physical action (paper, toner, power, cable).", ip, ip, supplyThreshold(svc), ip)
 		})
 
 	add("explain_conflict", "Explain a conflict",
