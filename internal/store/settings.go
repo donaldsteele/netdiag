@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 
 	"netdiag/internal/model"
@@ -220,24 +223,136 @@ func (s *Store) readSettings() (model.Settings, []string, error) {
 	var fixed []string
 	if err := json.Unmarshal(data, &cur); err != nil {
 		// A value of the wrong type (such as "cooldownSec": "60") leaves
-		// that field at its default and the rest decoded; json names only
-		// the first such field. Anything else is unreadable: defaults.
+		// that field at its default and the rest decoded, but json names
+		// only the first such value; wrongTypes finds them all. Anything
+		// else (bad JSON, a document that is not an object) is unreadable:
+		// defaults.
 		var te *json.UnmarshalTypeError
 		if !errors.As(err, &te) || te.Field == "" {
 			return def, nil, nil
 		}
-		fixed = append(fixed, te.Field)
+		fixed = append(wrongTypes(data), te.Field)
 	}
 	if cur.IgnoredConflictMACs == nil {
 		cur.IgnoredConflictMACs = []string{}
 	}
 	n, more := RepairSettings(cur)
-	for _, p := range more {
-		if len(fixed) == 0 || fixed[0] != p {
-			fixed = append(fixed, p)
+	return n, repairOrder(append(fixed, more...)), nil
+}
+
+// RepairPaths returns, in field order, every JSON path a settings load can
+// list in repaired: each field ("alerts.cooldownSec") and each object of
+// fields ("alerts", "alerts.triggers"), since an object of the wrong type
+// is reset as a whole. schemaVersion is left out: it is not a setting, and
+// a bad one is put right without a word. The page has a label for each
+// (TestSettingsRepairedUI).
+func RepairPaths() []string {
+	var out []string
+	var walk func(t reflect.Type, prefix string)
+	walk = func(t reflect.Type, prefix string) {
+		for _, f := range jsonFields(t) {
+			p := prefix + f.name
+			if p != pathSchemaVersion {
+				out = append(out, p)
+			}
+			if f.typ.Kind() == reflect.Struct {
+				walk(f.typ, p+".")
+			}
 		}
 	}
-	return n, fixed, nil
+	walk(reflect.TypeFor[model.Settings](), "")
+	return out
+}
+
+const pathSchemaVersion = "schemaVersion"
+
+// repairOrder sorts repaired paths into field order, drops duplicates and
+// drops schemaVersion (see RepairPaths).
+func repairOrder(paths []string) []string {
+	all := RepairPaths()
+	rank := func(p string) int {
+		if i := slices.Index(all, p); i >= 0 {
+			return i
+		}
+		return len(all)
+	}
+	var out []string
+	for _, p := range paths {
+		if p != pathSchemaVersion && !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b string) int { return rank(a) - rank(b) })
+	return out
+}
+
+// wrongTypes returns the path of every value in a settings document that
+// has the wrong JSON type, such as a string for a number or a number for
+// an object. json.Unmarshal skips each one, so the field keeps its default.
+// Keys match field names as json matches them: exactly, else ignoring case.
+func wrongTypes(data []byte) []string {
+	var out []string
+	var walk func(obj map[string]json.RawMessage, t reflect.Type, prefix string)
+	walk = func(obj map[string]json.RawMessage, t reflect.Type, prefix string) {
+		for _, f := range jsonFields(t) {
+			raw, ok := obj[f.name]
+			if !ok {
+				for _, k := range slices.Sorted(maps.Keys(obj)) {
+					if strings.EqualFold(k, f.name) {
+						raw, ok = obj[k], true
+						break
+					}
+				}
+			}
+			if !ok {
+				continue
+			}
+			p := prefix + f.name
+			if f.typ.Kind() == reflect.Struct {
+				var sub map[string]json.RawMessage
+				if err := json.Unmarshal(raw, &sub); err != nil {
+					out = append(out, p)
+				} else {
+					walk(sub, f.typ, p+".")
+				}
+				continue
+			}
+			if err := json.Unmarshal(raw, reflect.New(f.typ).Interface()); err != nil {
+				out = append(out, p)
+			}
+		}
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(data, &top) == nil {
+		walk(top, reflect.TypeFor[model.Settings](), "")
+	}
+	return out
+}
+
+type jsonField struct {
+	name string
+	typ  reflect.Type
+}
+
+// jsonFields lists the exported fields of struct type t with their JSON
+// names, in field order.
+func jsonFields(t reflect.Type) []jsonField {
+	var out []jsonField
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		out = append(out, jsonField{name, f.Type})
+	}
+	return out
 }
 
 // SaveSettings validates, normalizes and atomically stores settings. It

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -137,6 +138,26 @@ func TestRepairSettingsPerField(t *testing.T) {
 		if _, err := NormalizeSettings(got); err != nil {
 			t.Errorf("%s: repaired settings are still invalid: %v", c.path, err)
 		}
+		if !slices.Contains(RepairPaths(), c.path) {
+			t.Errorf("%s: not in RepairPaths", c.path)
+		}
+	}
+}
+
+// RepairPaths covers every settings field and object, by JSON name, in
+// field order, and leaves out schemaVersion.
+func TestRepairPaths(t *testing.T) {
+	got := RepairPaths()
+	want := []string{"community", "printerStatusPollSec",
+		"webServer", "webServer.url", "webServer.mustContain", "webServer.expectStatus", "webServer.trustedCert",
+		"internetCheckURL",
+		"alerts", "alerts.sound", "alerts.desktop", "alerts.cooldownSec", "alerts.supplyThresholdPct",
+		"alerts.triggers", "alerts.triggers.printerOffline", "alerts.triggers.deviceOffline",
+		"alerts.triggers.supplyLow", "alerts.triggers.printerAlert", "alerts.triggers.newDevice",
+		"alerts.triggers.ipConflict", "alerts.triggers.healthFailed",
+		"ignoredConflictMACs", "mcp", "mcp.enabled", "chat", "chat.enabled", "chat.minSeverity"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("RepairPaths\n%v\nwant\n%v", got, want)
 	}
 }
 
@@ -220,6 +241,26 @@ func TestLoadSettingsWrongTypeAndUnreadable(t *testing.T) {
 	}
 	if !reflect.DeepEqual(repaired, []string{"alerts.cooldownSec"}) {
 		t.Fatalf("repaired %v", repaired)
+	}
+	// Every value of the wrong type is reported, not only the first one
+	// json names: objects too, keys in another case, in field order. A bad
+	// schemaVersion is put right without a word.
+	writeSettings(t, s, `{"schemaVersion":"1","community":"keep","webServer":5,`+
+		`"alerts":{"cooldownSec":"60","supplyThresholdPct":"20","Sound":"yes","triggers":[true]},`+
+		`"mcp":{"enabled":true},"chat":{"enabled":"on","minSeverity":"loud"}}`)
+	got, repaired, err = s.LoadSettingsRepaired()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"webServer", "alerts.sound", "alerts.cooldownSec", "alerts.supplyThresholdPct",
+		"alerts.triggers", "chat.enabled", "chat.minSeverity"}
+	if !reflect.DeepEqual(repaired, want) {
+		t.Fatalf("repaired %v, want %v", repaired, want)
+	}
+	exp := DefaultSettings()
+	exp.Community, exp.MCP.Enabled = "keep", true
+	if !reflect.DeepEqual(got, exp) {
+		t.Fatalf("several wrong types:\n%+v\nwant\n%+v", got, exp)
 	}
 	// A wrong-typed MAC list element is reported once.
 	writeSettings(t, s, `{"ignoredConflictMACs":[1,"aa:bb:cc:dd:ee:ff"]}`)
