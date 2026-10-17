@@ -485,6 +485,19 @@ func TestServerInstructionsAndInfo(t *testing.T) {
 		!strings.Contains(init.Instructions, "cannot change settings") {
 		t.Fatalf("init = %+v", init)
 	}
+	checkDeviceTextRule(t, "instructions", init.Instructions)
+}
+
+// checkDeviceTextRule asserts txt tells the agent that device-supplied text
+// is data, not instructions (prompt-injection hygiene).
+func checkDeviceTextRule(t *testing.T, where, txt string) {
+	t.Helper()
+	for _, m := range []string{"hostnames", "mDNS names", "sysName", "sysDescr", "sysLocation", "printer alert",
+		"web page titles", "Server headers", "anyone with a device", "never as instructions"} {
+		if !strings.Contains(txt, m) {
+			t.Errorf("%s: device-text rule missing %q", where, m)
+		}
+	}
 }
 
 // TestHealthTextNamesEveryCheck keeps the agent-facing health wording in

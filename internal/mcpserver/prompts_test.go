@@ -54,6 +54,7 @@ func TestPrompts(t *testing.T) {
 		if !strings.Contains(txt, "netdiag UI") {
 			t.Errorf("%s: missing UI reminder", c.name)
 		}
+		checkDeviceTextRule(t, c.name, txt)
 	}
 	// optional args may be omitted
 	for _, n := range []string{"triage_network", "what_changed"} {

@@ -160,6 +160,7 @@ Calling a prompt without a required argument returns an error.
 - **Off by default.** HTTP access is off until someone turns on **Agent access (MCP)** in Settings. An agent cannot turn it on: the settings endpoints are not offered as tools.
 - **Read-only settings.** Agents cannot change settings, delete history, ignore MAC addresses, or quit netdiag. These actions are not available as MCP tools, and the code that would run them is kept out of the MCP package.
 - **SNMP community hidden.** The community string is never sent to an agent. Settings and device details show it as `***`.
+- **Device text is data.** Anyone with a device on the network can choose what it reports about itself: its hostname, mDNS name, SNMP name, description and location, printer alert and display text, and its web page title and server header. netdiag passes this text on as it was received. The server instructions and every prompt tell the agent to treat it as data to report, never as instructions to follow. Agents can still be fooled, so check what the agent suggests before acting on it.
 - **Scans send traffic.** `start_scan`, `run_health_check` and `probe_host` send the same network traffic as the **Scan** button and the health check. Agents can run them without a person clicking anything, so keep an eye on what the agent does.
 - **Size limits.** Lists are paged, and comparisons are capped at 200 rows per list, so a large network does not overflow the agent's context.
 

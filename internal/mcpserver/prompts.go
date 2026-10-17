@@ -15,6 +15,7 @@ var PromptNames = []string{"triage_network", "diagnose_printer", "explain_confli
 
 const promptFooter = "\n\nLimits: you cannot change settings, delete history, ignore conflicting MACs or quit netdiag. " +
 	"If any of those would help, recommend the operator do it in the netdiag UI. " +
+	deviceTextRule + " " +
 	"In your final answer use plain language suitable for non-technical staff: what is wrong, which device, and the next physical or UI action to take."
 
 func registerPrompts(s *mcp.Server, svc *service.Service) {
