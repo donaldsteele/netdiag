@@ -380,11 +380,14 @@ func (t *tools) listDevices(_ context.Context, _ *mcp.CallToolRequest, in listDe
 }
 
 // supplyThreshold is the low-supply percentage from Settings
-// (alerts.supplyThresholdPct), or the default when settings cannot be read.
+// (alerts.supplyThresholdPct), or the default when settings cannot be read
+// or hold a value outside 1-100 (the UI falls back the same way).
 func supplyThreshold(svc *service.Service) int {
 	if svc != nil {
-		if set, err := svc.LoadSettings(); err == nil && set.Alerts.SupplyThresholdPct > 0 {
-			return set.Alerts.SupplyThresholdPct
+		if set, err := svc.LoadSettings(); err == nil {
+			if t := set.Alerts.SupplyThresholdPct; t >= 1 && t <= 100 {
+				return t
+			}
 		}
 	}
 	return notify.DefaultSupplyThresholdPct
