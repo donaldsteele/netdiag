@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -35,6 +36,10 @@ const (
 // When verification fails, the result carries the presented certificate
 // (data.certSHA256, certSubject, certExpires) so the page can offer to
 // trust it.
+//
+// A password written in the URL (http://user:pass@host/) never leaves the
+// check: every URL in its detail and data is redacted (user:xxxxx@host),
+// because the result reaches the page, history files, exports and MCP.
 func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 	cfg := in.Config
 	raw := strings.TrimSpace(cfg.WebURL)
@@ -49,7 +54,7 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
-		return webData(mk(3, model.HealthFail, "invalid URL: "+err.Error(), 0), raw)
+		return webData(mk(3, model.HealthFail, "invalid URL: "+redactErr(err).Error(), 0), raw)
 	}
 	host := req.URL.Hostname()
 	trusted := ""
@@ -79,7 +84,7 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 		if c, ok := certFailure(err, raw, host, trusted); ok {
 			return c
 		}
-		return webData(mk(3, model.HealthFail, "request failed: "+err.Error(), 0), raw)
+		return webData(mk(3, model.HealthFail, "request failed: "+redactErr(err).Error(), 0), raw)
 	}
 	defer resp.Body.Close()
 	var body []byte
@@ -87,11 +92,10 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 		body, _ = io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	}
 	d := time.Since(t0)
-	final := raw
+	final, redirected := "", false
 	if resp.Request != nil && resp.Request.URL != nil {
-		final = resp.Request.URL.String()
+		final, redirected = resp.Request.URL.Redacted(), resp.Request.URL.String() != req.URL.String()
 	}
-	redirected := final != req.URL.String()
 	at := ""
 	if redirected {
 		at = ", redirected to " + final
@@ -118,14 +122,15 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 		c.Status = model.HealthFail
 		c.Detail = fmt.Sprintf("HTTP %d (expected %d)%s", resp.StatusCode, want, at)
 		if loc, err := resp.Location(); err == nil && resp.StatusCode >= 300 && resp.StatusCode <= 399 {
-			c.Data["location"] = loc.String()
+			shown := loc.Redacted()
+			c.Data["location"] = shown
 			switch {
 			case tooMany:
-				c.Detail += fmt.Sprintf(": more than %d redirects, the last one to %s", maxWebRedirects, loc)
+				c.Detail += fmt.Sprintf(": more than %d redirects, the last one to %s", maxWebRedirects, shown)
 			case !strings.EqualFold(loc.Hostname(), host):
-				c.Detail += ": it redirects to another server, " + loc.String()
+				c.Detail += ": it redirects to another server, " + shown
 			default:
-				c.Detail += ": it redirects to " + loc.String()
+				c.Detail += ": it redirects to " + shown
 			}
 		}
 	case cfg.MustContain != "" && !strings.Contains(string(body), cfg.MustContain):
@@ -141,10 +146,22 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 	return c
 }
 
-// webData sets the data every configured web server result carries.
-func webData(c model.HealthCheck, url string) model.HealthCheck {
-	c.Data = map[string]any{"configured": true, "url": url}
+// webData sets the data every configured web server result carries. The
+// URL is stored with any password hidden.
+func webData(c model.HealthCheck, raw string) model.HealthCheck {
+	c.Data = map[string]any{"configured": true, "url": model.RedactURL(raw)}
 	return c
+}
+
+// redactErr hides a password in the URL a request error names. The
+// http.Client already replaces it with "***", but an error from parsing
+// the URL shows it in clear.
+func redactErr(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		ue.URL = model.RedactURL(ue.URL)
+	}
+	return err
 }
 
 // webTransport returns a fresh transport for one web server check, with

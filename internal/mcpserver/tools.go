@@ -225,7 +225,7 @@ func registerTools(s *mcp.Server, svc *service.Service, opts Options) {
 		Annotations: readAnn("Compare two scans")}, t.compareScans)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_settings", Title: "Get settings",
-		Description: "Read netdiag settings (read-only; the SNMP community is redacted). Agents cannot change settings.",
+		Description: "Read netdiag settings (read-only; the SNMP community and any password in the web server URL are redacted). Agents cannot change settings.",
 		Annotations: readAnn("Get settings")}, t.getSettings)
 }
 

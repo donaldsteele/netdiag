@@ -61,7 +61,7 @@ func registerResources(s *mcp.Server, svc *service.Service) {
 			_, out, err := t.listHistory(ctx, nil, listHistoryIn{})
 			return out, err
 		})
-	static(URISettings, "settings", "Settings (read-only)", "netdiag settings with the SNMP community redacted (same as get_settings).",
+	static(URISettings, "settings", "Settings (read-only)", "netdiag settings with the SNMP community and any web server URL password redacted (same as get_settings).",
 		func(ctx context.Context) (any, error) {
 			_, out, err := t.getSettings(ctx, nil, noInput{})
 			return out, err

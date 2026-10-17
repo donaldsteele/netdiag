@@ -19,7 +19,8 @@ func RedactScan(r model.ScanResult) model.ScanResult {
 	return model.RedactScan(r)
 }
 
-// RedactSettings returns a copy of s with the SNMP community hidden.
+// RedactSettings returns a copy of s with the SNMP community and any
+// password in the web server URL hidden.
 func RedactSettings(s model.Settings) model.Settings {
 	return service.RedactSettings(s)
 }

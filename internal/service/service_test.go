@@ -256,15 +256,16 @@ func TestSettings(t *testing.T) {
 		t.Fatalf("macs = %v", set.IgnoredConflictMACs)
 	}
 	set.Community = "secret"
+	set.WebServer.URL = "http://admin:pa55@nas.local/"
 	if _, err := s.SaveSettings(set); err != nil {
 		t.Fatal(err)
 	}
 	red, err := s.RedactedSettings()
-	if err != nil || red.Community != "***" {
-		t.Fatalf("redacted = %q %v", red.Community, err)
+	if err != nil || red.Community != "***" || red.WebServer.URL != "http://admin:xxxxx@nas.local/" {
+		t.Fatalf("redacted = %q %q %v", red.Community, red.WebServer.URL, err)
 	}
-	if raw, _ := s.LoadSettings(); raw.Community != "secret" {
-		t.Fatalf("raw community changed: %q", raw.Community)
+	if raw, _ := s.LoadSettings(); raw.Community != "secret" || raw.WebServer.URL != "http://admin:pa55@nas.local/" {
+		t.Fatalf("raw settings changed: %q %q", raw.Community, raw.WebServer.URL)
 	}
 	ns, _ := newSvc(t, false, nil)
 	if _, err := ns.RedactedSettings(); !errors.Is(err, ErrNoStore) {

@@ -111,7 +111,7 @@ All tools return compact JSON. List tools return pages (use `cursor` and `nextCu
 | `probe_host` | Checks one device on a local subnet. Nothing is saved. | `ip` (must be on a local interface subnet), `community` | No (sends network traffic) |
 | `list_history` | Saved scans, newest first. | `limit` (default 20, max 100) | Yes |
 | `compare_scans` | What was added, removed and changed between two scans (up to 200 rows per list). | `baseId` (default: previous scan of the same range), `currentId` | Yes |
-| `get_settings` | Current settings. The SNMP community is shown as `***`. | none | Yes |
+| `get_settings` | Current settings. The SNMP community is shown as `***`, and a password in the web server URL (`http://user:password@host/`) as `xxxxx`. | none | Yes |
 
 **What `filter=problems` lists.** The same devices as the **Problems** filter in the netdiag window:
 
@@ -133,7 +133,7 @@ Resources return JSON (`application/json`). Read them with the client's resource
 | `netdiag://interfaces` | Same as `list_interfaces` |
 | `netdiag://health` | Same as `get_health` |
 | `netdiag://history` | Same as `list_history` with default limit |
-| `netdiag://settings` | Same as `get_settings` (community redacted) |
+| `netdiag://settings` | Same as `get_settings` (community and web server URL password redacted) |
 | `netdiag://scans/{scanId}` | Scan summary |
 | `netdiag://scans/{scanId}/devices` | First 200 device rows of the scan |
 | `netdiag://scans/{scanId}/devices/{ip}` | Full detail for one device |

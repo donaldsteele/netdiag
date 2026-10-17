@@ -285,6 +285,16 @@ func TestRedaction(t *testing.T) {
 	if got := RedactSettings(model.Settings{}).Community; got != "" {
 		t.Fatal(got)
 	}
+	in := model.Settings{WebServer: model.SettingsWebServer{URL: "https://admin:pa55@nas.local/"}}
+	if got := RedactSettings(in).WebServer.URL; got != "https://admin:xxxxx@nas.local/" {
+		t.Fatalf("web server URL = %q", got)
+	}
+	if in.WebServer.URL != "https://admin:pa55@nas.local/" {
+		t.Fatal("input mutated")
+	}
+	if got := RedactSettings(model.Settings{WebServer: model.SettingsWebServer{URL: "http://nas.local/"}}).WebServer.URL; got != "http://nas.local/" {
+		t.Fatalf("URL without a password changed: %q", got)
+	}
 }
 
 func TestDetail(t *testing.T) {

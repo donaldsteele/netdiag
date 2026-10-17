@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -91,6 +92,77 @@ func TestWebFollowsSameHostRedirects(t *testing.T) {
 	c = check(Config{WebURL: src.URL + "/moved", ExpectStatus: 302})
 	if c.Status != model.HealthFail || c.Detail != "HTTP 301 (expected 302): it redirects to "+src.URL+"/new" {
 		t.Fatalf("expected 302: %+v", c)
+	}
+}
+
+// A user name and password written in the Web server URL never show in the
+// check's detail or data, through a relative redirect (which keeps them)
+// or a Location header that carries its own.
+func TestWebHidesURLPassword(t *testing.T) {
+	const pass = "pa55word"
+	var away string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			http.Redirect(w, r, "/login", http.StatusFound)
+		case "/login":
+			if u, p, ok := r.BasicAuth(); !ok || u != "admin" || p != pass {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.Write([]byte("<html>Welcome</html>"))
+		case "/away":
+			http.Redirect(w, r, away, http.StatusFound)
+		case "/moved":
+			http.Redirect(w, r, "/new", http.StatusMovedPermanently)
+		case "/loop":
+			http.Redirect(w, r, "/loop", http.StatusFound)
+		}
+	}))
+	defer srv.Close()
+	away = strings.Replace(otherHostURL(srv.URL), "http://", "http://sso:"+pass+"@", 1) + "/sso"
+	withPass := strings.Replace(srv.URL, "http://", "http://admin:"+pass+"@", 1)
+	shown := strings.Replace(srv.URL, "http://", "http://admin:xxxxx@", 1)
+	r := newTestRunner(fakePinger{}, fakeResolver{}, "")
+	check := func(name string, cfg Config) model.HealthCheck {
+		t.Helper()
+		c := r.checkWeb(context.Background(), Input{Config: cfg})
+		if b, _ := json.Marshal(c); strings.Contains(string(b), pass) {
+			t.Errorf("%s: password in %s", name, b)
+		}
+		return c
+	}
+
+	c := check("relative redirect", Config{WebURL: withPass + "/", MustContain: "Welcome"})
+	if c.Status != model.HealthOK || c.Data["url"] != shown+"/" || c.Data["finalURL"] != shown+"/login" ||
+		!strings.HasSuffix(c.Detail, ", redirected to "+shown+"/login") {
+		t.Errorf("relative redirect: %+v", c)
+	}
+	c = check("location with userinfo", Config{WebURL: withPass + "/away"})
+	wantLoc := strings.Replace(away, pass, "xxxxx", 1)
+	if c.Status != model.HealthFail || c.Data["location"] != wantLoc ||
+		c.Detail != "HTTP 302 (expected 200): it redirects to another server, "+wantLoc {
+		t.Errorf("location with userinfo: %+v", c)
+	}
+	c = check("expected redirect", Config{WebURL: withPass + "/moved", ExpectStatus: 302})
+	if c.Status != model.HealthFail || c.Data["location"] != shown+"/new" ||
+		c.Detail != "HTTP 301 (expected 302): it redirects to "+shown+"/new" {
+		t.Errorf("expected redirect: %+v", c)
+	}
+	c = check("too many redirects", Config{WebURL: withPass + "/loop"})
+	if c.Status != model.HealthFail || !strings.Contains(c.Detail, "the last one to "+shown+"/loop") {
+		t.Errorf("too many redirects: %+v", c)
+	}
+	check("invalid URL", Config{WebURL: withPass + "/%zz"})
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := "http://admin:" + pass + "@" + l.Addr().String() + "/"
+	l.Close()
+	c = check("request failed", Config{WebURL: closed})
+	if c.Status != model.HealthFail || !strings.Contains(c.Detail, "admin:xxxxx@") {
+		t.Errorf("request failed: %+v", c)
 	}
 }
 

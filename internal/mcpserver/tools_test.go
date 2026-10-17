@@ -436,7 +436,9 @@ func TestToolOutputsNeverLeakCommunity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	const urlSecret = "web-pa55word"
 	set.Community = commSecret
+	set.WebServer.URL = "http://admin:" + urlSecret + "@10.0.0.10/"
 	if _, err := e.st.SaveSettings(set); err != nil {
 		t.Fatal(err)
 	}
@@ -469,8 +471,11 @@ func TestToolOutputsNeverLeakCommunity(t *testing.T) {
 		if strings.Contains(string(b), commSecret) {
 			t.Errorf("%s leaks community: %s", c.name, b)
 		}
-		if c.name == "get_settings" && !strings.Contains(string(b), Redacted) {
-			t.Errorf("get_settings should show redacted marker: %s", b)
+		if strings.Contains(string(b), urlSecret) {
+			t.Errorf("%s leaks the web server URL password: %s", c.name, b)
+		}
+		if c.name == "get_settings" && (!strings.Contains(string(b), Redacted) || !strings.Contains(string(b), "admin:xxxxx@10.0.0.10")) {
+			t.Errorf("get_settings should show redacted markers: %s", b)
 		}
 	}
 	// Also check history-resolved scans (after the registry no longer holds them).

@@ -16,7 +16,8 @@ func (s *Service) LoadSettings() (model.Settings, error) {
 	return s.cfg.Store.LoadSettings()
 }
 
-// RedactedSettings returns settings with the SNMP community hidden.
+// RedactedSettings returns settings with the SNMP community and any
+// password in the web server URL hidden.
 func (s *Service) RedactedSettings() (model.Settings, error) {
 	set, err := s.LoadSettings()
 	if err != nil {
@@ -25,11 +26,14 @@ func (s *Service) RedactedSettings() (model.Settings, error) {
 	return RedactSettings(set), nil
 }
 
-// RedactSettings returns a copy of s with the SNMP community hidden.
+// RedactSettings returns a copy of s with the SNMP community hidden, and
+// the password of a user name and password in the web server URL
+// (http://user:pass@host/) masked the way the web server check shows it.
 func RedactSettings(s model.Settings) model.Settings {
 	if s.Community != "" {
 		s.Community = model.Redacted
 	}
+	s.WebServer.URL = model.RedactURL(s.WebServer.URL)
 	return s
 }
 

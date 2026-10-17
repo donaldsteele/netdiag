@@ -31,3 +31,28 @@ func TestRedactScan(t *testing.T) {
 		t.Fatalf("empty request changed: %+v", got.Request)
 	}
 }
+
+func TestRedactURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                                 "",
+		"https://intranet.local/":          "https://intranet.local/",
+		"http://admin:pa55@10.0.0.5/login": "http://admin:xxxxx@10.0.0.5/login",
+		"http://admin@10.0.0.5/":           "http://admin@10.0.0.5/",
+		"http://admin:@10.0.0.5/":          "http://admin:xxxxx@10.0.0.5/",
+		// Does not parse (bad escape): the password is still cut out.
+		"http://admin:pa55@10.0.0.5/%zz":  "http://admin:xxxxx@10.0.0.5/%zz",
+		"http://admin:p@ss@10.0.0.5:8%zz": "http://admin:xxxxx@10.0.0.5:8%zz",
+		"http://10.0.0.5/a@b%zz":          "http://10.0.0.5/a@b%zz",
+	} {
+		got := RedactURL(in)
+		if got != want {
+			t.Errorf("RedactURL(%q) = %q, want %q", in, got, want)
+		}
+		if strings.Contains(got, "pa55") || strings.Contains(got, "p@ss") {
+			t.Errorf("RedactURL(%q) = %q keeps the password", in, got)
+		}
+		if again := RedactURL(got); again != got {
+			t.Errorf("RedactURL not idempotent on %q: %q", got, again)
+		}
+	}
+}
