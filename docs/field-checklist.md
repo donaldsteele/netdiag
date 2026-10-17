@@ -77,7 +77,7 @@ Tick only after observing the behaviour on real hardware.
 - [ ] A live scan left running overnight on a busy network still alerts again for a device that goes offline after the cooldown has passed
 
 ### Health checks (v0.5.8)
-- [ ] On a router that ignores ping (turn off "respond to ping" / WAN ping on the router, or use one that blocks it), the Gateway row is `ok` and says "answers on port 80 (it does not reply to ping)" (or 443)
+- [ ] With ping to the router getting no reply, the Gateway row is `ok` and says "answers on port 80" (or 443), with "(it does not reply to ping)" or, when this computer blocks the ping, "(ping could not run on this computer)". To get there, use a router or access point whose ping reply on the local network side can be turned off (a "WAN ping" setting does not affect pings from the local network), or block outgoing ping (ICMP echo request) to the router's address on the test computer, for example with a Windows Firewall outbound rule. Write down which method you used and the detail shown
 - [ ] With the router unplugged, the Gateway row is `fail` and says it did not reply to ping or on ports 80 and 443, within about 5 seconds
 - [ ] A Web server URL starting with `http://` on a server that redirects to `https://` on the same name is `ok` and shows "redirected to https://..."
 - [ ] A Web server URL that redirects to a sign-in page on another server is `fail` and the detail names that server
