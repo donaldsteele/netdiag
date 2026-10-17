@@ -294,8 +294,12 @@ type Scan struct {
 
 	settings model.Settings // loaded at Start
 
+	// header holds everything except Hosts/Stats while running. Its request
+	// is redacted (model.ScanRequest.Redacted), so every snapshot,
+	// checkpoint, saved result and done event hides the SNMP community; only
+	// the runner keeps the real one, for SNMP.
 	mu     sync.Mutex
-	header model.ScanResult // everything except Hosts/Stats while running
+	header model.ScanResult
 	result *model.ScanResult
 	apply  func(model.Settings) bool // set while the pipeline runs
 }
@@ -428,7 +432,7 @@ func (o *Orchestrator) Start(ctx context.Context, req model.ScanRequest) (*Scan,
 	s := &Scan{ID: newID(), bus: NewBus(), cancel: cancel, done: make(chan struct{}), settings: set}
 	s.header = model.ScanResult{
 		ID:            s.ID,
-		Request:       req,
+		Request:       req.Redacted(),
 		StartedAt:     o.deps.Now().UTC().Format(time.RFC3339),
 		State:         model.StateRunning,
 		Stats:         model.Stats{Scanned: len(targets)},

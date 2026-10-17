@@ -38,13 +38,17 @@ func (s *Service) Get(id string) (*scan.Scan, bool) { return s.cfg.Registry.Get(
 // Cancel cancels a live scan; false if unknown.
 func (s *Service) Cancel(id string) bool { return s.cfg.Registry.Cancel(id) }
 
-// ResolveScan finds a scan by id in the live registry, then in history.
+// ResolveScan finds a scan by id in the live registry, then in history. The
+// result never holds the SNMP community: scan snapshots and saved scans are
+// redacted where they are made, and model.RedactScan is applied again here
+// so every caller of the service gets the same guarantee (F11).
 func (s *Service) ResolveScan(id string) (model.ScanResult, error) {
 	if sc, ok := s.cfg.Registry.Get(id); ok {
-		return sc.Snapshot(), nil
+		return model.RedactScan(sc.Snapshot()), nil
 	}
 	if s.cfg.Store == nil {
 		return model.ScanResult{}, store.ErrNotFound
 	}
-	return s.cfg.Store.LoadScan(id)
+	r, err := s.cfg.Store.LoadScan(id)
+	return model.RedactScan(r), err
 }

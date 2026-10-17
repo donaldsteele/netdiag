@@ -32,6 +32,24 @@ func TestRedactScan(t *testing.T) {
 	}
 }
 
+func TestScanRequestRedacted(t *testing.T) {
+	in := ScanRequest{CIDR: "10.0.0.0/24", Community: "s3cr3t-x", Ports: []int{80}, Live: true}
+	out := in.Redacted()
+	if in.Community != "s3cr3t-x" || out.Community != Redacted || out.CIDR != in.CIDR || !out.Live {
+		t.Fatalf("in %+v out %+v", in, out)
+	}
+	out.Ports[0] = 1
+	if in.Ports[0] != 80 {
+		t.Fatal("ports slice shared with the input")
+	}
+	if got := (ScanRequest{}).Redacted(); got.Community != "" || got.Ports != nil {
+		t.Fatalf("empty request changed: %+v", got)
+	}
+	if again := out.Redacted(); again.Community != Redacted {
+		t.Fatalf("not idempotent: %q", again.Community)
+	}
+}
+
 func TestRedactURL(t *testing.T) {
 	for in, want := range map[string]string{
 		"":                                 "",

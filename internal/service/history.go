@@ -23,12 +23,13 @@ func (s *Service) ListHistory() ([]model.HistoryEntry, error) {
 	return list, nil
 }
 
-// LoadScan loads a saved scan.
+// LoadScan loads a saved scan, with the SNMP community redacted.
 func (s *Service) LoadScan(id string) (model.ScanResult, error) {
 	if err := s.needStore(); err != nil {
 		return model.ScanResult{}, err
 	}
-	return s.cfg.Store.LoadScan(id)
+	r, err := s.cfg.Store.LoadScan(id)
+	return model.RedactScan(r), err
 }
 
 // DeleteScan removes a saved scan.

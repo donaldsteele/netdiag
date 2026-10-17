@@ -2,9 +2,11 @@ package scan
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -340,7 +342,7 @@ func TestAutoSaveOnDone(t *testing.T) {
 	if len(saved) != 1 || saved[0].ID != res.ID || saved[0].State != model.StateDone || saved[0].SchemaVersion != model.HistorySchemaVersion {
 		t.Fatalf("saved = %d", len(saved))
 	}
-	if res.Request.Community != "private" || res.SchemaVersion != model.HistorySchemaVersion {
+	if res.Request.Community != model.Redacted || saved[0].Request.Community != model.Redacted || res.SchemaVersion != model.HistorySchemaVersion {
 		t.Fatalf("request = %+v, schema %d", res.Request, res.SchemaVersion)
 	}
 
@@ -387,6 +389,90 @@ func TestAutoSaveLiveCheckpointsAndStop(t *testing.T) {
 	}
 	if last := saved[len(saved)-1]; last.State != model.StateDone || last.FinishedAt == "" {
 		t.Fatalf("final save = %s", last.State)
+	}
+}
+
+// recordSNMP records the community each SNMP probe was given.
+type recordSNMP struct {
+	fakeSNMP
+	mu   sync.Mutex
+	seen []string
+}
+
+func (f *recordSNMP) Probe(ctx context.Context, ip, community string) (*snmpprobe.Result, error) {
+	f.mu.Lock()
+	f.seen = append(f.seen, community)
+	f.mu.Unlock()
+	return f.fakeSNMP.Probe(ctx, ip, community)
+}
+
+// F11: a scan hides the SNMP community where its outputs are made (every
+// snapshot, live checkpoint, the saved result and the done event), while
+// SNMP itself still gets the real community from the settings.
+func TestScanOutputsRedactedAtSource(t *testing.T) {
+	const secret = "s3cr3t-x"
+	d := presenceDeps()
+	sn := &recordSNMP{fakeSNMP: d.SNMP.(fakeSNMP)}
+	d.SNMP = sn
+	fs := &fakeStore{set: store.DefaultSettings()}
+	fs.set.Community = secret
+	d.Store, d.Settings = fs, fs
+	d.CheckpointInterval = time.Nanosecond
+	evs, res := runCycles(t, d, "10.0.0.0/28", 3)
+
+	noLeak := func(what string, v any) {
+		t.Helper()
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), secret) {
+			t.Errorf("%s holds the community: %s", what, b)
+		}
+	}
+	var snaps, done int
+	for _, ev := range evs {
+		switch ev.Type {
+		case model.EventSnapshot:
+			snaps++
+			if r := ev.Data.(model.ScanResult); r.Request.Community != model.Redacted {
+				t.Errorf("snapshot community = %q", r.Request.Community)
+			}
+		case model.EventDone:
+			done++
+			if r := ev.Data.(model.ScanResult); r.Request.Community != model.Redacted {
+				t.Errorf("done community = %q", r.Request.Community)
+			}
+		}
+		noLeak(ev.Type+" event", ev.Data)
+	}
+	if snaps == 0 || done != 1 {
+		t.Fatalf("snapshot events %d, done events %d", snaps, done)
+	}
+	saved := fs.list()
+	if len(saved) < 2 {
+		t.Fatalf("saves = %d, want checkpoints and the final save", len(saved))
+	}
+	for i, s := range saved {
+		if s.Request.Community != model.Redacted {
+			t.Errorf("save %d community = %q", i, s.Request.Community)
+		}
+		noLeak("saved result", s)
+	}
+	if res.Request.Community != model.Redacted {
+		t.Errorf("result community = %q", res.Request.Community)
+	}
+	noLeak("result", res)
+
+	sn.mu.Lock()
+	defer sn.mu.Unlock()
+	if len(sn.seen) == 0 {
+		t.Fatal("SNMP never probed")
+	}
+	for _, c := range sn.seen {
+		if c != secret {
+			t.Fatalf("SNMP got community %q, want the real one", c)
+		}
 	}
 }
 

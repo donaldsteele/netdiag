@@ -2,11 +2,17 @@ package server
 
 import (
 	"bufio"
+	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"netdiag/internal/mcpserver"
 )
 
 // readEvents reads an SSE stream until the named event (or EOF) and returns
@@ -36,10 +42,13 @@ func readEvents(t *testing.T, url, until string) string {
 	return b.String()
 }
 
-// The SNMP community sent with a scan must not appear in anything the API
-// hands out: scan JSON, the event stream, exports, comparisons and history.
-func TestScanOutputsNeverLeakCommunity(t *testing.T) {
-	const secret = "s3cret-community"
+// F11 (the s3cr3t-x grep test): the SNMP community, whether sent with a scan
+// or taken from the settings, must appear nowhere netdiag hands it out:
+// scan JSON, the event stream, exports, comparisons, history (API and the
+// files on disk) and MCP tools and resources. GET /api/settings is the one
+// exception, because the Settings dialog edits the community.
+func TestSecretCommunityAppearsNowhere(t *testing.T) {
+	const secret = "s3cr3t-x"
 	_, u, st := startStore(t)
 	noLeak := func(what, body string) {
 		t.Helper()
@@ -48,7 +57,20 @@ func TestScanOutputsNeverLeakCommunity(t *testing.T) {
 		}
 	}
 
-	r, b := doj(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/30","community":"`+secret+`","live":true,"liveIntervalSec":5}`, "application/json")
+	// The settings community is the secret too, and Agent access is on.
+	_, b := doj(t, "GET", u+"/api/settings", "", "")
+	var set map[string]any
+	if err := json.Unmarshal([]byte(b), &set); err != nil {
+		t.Fatal(err)
+	}
+	set["community"] = secret
+	set["mcp"] = map[string]any{"enabled": true}
+	doc, _ := json.Marshal(set)
+	if r, b := doj(t, "PUT", u+"/api/settings", string(doc), "application/json"); r.StatusCode != 200 {
+		t.Fatalf("PUT settings: %d %s", r.StatusCode, b)
+	}
+
+	r, b := doj(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/28","community":"`+secret+`","live":true,"liveIntervalSec":5}`, "application/json")
 	if r.StatusCode != 202 {
 		t.Fatalf("start live: %d %s", r.StatusCode, b)
 	}
@@ -71,8 +93,9 @@ func TestScanOutputsNeverLeakCommunity(t *testing.T) {
 		noLeak("export "+f, b)
 	}
 
-	// A second scan replaces the live one; both are saved to history.
-	r, b = doj(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/30","community":"`+secret+`"}`, "application/json")
+	// A second scan, with no community of its own (so the settings one is
+	// used), replaces the live one; both are saved to history.
+	r, b = doj(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/28"}`, "application/json")
 	if r.StatusCode != 202 {
 		t.Fatalf("start: %d %s", r.StatusCode, b)
 	}
@@ -80,11 +103,13 @@ func TestScanOutputsNeverLeakCommunity(t *testing.T) {
 	waitState(t, u, live, "done")
 	waitState(t, u, cur, "done")
 	stream = readEvents(t, u+"/api/scans/"+cur+"/events", "done")
-	if !strings.Contains(stream, "event: done") {
-		t.Fatalf("no done event: %s", stream)
+	if !strings.Contains(stream, "event: done") || !strings.Contains(stream, `"community":"***"`) {
+		t.Fatalf("no redacted done event: %s", stream)
 	}
 	noLeak("done event", stream)
 
+	_, b = doj(t, "GET", u+"/api/history", "", "")
+	noLeak("GET /api/history", b)
 	for _, id := range []string{live, cur} {
 		r, b := doj(t, "GET", u+"/api/history/"+id, "", "")
 		if r.StatusCode != 200 || !strings.Contains(b, `"community":"***"`) {
@@ -92,6 +117,8 @@ func TestScanOutputsNeverLeakCommunity(t *testing.T) {
 		}
 		noLeak("GET /api/history/{id}", b)
 	}
+	_, b = doj(t, "GET", u+"/api/compare?base="+live+"&current="+cur, "", "")
+	noLeak("GET /api/compare", b)
 	for _, f := range []string{"json", "csv"} {
 		r, b := doj(t, "GET", u+"/api/compare/export?base="+live+"&current="+cur+"&format="+f, "", "")
 		if r.StatusCode != 200 {
@@ -99,18 +126,10 @@ func TestScanOutputsNeverLeakCommunity(t *testing.T) {
 		}
 		noLeak("compare export "+f, b)
 	}
-	files, _ := filepath.Glob(filepath.Join(st.Dir(), "history", "*.json"))
-	if len(files) != 2 {
-		t.Fatalf("history files = %v", files)
-	}
-	for _, f := range files {
-		data, _ := os.ReadFile(f)
-		noLeak("history file "+filepath.Base(f), string(data))
-	}
 
 	// A file saved by an older version still holds the community; reading it
-	// through the API hides it.
-	old := `{"id":"old1","schemaVersion":2,"startedAt":"2020-01-01T10:00:00Z","state":"done","request":{"cidr":"10.0.0.0/30","community":"` + secret + `"}}`
+	// through the API hides it, and the file is rewritten without it.
+	old := `{"id":"old1","schemaVersion":2,"startedAt":"2020-01-01T10:00:00Z","state":"done","request":{"cidr":"10.0.0.0/28","community":"` + secret + `"}}`
 	if err := os.WriteFile(filepath.Join(st.Dir(), "history", "20200101T100000Z-old1.json"), []byte(old), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -119,4 +138,81 @@ func TestScanOutputsNeverLeakCommunity(t *testing.T) {
 		t.Fatalf("old history file not redacted: %s", b)
 	}
 	noLeak("old history file via API", b)
+
+	// MCP: a scan started by an agent with the community, then every tool
+	// and resource that returns scans, history or settings.
+	ctx := context.Background()
+	cs := mcpConnect(t, u)
+	mcpOut := func(what string, v any, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("MCP %s: %v", what, err)
+		}
+		out, _ := json.Marshal(v)
+		if res, ok := v.(*mcp.CallToolResult); ok && res.IsError {
+			t.Fatalf("MCP %s: tool error %s", what, out)
+		}
+		noLeak("MCP "+what, string(out))
+	}
+	call := func(name string, args map[string]any) *mcp.CallToolResult {
+		t.Helper()
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+		mcpOut(name, res, err)
+		return res
+	}
+	started := call("start_scan", map[string]any{"cidr": "10.0.0.0/28", "community": secret, "waitSec": 20})
+	var sum struct {
+		ScanID string `json:"scanId"`
+	}
+	sb, _ := json.Marshal(started.StructuredContent)
+	if err := json.Unmarshal(sb, &sum); err != nil || sum.ScanID == "" {
+		t.Fatalf("start_scan = %s", sb)
+	}
+	waitState(t, u, sum.ScanID, "done")
+	for _, id := range []string{live, cur, sum.ScanID} {
+		call("get_scan", map[string]any{"scanId": id})
+		call("list_devices", map[string]any{"scanId": id})
+		call("get_device", map[string]any{"scanId": id, "ip": "10.0.0.10"})
+		call("get_events", map[string]any{"scanId": id})
+	}
+	call("get_scan", map[string]any{"scanId": "old1"})
+	call("list_history", nil)
+	call("compare_scans", map[string]any{"baseId": live, "currentId": cur})
+	call("get_settings", nil)
+
+	list, err := cs.ListResources(ctx, &mcp.ListResourcesParams{})
+	mcpOut("resources/list", list, err)
+	uris := []string{mcpserver.URISettings, mcpserver.URIHistory, mcpserver.URIHealth}
+	for _, id := range []string{live, cur, sum.ScanID, "old1"} {
+		uris = append(uris, "netdiag://scans/"+id, "netdiag://scans/"+id+"/devices", "netdiag://scans/"+id+"/devices/10.0.0.10")
+	}
+	for _, uri := range uris {
+		res, err := cs.ReadResource(ctx, &mcp.ReadResourceParams{URI: uri})
+		if err != nil && strings.HasSuffix(uri, "/10.0.0.10") && strings.Contains(uri, "old1") {
+			continue // the old file has no hosts
+		}
+		mcpOut(uri, res, err)
+	}
+
+	// Finally, nothing written to disk by a scan holds it: the history files
+	// (the old one rewritten on read) and every other file in the data dir
+	// except settings.json, which the Settings dialog edits.
+	err = filepath.WalkDir(st.Dir(), func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || d.Name() == "settings.json" {
+			return err
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		noLeak("file "+filepath.Base(p), string(data))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(st.Dir(), "history", "*.json"))
+	if len(files) != 4 {
+		t.Fatalf("history files = %v", files)
+	}
 }

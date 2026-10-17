@@ -125,6 +125,34 @@ func TestResolveScan(t *testing.T) {
 	}
 }
 
+// F11: every scan the service hands out, live or saved (including a file
+// saved before v0.5.8 that still holds the community), is redacted.
+func TestServiceScansRedacted(t *testing.T) {
+	const secret = "s3cr3t-x"
+	s, st := newSvc(t, true, nil)
+	sc, err := s.Start(model.ScanRequest{CIDR: "10.0.0.0/30", Community: secret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sc.Snapshot(); got.Request.Community != model.Redacted {
+		t.Fatalf("running snapshot community = %q", got.Request.Community)
+	}
+	<-sc.Done()
+	old := `{"id":"old-1","schemaVersion":2,"startedAt":"2020-01-01T10:00:00Z","state":"done","request":{"cidr":"10.0.0.0/30","community":"` + secret + `"}}`
+	if err := os.WriteFile(filepath.Join(st.Dir(), "history", "20200101T100000Z-old-1.json"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{sc.ID, "old-1"} {
+		got, err := s.ResolveScan(id)
+		if err != nil || got.Request.Community != model.Redacted {
+			t.Fatalf("ResolveScan(%s) community = %q, %v", id, got.Request.Community, err)
+		}
+		if got, err = s.LoadScan(id); err != nil || got.Request.Community != model.Redacted {
+			t.Fatalf("LoadScan(%s) community = %q, %v", id, got.Request.Community, err)
+		}
+	}
+}
+
 func TestCompare(t *testing.T) {
 	s, st := newSvc(t, true, nil)
 	for _, id := range []string{"a-1", "b-2"} {

@@ -11,6 +11,19 @@ import (
 // exports, saved history and MCP output.
 const Redacted = "***"
 
+// Redacted returns a copy of r with the SNMP community hidden. The port list
+// is copied, so the copy shares nothing with r. An empty community stays
+// empty, and redacting twice gives the same result.
+func (r ScanRequest) Redacted() ScanRequest {
+	if r.Community != "" {
+		r.Community = Redacted
+	}
+	if r.Ports != nil {
+		r.Ports = slices.Clone(r.Ports)
+	}
+	return r
+}
+
 // RedactScan returns a copy of r with the SNMP community hidden. The input is
 // not modified (the request's port list is copied too), an empty community
 // stays empty, and redacting twice gives the same result.
@@ -19,12 +32,7 @@ const Redacted = "***"
 // handed out are redacted. A rescan takes its community from the scan form
 // or the settings, never from an old result.
 func RedactScan(r ScanResult) ScanResult {
-	if r.Request.Community != "" {
-		r.Request.Community = Redacted
-	}
-	if r.Request.Ports != nil {
-		r.Request.Ports = slices.Clone(r.Request.Ports)
-	}
+	r.Request = r.Request.Redacted()
 	return r
 }
 
