@@ -487,6 +487,38 @@ func TestServerInstructionsAndInfo(t *testing.T) {
 	}
 }
 
+// TestHealthTextNamesEveryCheck keeps the agent-facing health wording in
+// step with the checks in internal/health (checkMeta), Wi-Fi included.
+func TestHealthTextNamesEveryCheck(t *testing.T) {
+	e := setup(t, "stdio", true, fakePinger{})
+	checks := []string{"gateway", "DHCP", "DNS", "internet", "Wi-Fi", "web server"}
+	texts := map[string]string{"instructions": e.cs.InitializeResult().Instructions}
+	res, err := e.cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tl := range res.Tools {
+		if tl.Name == "get_health" || tl.Name == "run_health_check" {
+			texts[tl.Name] = tl.Description
+		}
+	}
+	pr, err := e.cs.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: "triage_network"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	texts["triage_network"] = pr.Messages[0].Content.(*mcp.TextContent).Text
+	if len(texts) != 4 {
+		t.Fatalf("texts = %v", texts)
+	}
+	for name, txt := range texts {
+		for _, c := range checks {
+			if !strings.Contains(txt, c) {
+				t.Errorf("%s does not mention the %s check: %s", name, c, txt)
+			}
+		}
+	}
+}
+
 // TestListDevicesProblemsUsesSupplyThreshold checks that list_devices reads
 // alerts.supplyThresholdPct from Settings, like the low-supply alerts do.
 func TestListDevicesProblemsUsesSupplyThreshold(t *testing.T) {

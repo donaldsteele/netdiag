@@ -49,7 +49,7 @@ func registerPrompts(s *mcp.Server, svc *service.Service) {
 			return "Triage this local network. Follow these steps:\n" +
 				"1. Call " + start + ". If stillRunning is true, poll get_scan with the returned scanId until state is done.\n" +
 				"2. Read the summary: stats (online/offline/new devices), health, conflicts and printer alerts.\n" +
-				"3. Call get_health (or run_health_check if the report is missing or old). Note any check that is not ok: gateway, DNS, DHCP, internet, web server.\n" +
+				"3. Call get_health (or run_health_check if the report is missing or old). Note any check that is not ok: " + healthChecksText + ".\n" +
 				"4. Call list_devices with scanId and filter=\"problems\". For each row call get_device (scanId, ip) and inspect conflicts, offline state, printer alerts and openPorts.\n" +
 				"5. Interpret: a device seen only by ARP (no ping reply) usually blocks ping, it is present but filtered, not down. Conflicts of kind mac_flap, mac_multi_ip or duplicate_name often point to a Wi-Fi extender or mesh node, a rogue DHCP/router, or two devices sharing a name.\n" +
 				"6. Summarise, most urgent first: health problems, conflicts, offline devices, printer problems."

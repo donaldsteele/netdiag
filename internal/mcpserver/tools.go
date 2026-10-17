@@ -34,6 +34,8 @@ const (
 	progressMinGap  = 250 * time.Millisecond
 	errNoStoreText  = "history unavailable: data store could not be opened"
 	hintListHistory = "; call list_history to see saved scans"
+	// healthChecksText names every check of a health report.
+	healthChecksText = "gateway, DHCP, DNS, internet, Wi-Fi, web server"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -203,11 +205,11 @@ func registerTools(s *mcp.Server, svc *service.Service, opts Options) {
 		Annotations: readAnn("Get scan change events")}, t.getEvents)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_health", Title: "Get latest health report",
-		Description: "Latest network health report (gateway, DNS, DHCP, internet, web server checks) from a scan or history; none=true if there is none yet.",
+		Description: "Latest network health report (" + healthChecksText + " checks) from a scan or history; none=true if there is none yet.",
 		Annotations: readAnn("Get latest health report")}, t.getHealth)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "run_health_check", Title: "Run a health check now",
-		Description: "Run the network health checks now (takes up to about 10 seconds) on the network of the running or latest scan, or the default network adapter when there is no scan. Sends real network traffic.",
+		Description: "Run the network health checks (" + healthChecksText + ") now (takes up to about 10 seconds) on the network of the running or latest scan, or the default network adapter when there is no scan. Sends real network traffic.",
 		Annotations: probeAnn("Run a health check now")}, t.runHealth)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "probe_host", Title: "Probe a single host",

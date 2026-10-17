@@ -17,7 +17,7 @@ type Options struct {
 	Logger *slog.Logger
 }
 
-const instructions = "netdiag discovers devices on a local network (ICMP, ARP, ports, SNMP, mDNS, IPP), runs network health checks, detects IP/MAC/name conflicts and keeps scan history. " +
+const instructions = "netdiag discovers devices on a local network (ICMP, ARP, ports, SNMP, mDNS, IPP), runs network health checks (" + healthChecksText + "), detects IP/MAC/name conflicts and keeps scan history. " +
 	"Typical flow: call start_scan (it waits up to waitSec and returns a compact summary; if it is still running, poll get_scan), then list_devices with filter=problems, then get_device for details on one host; " +
 	"use get_events with the returned nextSeq to follow live changes, and compare_scans to see what changed since a previous scan. " +
 	"List results are paginated: pass nextCursor back as cursor. Scans and probes send real network traffic like the Scan button in the UI. " +
