@@ -1,0 +1,84 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: go (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.9'
+          cache: true
+
+      - name: gofmt
+        shell: bash
+        run: |
+          out="$(gofmt -l cmd internal tools web)"
+          [ -z "$out" ] || { echo "needs gofmt:"; echo "$out"; exit 1; }
+
+      - name: vet
+        run: go vet ./...
+
+      - name: vet for the other release OS
+        shell: bash
+        run: GOOS=${{ matrix.os == 'windows-latest' && 'darwin' || 'windows' }} go vet ./...
+
+      - name: third-party license file is up to date
+        run: go run ./tools/licenses -check
+
+      - name: test
+        run: go test ./...
+
+      - name: race test
+        if: matrix.os == 'macos-latest'
+        run: go test -race ./...
+
+      - name: release build (4 zips)
+        shell: bash
+        run: bash scripts/build.sh
+
+  ui:
+    name: ui (playwright, axe)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: tools/uitest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: tools/uitest/package-lock.json
+
+      - name: install
+        run: npm ci
+
+      - name: install browser
+        run: npx playwright install --with-deps chromium
+
+      - name: flow, layout, accessibility and screenshot specs
+        run: npx playwright test
+
+      - name: upload results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-results
+          path: |
+            tools/uitest/out
+            tools/uitest/test-results
+          retention-days: 7

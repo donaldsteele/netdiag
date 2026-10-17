@@ -11,3 +11,4 @@ cmd/netdiag/rsrc_windows_*.syso
 tools/uitest/node_modules/
 tools/uitest/out/
 tools/icons/node_modules/
+.claude/worktrees/

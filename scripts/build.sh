@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cross-compile netdiag for Windows and macOS (amd64 + arm64) and zip each
-# target with README.md and HOW-TO-OPEN.txt into dist/.
+# target with README.md, HOW-TO-OPEN.txt and the license files into dist/.
 #
 # Usage: bash scripts/build.sh            (VERSION defaults to git describe)
 #        VERSION=1.2.0 bash scripts/build.sh
@@ -12,7 +12,8 @@ VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo d
 DIST="dist"
 TARGETS="windows/amd64 windows/arm64 darwin/amd64 darwin/arm64"
 
-for f in README.md HOW-TO-OPEN.txt; do
+DOCS="README.md HOW-TO-OPEN.txt LICENSE NOTICE THIRD_PARTY_LICENSES.txt"
+for f in $DOCS; do
   [ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
 done
 
@@ -29,6 +30,8 @@ make_zip() {
 }
 
 mkdir -p "$DIST"
+# The license file must list exactly the modules being shipped.
+go run ./tools/licenses -check
 mkzip="$stage/mkzip"
 go build -o "$mkzip" ./tools/mkzip
 echo "netdiag version: $VERSION"
@@ -50,7 +53,7 @@ for target in $TARGETS; do
   CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
     go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
     -o "$pkg/$bin" ./cmd/netdiag
-  cp README.md HOW-TO-OPEN.txt "$pkg/"
+  cp $DOCS "$pkg/"
 
   zipname="netdiag-$goos-$goarch.zip"
   make_zip "$DIST/$zipname" "$pkg"

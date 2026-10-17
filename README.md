@@ -398,3 +398,7 @@ Set `VERSION=1.2.0` to stamp a version; otherwise `git describe` is used. Each z
 Dev note: the icons are a vendored subset of [Lucide](https://lucide.dev) (ISC licence, `web/vendor/LICENSE-lucide.txt`), packed into the sprite `web/icons.svg`. The sprite is regenerated only by the dev-only tool in `tools/icons` (`npm ci && node build-sprite.mjs`). You do not need it to build or run netdiag.
 
 Refresh the vendor database with `bash scripts/update-oui.sh` (needs network access).
+
+## License
+
+netdiag is licensed under the Apache License, Version 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE). The third-party components built into netdiag and their licenses are listed in [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt), which is also in every release zip.
