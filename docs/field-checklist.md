@@ -79,6 +79,8 @@ Tick only after observing the behaviour on real hardware.
 ### Health checks (v0.5.8)
 - [ ] On a router that ignores ping (turn off "respond to ping" / WAN ping on the router, or use one that blocks it), the Gateway row is `ok` and says "answers on port 80 (it does not reply to ping)" (or 443)
 - [ ] With the router unplugged, the Gateway row is `fail` and says it did not reply to ping or on ports 80 and 443, within about 5 seconds
+- [ ] A Web server URL starting with `http://` on a server that redirects to `https://` on the same name is `ok` and shows "redirected to https://..."
+- [ ] A Web server URL that redirects to a sign-in page on another server is `fail` and the detail names that server
 
 ### Health panel
 - [ ] Gateway row shows `ok` with a latency; unplugging the router shows `fail` text, not colour alone

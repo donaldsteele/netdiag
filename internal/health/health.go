@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -345,46 +344,6 @@ func (r *Runner) checkDNS(ctx context.Context, in Input) model.HealthCheck {
 		return mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: %s", host, msg), 0)
 	}
 	return mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: no DNS server is set on this network adapter (%s)", host, msg), 0)
-}
-
-func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
-	cfg := in.Config
-	if strings.TrimSpace(cfg.WebURL) == "" {
-		return mk(3, model.HealthInfo, "no web server configured (set one in Settings)", 0)
-	}
-	want := cfg.ExpectStatus
-	if want == 0 {
-		want = 200
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.WebURL, nil)
-	if err != nil {
-		return mk(3, model.HealthFail, "invalid URL: "+err.Error(), 0)
-	}
-	t0 := time.Now()
-	resp, err := r.HTTP.Do(req)
-	if err != nil {
-		return mk(3, model.HealthFail, "request failed: "+err.Error(), 0)
-	}
-	defer resp.Body.Close()
-	var body []byte
-	if cfg.MustContain != "" {
-		body, _ = io.ReadAll(io.LimitReader(resp.Body, maxBody))
-	}
-	d := time.Since(t0)
-	c := mk(3, model.HealthOK, fmt.Sprintf("HTTP %d in %.0f ms", resp.StatusCode, ms(d)), ms(d))
-	c.Data = map[string]any{"url": cfg.WebURL, "status": resp.StatusCode}
-	switch {
-	case resp.StatusCode != want:
-		c.Status = model.HealthFail
-		c.Detail = fmt.Sprintf("HTTP %d (expected %d)", resp.StatusCode, want)
-	case cfg.MustContain != "" && !strings.Contains(string(body), cfg.MustContain):
-		c.Status = model.HealthFail
-		c.Detail = fmt.Sprintf("HTTP %d but page does not contain %q", resp.StatusCode, cfg.MustContain)
-	case d > 2*time.Second:
-		c.Status = model.HealthWarn
-		c.Detail += " (slow)"
-	}
-	return c
 }
 
 func (r *Runner) checkInternet(ctx context.Context, in Input) model.HealthCheck {
