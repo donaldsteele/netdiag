@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -202,5 +203,54 @@ func TestHealth(t *testing.T) {
 	e.SetConfig(cfg)
 	if n := e.ObserveHealth(ok, bad); len(n) != 0 {
 		t.Fatal("disabled")
+	}
+}
+
+// The cooldown map forgets keys once their cooldown has passed, so a long
+// live scan does not keep one entry for every device it ever saw.
+func TestCooldownMapIsPruned(t *testing.T) {
+	e, c := newEng()
+	newDev := func(ip string) []model.Notice {
+		return e.Observe(model.Host{}, model.Host{IP: ip, IsNew: true})
+	}
+	for i := 0; i < 100; i++ {
+		if n := newDev(fmt.Sprintf("10.0.1.%d", i)); len(n) != 1 {
+			t.Fatalf("device %d: %v", i, n)
+		}
+	}
+	if len(e.last) != 100 {
+		t.Fatalf("entries = %d", len(e.last))
+	}
+
+	c.t = c.t.Add(200 * time.Second)
+	newDev("10.0.2.1") // inside the first cooldown: no sweep yet
+	if len(e.last) != 101 {
+		t.Fatalf("entries before cooldown = %d", len(e.last))
+	}
+
+	c.t = c.t.Add(101 * time.Second) // 301 s after the first 100
+	newDev("10.0.2.2")
+	if len(e.last) != 2 {
+		t.Fatalf("entries after cooldown = %d, want 2 (10.0.2.1 and 10.0.2.2)", len(e.last))
+	}
+	// The key still inside its cooldown still holds back a repeat.
+	if n := newDev("10.0.2.1"); len(n) != 0 {
+		t.Fatalf("repeat inside cooldown: %v", n)
+	}
+	// A pruned key notifies again.
+	if n := newDev("10.0.1.5"); len(n) != 1 {
+		t.Fatalf("pruned key: %v", n)
+	}
+
+	// With no cooldown nothing needs remembering.
+	cfg := DefaultConfig()
+	cfg.Cooldown = 0
+	e.SetConfig(cfg)
+	for i := 0; i < 10; i++ {
+		c.t = c.t.Add(time.Second)
+		newDev(fmt.Sprintf("10.0.3.%d", i))
+	}
+	if len(e.last) > 1 {
+		t.Fatalf("entries with no cooldown = %d", len(e.last))
 	}
 }

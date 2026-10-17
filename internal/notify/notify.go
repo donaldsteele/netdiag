@@ -49,7 +49,9 @@ type Engine struct {
 	cfg  Config
 	now  func() time.Time
 	seq  int
-	last map[string]time.Time
+	last map[string]time.Time // cooldown: when each key last produced a notice
+	// swept is when prune last ran.
+	swept time.Time
 	// faults holds, per printer IP, every alert seen since the printer was last
 	// clear, in first-seen order, so Printer OK again names all of them even
 	// when they clear one at a time.
@@ -77,6 +79,7 @@ func (e *Engine) emit(out []model.Notice, trigger, sev, ip, title, msg, keyPart 
 	}
 	key := trigger + "|" + ip + "|" + keyPart
 	now := e.now()
+	e.prune(now)
 	if t, ok := e.last[key]; ok && now.Sub(t) < e.cfg.Cooldown {
 		return out
 	}
@@ -86,6 +89,23 @@ func (e *Engine) emit(out []model.Notice, trigger, sev, ip, title, msg, keyPart 
 		ID: fmt.Sprintf("n-%d", e.seq), Trigger: trigger, Severity: sev, IP: ip,
 		Title: title, Message: msg, At: now.UTC().Format(time.RFC3339), Key: key,
 	})
+}
+
+// prune drops cooldown entries older than the cooldown: they can no longer
+// hold back a notice. It sweeps at most once per cooldown period, so the
+// cost stays small and the map only holds keys from the last two periods
+// instead of every key ever seen (a long live scan on a busy network sees
+// many devices come and go).
+func (e *Engine) prune(now time.Time) {
+	if now.Sub(e.swept) < e.cfg.Cooldown {
+		return
+	}
+	e.swept = now
+	for k, t := range e.last {
+		if now.Sub(t) >= e.cfg.Cooldown {
+			delete(e.last, k)
+		}
+	}
 }
 
 // forget drops the cooldown history of every key starting with prefix.
