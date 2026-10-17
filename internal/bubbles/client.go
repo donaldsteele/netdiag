@@ -4,7 +4,9 @@
 // Copied from github.com/donaldsteele/bubbles v0.2.0,
 // pkg/bubblesclient/client.go.
 // Modified for netdiag: the package name and comment, the protocol import
-// path; the event-stream fields and codeForStatus are left out.
+// path; the event-stream fields and codeForStatus are left out; Config and
+// Client print without the token (String and Format) and Config.Token is
+// never marshalled.
 
 // Package bubbles is netdiag's built-in client for a bubbles team chat
 // server: CA-pinned TLS, pairing, alerts posted and resolved by dedupe key,
@@ -41,8 +43,11 @@ const (
 type Config struct {
 	// BaseURL is the server root, for example https://192.168.1.20:28225.
 	BaseURL string
-	// Token is the app token (bub_...).
-	Token string
+	// Token is the app token (bub_...). It is never marshalled, and no fmt
+	// verb prints it (see Format); keep a Config only while building a
+	// Client, since a Config inside another struct's unexported field is
+	// printed field by field.
+	Token string `json:"-"`
 	// CAFingerprint pins the server's CA ("sha256:<64 hex>", bare hex or the
 	// grouped form shown by the server). When empty, normal system-root
 	// verification applies.
@@ -52,6 +57,19 @@ type Config struct {
 	// HTTPClient is optional; see newHTTPClient for how the pin is applied.
 	HTTPClient *http.Client
 }
+
+// String describes the configuration without the token.
+func (c Config) String() string {
+	s := "bubbles server " + c.BaseURL
+	if c.CAFingerprint != "" {
+		s += " (CA " + c.CAFingerprint + ")"
+	}
+	return s
+}
+
+// Format prints String for every verb (%v, %+v, %#v, %d...), so a Config in
+// a log line or an error never shows the token.
+func (c Config) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, c.String()) }
 
 // Client talks to one bubbles server. It is safe for concurrent use.
 type Client struct {
@@ -89,6 +107,13 @@ func New(cfg Config) (*Client, error) {
 	}
 	return c, nil
 }
+
+// String describes the client without the token.
+func (c *Client) String() string { return "bubbles client for " + c.base.String() }
+
+// Format prints String for every verb, so a Client in a log line or an
+// error never shows the token.
+func (c *Client) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, c.String()) }
 
 // Config returns the settings this client was built from (without the
 // custom HTTP client).

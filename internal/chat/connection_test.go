@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"netdiag/internal/bubbles"
 	"netdiag/internal/secret"
 	"netdiag/internal/store"
 )
@@ -139,20 +140,45 @@ func TestTokenOnlySealedInBubblesJSON(t *testing.T) {
 }
 
 // Marshalling or printing a Connection, the way an API answer, an MCP
-// result or a log line would, never shows the token.
+// result or a log line would, never shows the token. Neither does its
+// client configuration or the client built from it, nor a Connection held
+// in another struct's unexported field, as chat.Manager will hold it.
 func TestConnectionNeverPrintsToken(t *testing.T) {
 	c := testConnection()
-	b, err := json.Marshal(c)
+	cfg := c.ClientConfig()
+	if cfg.Token != testToken {
+		t.Fatalf("client config token %q", cfg.Token)
+	}
+	client, err := bubbles.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{string(b), fmt.Sprint(c), fmt.Sprintf("%v %+v %#v %s", c, c, c, c), fmt.Sprintf("%+v", &c), c.String()} {
-		if strings.Contains(s, "s3cr3t") {
+	type manager struct {
+		state string
+		conn  Connection
+	}
+	m := manager{state: "connected", conn: c}
+	var shown []string
+	for _, v := range []any{c, &c, cfg, &cfg, client, m, &m, []Connection{c}, map[string]Connection{"x": c}} {
+		b, _ := json.Marshal(v)
+		shown = append(shown, string(b))
+		for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%d", "%x", "%q"} {
+			shown = append(shown, fmt.Sprintf(verb, v))
+		}
+	}
+	shown = append(shown, fmt.Errorf("connect %+v: %w", cfg, errors.New("refused")).Error(), c.String(), cfg.String(), client.String())
+	hex := fmt.Sprintf("%x", testToken)
+	for _, s := range shown {
+		if strings.Contains(s, "s3cr3t") || strings.Contains(s, hex[:16]) {
 			t.Fatalf("token shown in %q", s)
 		}
 	}
+	b, _ := json.Marshal(c)
 	if !strings.Contains(string(b), `"baseURL":"https://192.168.1.20:28225"`) {
 		t.Fatalf("json %s", b)
+	}
+	if s := fmt.Sprint(cfg); !strings.Contains(s, testServer.BaseURL) {
+		t.Fatalf("config printed as %q", s)
 	}
 }
 
@@ -180,16 +206,21 @@ func TestRemoveConnection(t *testing.T) {
 }
 
 // An unreadable bubbles.json is set aside as bubbles.json.bad-<time> and
-// netdiag starts again not connected (v0.6 plan §4.15).
+// netdiag starts again not connected (v0.6 plan §4.15). A copy that is a
+// JSON object keeps no token: netdiag can't use it.
 func TestLoadUnreadableIsQuarantined(t *testing.T) {
-	good := connectionFile{SchemaVersion: 1, Server: testServer, Token: secret.Sealed{Protected: "dpapi", Data: "AAAA"}}
+	sealed, err := secret.Seal([]byte(testToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := connectionFile{SchemaVersion: 1, Server: testServer, Channel: Channel{ID: "C1", Name: "netdiag-alerts"}, Token: sealed}
 	for name, content := range map[string]string{
 		"not json":         "{nope",
-		"no schema":        `{"server":{"baseURL":"https://192.168.1.20:28225"}}`,
-		"newer schema":     mustJSON(t, func() connectionFile { f := good; f.SchemaVersion = 2; return f }()),
+		"no schema":        mustJSON(t, func() connectionFile { f := good; f.SchemaVersion = 0; return f }()),
 		"plain http":       mustJSON(t, func() connectionFile { f := good; f.Server.BaseURL = "http://192.168.1.20:28225"; return f }()),
 		"bad fingerprint":  mustJSON(t, func() connectionFile { f := good; f.Server.CAFingerprint = "abcd"; return f }()),
-		"wrong JSON types": `{"schemaVersion":"1","server":[]}`,
+		"newer, plain":     mustJSON(t, func() connectionFile { f := good; f.SchemaVersion = 2; f.Server.BaseURL = "http://x"; return f }()),
+		"wrong JSON types": `{"schemaVersion":"1","server":[],"token":` + mustJSON(t, sealed) + `}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			st, dir := newStore(t)
@@ -206,7 +237,80 @@ func TestLoadUnreadableIsQuarantined(t *testing.T) {
 			if len(bad) != 1 {
 				t.Fatalf("quarantined files %v", bad)
 			}
+			b, err := os.ReadFile(bad[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(b), sealed.Data) || strings.Contains(string(b), `"token"`) {
+				t.Fatalf("the quarantined copy keeps the token: %s", b)
+			}
+			if strings.Contains(content, "netdiag-alerts") && !strings.Contains(string(b), "netdiag-alerts") {
+				t.Fatalf("the quarantined copy lost the channel: %s", b)
+			}
 		})
+	}
+}
+
+// A bubbles.json from a newer netdiag (netdiag was downgraded) is left as
+// it is for that version: "needs reconnecting", with the server, pin and
+// channel kept for Reconnect.
+func TestLoadNewerSchemaNeedsReconnect(t *testing.T) {
+	st, dir := newStore(t)
+	if err := SaveConnection(st, testConnection()); err != nil {
+		t.Fatal(err)
+	}
+	f := readFile(t, dir)
+	f.SchemaVersion = 2
+	writeFile(t, dir, f)
+	before, _ := os.ReadFile(filepath.Join(dir, store.FileBubbles))
+	c, err := LoadConnection(st)
+	if !errors.Is(err, ErrNeedsReconnect) || errors.Is(err, ErrNotConnected) {
+		t.Fatalf("err = %v, want ErrNeedsReconnect", err)
+	}
+	if c.Token() != "" || c.Server != testServer || c.Channel.ID != "C1" {
+		t.Fatalf("connection %#v (token %q)", c, c.Token())
+	}
+	after, _ := os.ReadFile(filepath.Join(dir, store.FileBubbles))
+	if string(after) != string(before) {
+		t.Fatal("the newer file was changed")
+	}
+	if bad, _ := filepath.Glob(filepath.Join(dir, store.FileBubbles+".bad-*")); len(bad) != 0 {
+		t.Fatalf("the newer file was set aside: %v", bad)
+	}
+}
+
+// Disconnect forgets every copy of the token: bubbles.json and any copy
+// set aside as unreadable, even one that could not be cleaned (not JSON).
+func TestRemoveConnectionForgetsQuarantinedCopies(t *testing.T) {
+	st, dir := newStore(t)
+	sealed, err := secret.Seal([]byte(testToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := `{"schemaVersion":1,"token":` + mustJSON(t, sealed) + `,`
+	if err := os.WriteFile(filepath.Join(dir, store.FileBubbles), []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConnection(st); !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("err = %v", err)
+	}
+	if bad, _ := filepath.Glob(filepath.Join(dir, store.FileBubbles+".bad-*")); len(bad) != 1 {
+		t.Fatalf("quarantined files %v", bad)
+	}
+	if err := SaveConnection(st, testConnection()); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveConnection(st); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), store.FileBubbles) {
+			t.Errorf("%s is still in the data folder", e.Name())
+		}
 	}
 }
 
@@ -275,7 +379,7 @@ func TestSettingsHaveNoTokenField(t *testing.T) {
 func TestSaveRefusesIncompleteConnection(t *testing.T) {
 	st, dir := newStore(t)
 	noToken := testConnection()
-	noToken.token = ""
+	noToken.token = nil
 	badURL := testConnection()
 	badURL.Server.BaseURL = "http://192.168.1.20:28225"
 	for name, c := range map[string]Connection{"no token": noToken, "plain http": badURL} {
