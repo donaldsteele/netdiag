@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -35,7 +36,8 @@ const (
 // by its SHA-256 fingerprint; any other certificate is verified as usual.
 // When verification fails, the result carries the presented certificate
 // (data.certSHA256, certSubject, certExpires) so the page can offer to
-// trust it.
+// trust it, unless trusting it would stop the trusted one from working
+// (see certFailure).
 //
 // A password written in the URL (http://user:pass@host/) never leaves the
 // check: every URL in its detail and data is redacted (user:xxxxx@host),
@@ -65,10 +67,17 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 	// answer being checked, so it is not followed.
 	follow := want < 300 || want > 399
 	tooMany := false
+	// fetching is the address being fetched; pinnedAt is the host:port of
+	// an earlier step of a redirect chain that presented the trusted
+	// certificate.
+	fetching, pinnedAt := req.URL, ""
 	tr := r.webTransport(host, trusted)
 	defer tr.CloseIdleConnections()
 	client := &http.Client{Transport: tr, Timeout: webTimeout,
 		CheckRedirect: func(next *http.Request, via []*http.Request) error {
+			if prev := next.Response; trusted != "" && prev != nil && leafIs(prev.TLS, trusted) {
+				pinnedAt = hostPort(via[len(via)-1].URL)
+			}
 			if !follow || !strings.EqualFold(next.URL.Hostname(), host) {
 				return http.ErrUseLastResponse
 			}
@@ -76,12 +85,13 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 				tooMany = true
 				return http.ErrUseLastResponse
 			}
+			fetching = next.URL
 			return nil
 		}}
 	t0 := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
-		if c, ok := certFailure(err, raw, host, trusted); ok {
+		if c, ok := certFailure(err, raw, fetching, pinnedAt, trusted); ok {
 			return c
 		}
 		return webData(mk(3, model.HealthFail, "request failed: "+redactErr(err).Error(), 0), raw)
@@ -213,24 +223,61 @@ func Fingerprint(c *x509.Certificate) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// certFailure turns a certificate verification error into a failed check
-// that names the problem in plain words and carries the certificate.
-func certFailure(err error, url, host, trusted string) (model.HealthCheck, bool) {
+// certFailure turns a certificate verification error at the address at
+// into a failed check that names the problem in plain words and carries
+// the certificate. pinnedAt is the host:port where an earlier step of the
+// same check was answered with the trusted certificate, if any.
+//
+// With a trusted certificate, a different one at the same address means
+// it changed since the user trusted it. A different one at another address
+// of the same server (a redirect to another https port) is reported as
+// that: only one certificate can be trusted, so the result does not offer
+// to trust this one (no certSHA256), which would stop the trusted one
+// from working.
+func certFailure(err error, raw string, at *url.URL, pinnedAt, trusted string) (model.HealthCheck, bool) {
 	var cve *tls.CertificateVerificationError
 	if !errors.As(err, &cve) || len(cve.UnverifiedCertificates) == 0 {
 		return model.HealthCheck{}, false
 	}
 	leaf := cve.UnverifiedCertificates[0]
 	fp := Fingerprint(leaf)
-	detail := "the certificate is not trusted: " + certReason(cve.Err, leaf, host)
+	reason := certReason(cve.Err, leaf, at.Hostname())
+	detail := "the certificate is not trusted: " + reason
+	offer := true
 	if trusted != "" && fp != trusted {
-		detail = "the certificate changed since you trusted it: trust the new one only if you know your server has a new certificate"
+		if pinnedAt != "" && pinnedAt != hostPort(at) {
+			detail = fmt.Sprintf("another address on this server, %s, uses a different certificate that is not trusted (%s); "+
+				"netdiag trusts one certificate for the web server, so to check that address set it as the Web server URL", at.Redacted(), reason)
+			offer = false
+		} else {
+			detail = "the certificate changed since you trusted it: trust the new one only if you know your server has a new certificate"
+		}
 	}
-	c := webData(mk(3, model.HealthFail, detail, 0), url)
-	c.Data["certSHA256"] = fp
+	c := webData(mk(3, model.HealthFail, detail, 0), raw)
+	if offer {
+		c.Data["certSHA256"] = fp
+	}
 	c.Data["certSubject"] = certName(leaf)
 	c.Data["certExpires"] = leaf.NotAfter.UTC().Format(time.RFC3339)
 	return c, true
+}
+
+// leafIs reports whether the connection's certificate has the fingerprint fp.
+func leafIs(cs *tls.ConnectionState, fp string) bool {
+	return cs != nil && len(cs.PeerCertificates) > 0 && Fingerprint(cs.PeerCertificates[0]) == fp
+}
+
+// hostPort is the lower-case host and port u connects to, with the
+// scheme's default port when u names none.
+func hostPort(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		port = "80"
+		if strings.EqualFold(u.Scheme, "https") {
+			port = "443"
+		}
+	}
+	return net.JoinHostPort(strings.ToLower(u.Hostname()), port)
 }
 
 // certReason says why verification refused leaf.

@@ -223,9 +223,15 @@ func selfSigned(t *testing.T, cn string, notBefore, notAfter time.Time) tls.Cert
 // tlsServer starts an https test server with cert (nil: httptest's own).
 func tlsServer(t *testing.T, cert *tls.Certificate) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return tlsServerWith(t, cert, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("<html>Intranet</html>"))
 	}))
+}
+
+// tlsServerWith starts an https test server with cert and handler h.
+func tlsServerWith(t *testing.T, cert *tls.Certificate, h http.Handler) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewUnstartedServer(h)
 	if cert != nil {
 		srv.TLS = &tls.Config{Certificates: []tls.Certificate{*cert}}
 	}
@@ -344,6 +350,72 @@ func TestWebRedirectToTrustedHTTPS(t *testing.T) {
 		TrustedCert: Fingerprint(tsrv.Certificate())}})
 	if c.Status != model.HealthOK || c.Data["finalURL"] != tsrv.URL+"/portal" {
 		t.Fatalf("trusted: %+v", c)
+	}
+}
+
+// A redirect chain across two https ports of one server with different
+// certificates: with the first one trusted, the second is reported as
+// another address on this server, not as a changed certificate, and
+// trusting it is not offered (it would replace the trusted one).
+func TestWebTrustedCertOtherPort(t *testing.T) {
+	now := time.Now()
+	certB := selfSigned(t, "portal", now.Add(-time.Hour), now.Add(time.Hour))
+	portal := tlsServer(t, &certB)
+	certA := selfSigned(t, "front", now.Add(-time.Hour), now.Add(time.Hour))
+	front := tlsServerWith(t, &certA, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, portal.URL+"/portal", http.StatusFound)
+	}))
+	fpA, fpB := Fingerprint(front.Certificate()), Fingerprint(portal.Certificate())
+	r := newTestRunner(fakePinger{}, fakeResolver{}, "")
+	r.roots = x509.NewCertPool()
+	check := func(pin string) model.HealthCheck {
+		return r.checkWeb(context.Background(), Input{Config: Config{WebURL: front.URL + "/", TrustedCert: pin}})
+	}
+
+	c := check(fpA)
+	want := "another address on this server, " + portal.URL + "/portal, uses a different certificate that is not trusted " +
+		"(self-signed or from a private authority); netdiag trusts one certificate for the web server, so to check that address set it as the Web server URL"
+	if c.Status != model.HealthFail || c.Detail != want || c.Data["certSHA256"] != nil || c.Data["certSubject"] != "portal" ||
+		c.Data["url"] != front.URL+"/" {
+		t.Fatalf("other port: %+v", c)
+	}
+	// The first address itself has another certificate than the trusted one.
+	c = check(fpB)
+	if c.Status != model.HealthFail || !strings.HasPrefix(c.Detail, "the certificate changed since you trusted it") || c.Data["certSHA256"] != fpA {
+		t.Fatalf("first address changed: %+v", c)
+	}
+	// Nothing trusted yet: the first certificate is offered.
+	c = check("")
+	if c.Status != model.HealthFail || !strings.HasPrefix(c.Detail, "the certificate is not trusted: ") || c.Data["certSHA256"] != fpA {
+		t.Fatalf("nothing trusted: %+v", c)
+	}
+	// With the second address as the Web server URL, its own certificate
+	// can be trusted and works.
+	c = r.checkWeb(context.Background(), Input{Config: Config{WebURL: portal.URL + "/portal", TrustedCert: fpA}})
+	if c.Status != model.HealthFail || !strings.HasPrefix(c.Detail, "the certificate changed since you trusted it") || c.Data["certSHA256"] != fpB {
+		t.Fatalf("second address as the URL: %+v", c)
+	}
+	if c = r.checkWeb(context.Background(), Input{Config: Config{WebURL: portal.URL + "/portal", TrustedCert: fpB}}); c.Status != model.HealthOK {
+		t.Fatalf("second address trusted: %+v", c)
+	}
+}
+
+// An http address that moves to https on the same server: the trusted
+// certificate was for the https address, so a new certificate there is a
+// changed certificate even though the URL itself is http.
+func TestWebRedirectToChangedHTTPSCert(t *testing.T) {
+	cert := selfSigned(t, "intranet", time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	tsrv := tlsServer(t, &cert)
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, tsrv.URL+"/portal", http.StatusMovedPermanently)
+	}))
+	defer plain.Close()
+	r := newTestRunner(fakePinger{}, fakeResolver{}, "")
+	r.roots = x509.NewCertPool()
+	c := r.checkWeb(context.Background(), Input{Config: Config{WebURL: plain.URL + "/", TrustedCert: strings.Repeat("0", 64)}})
+	if c.Status != model.HealthFail || !strings.HasPrefix(c.Detail, "the certificate changed since you trusted it") ||
+		c.Data["certSHA256"] != Fingerprint(tsrv.Certificate()) {
+		t.Fatalf("changed after upgrade: %+v", c)
 	}
 }
 
