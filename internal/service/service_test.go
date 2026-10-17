@@ -5,12 +5,14 @@ import (
 	"errors"
 	"io"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 
 	"netdiag/internal/arp"
 	"netdiag/internal/health"
 	"netdiag/internal/model"
+	"netdiag/internal/netinfo"
 	"netdiag/internal/scan"
 	"netdiag/internal/snmpprobe"
 	"netdiag/internal/store"
@@ -164,6 +166,70 @@ func TestLatestHealth(t *testing.T) {
 	if h, ok := s.LatestHealth(); !ok || h.CheckedAt != "2026-02-02T00:00:00Z" {
 		t.Fatalf("listed precedence: %+v %v", h, ok)
 	}
+}
+
+// recordHealth records the input of every on-demand health run.
+type recordHealth struct {
+	mu sync.Mutex
+	in []health.Input
+}
+
+func (r *recordHealth) Run(_ context.Context, in health.Input) model.HealthReport {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.in = append(r.in, in)
+	return model.HealthReport{CheckedAt: "now"}
+}
+
+func (r *recordHealth) last() health.Input {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.in[len(r.in)-1]
+}
+
+// RunHealth without an interface checks the network of the scan on screen,
+// else the default interface; never simply the first one listed.
+func TestRunHealthTarget(t *testing.T) {
+	deps := scan.Deps{
+		Pinger: fakePinger{}, ARP: fakeARP{}, Ports: fakePorts{}, Web: fakeWeb{},
+		SNMP: fakeSNMP{}, DNS: fakeDNS{}, Vendors: fakeVendors{}, Env: fakeEnv{},
+	}
+	rec := &recordHealth{}
+	ifaces := []netinfo.Iface{
+		{Name: "vpn0", IP: "172.16.0.5"},
+		{Name: "wlan0", IP: "192.168.1.20", IsDefault: true},
+		{Name: "eth0", IP: "10.0.0.30"},
+	}
+	var ifErr error
+	s := New(Config{Registry: scan.NewRegistry(scan.New(deps)), Health: rec, BaseCtx: context.Background(),
+		Interfaces: func() ([]netinfo.Iface, error) { return ifaces, ifErr },
+		Gateway:    func() (string, error) { return "192.168.1.1", nil }})
+	check := func(name, iface string, want health.Input) {
+		t.Helper()
+		s.RunHealth(context.Background(), iface)
+		if got := rec.last(); got.Iface != want.Iface || got.IfaceIP != want.IfaceIP || got.Gateway != want.Gateway {
+			t.Errorf("%s: got %s %s gw %s, want %s %s gw %s", name, got.Iface, got.IfaceIP, got.Gateway, want.Iface, want.IfaceIP, want.Gateway)
+		}
+	}
+	def := health.Input{Iface: "wlan0", IfaceIP: "192.168.1.20", Gateway: "192.168.1.1"}
+	check("no scan: default interface", "", def)
+	check("named interface", "eth0", health.Input{Iface: "eth0", IfaceIP: "10.0.0.30", Gateway: "192.168.1.1"})
+	check("unknown name: default interface", "nope", def)
+
+	runScan(t, s) // fakeEnv: eth0 10.0.0.30, gateway 10.0.0.1
+	fromScan := health.Input{Iface: "eth0", IfaceIP: "10.0.0.30", Gateway: "10.0.0.1"}
+	check("latest scan", "", fromScan)
+	check("latest scan, named", "eth0", fromScan)
+	check("another interface named", "wlan0", def)
+	ifErr = errors.New("cannot list")
+	check("interfaces unreadable", "", fromScan)
+	ifErr = nil
+
+	// The scan's interface now has another address: another network.
+	ifaces[2].IP = "10.9.9.9"
+	check("moved network", "", def)
+	ifaces = ifaces[:2]
+	check("scan interface gone", "", def)
 }
 
 func TestSettings(t *testing.T) {
