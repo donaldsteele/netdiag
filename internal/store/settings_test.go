@@ -314,6 +314,24 @@ func TestDataFiles(t *testing.T) {
 	if _, err := s.ReadFile(FileOpenProblems); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("quarantined file still there: %v", err)
 	}
+	// RemoveQuarantined deletes only the named file's quarantined copies.
+	os.WriteFile(filepath.Join(s.Dir(), FileOpenProblems+".bad-20261017T000000Z"), []byte("x"), 0o600)
+	os.WriteFile(filepath.Join(s.Dir(), FileBubbles+".bad-20261017T000000Z"), []byte("x"), 0o600)
+	if err := s.RemoveQuarantined(FileOpenProblems); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(s.Dir(), FileOpenProblems+".bad-*")); len(left) != 0 {
+		t.Fatalf("quarantined copies left: %v", left)
+	}
+	if _, err := os.Stat(filepath.Join(s.Dir(), FileBubbles+".bad-20261017T000000Z")); err != nil {
+		t.Fatalf("another file's quarantined copy was removed: %v", err)
+	}
+	if _, err := s.ReadFile(FileBubbles); err != nil {
+		t.Fatalf("the data file itself was removed: %v", err)
+	}
+	if err := s.RemoveQuarantined(FileOpenProblems); err != nil {
+		t.Fatalf("nothing to remove: %v", err)
+	}
 	if err := s.RemoveFile(FileBubbles); err != nil {
 		t.Fatal(err)
 	}
@@ -338,6 +356,9 @@ func TestDataFiles(t *testing.T) {
 		}
 		if _, err := s.QuarantineFile(n); !errors.Is(err, ErrFileName) {
 			t.Errorf("quarantine %q: %v", n, err)
+		}
+		if err := s.RemoveQuarantined(n); !errors.Is(err, ErrFileName) {
+			t.Errorf("remove quarantined %q: %v", n, err)
 		}
 	}
 	if b, _ := os.ReadFile(filepath.Join(s.Dir(), "outside.json")); string(b) != "x" {

@@ -101,6 +101,29 @@ func (s *Store) QuarantineFile(name string) (string, error) {
 	return bad, nil
 }
 
+// RemoveQuarantined deletes every copy QuarantineFile set aside for the
+// named data file (<name>.bad-*), for an owner that must forget what the
+// file held: team chat's Disconnect forgets the token.
+func (s *Store) RemoveQuarantined(name string) error {
+	if err := dataFile(name); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.Type().IsRegular() && strings.HasPrefix(e.Name(), name+".bad-") {
+			if err := os.Remove(filepath.Join(s.dir, e.Name())); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // ResolveDir returns baseDir, else $NETDIAG_DATA_DIR, else UserConfigDir/netdiag.
 func ResolveDir(baseDir string) (string, error) {
 	if baseDir != "" {
