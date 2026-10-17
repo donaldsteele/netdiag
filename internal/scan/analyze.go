@@ -91,9 +91,9 @@ func (s *state) observeMACs(seen map[string]string) {
 	}
 }
 
-// analyze queues a conflict analysis.
+// analyze queues a conflict analysis (once per cycle, after its evidence).
 func (s *state) analyze() {
-	s.ops <- s.analyzeOp
+	s.ops <- func(hosts map[string]*model.Host) { s.analyzeOp(hosts, true) }
 }
 
 // applySettings updates the alert config and ignore list, then re-analyzes.
@@ -106,14 +106,16 @@ func (s *state) applySettings(set model.Settings) bool {
 			s.notify.SetConfig(cfg)
 		}
 		s.ignored = ign
-		s.analyzeOp(hosts)
+		s.analyzeOp(hosts, false)
 	})
 }
 
 // analyzeOp runs the pure conflict analyzer over the current hosts and MAC
 // observations, publishes conflict events for new and resolved conflicts,
-// feeds the result to the notify engine and updates Host.Conflicts.
-func (s *state) analyzeOp(hosts map[string]*model.Host) {
+// feeds the result to the notify engine and updates Host.Conflicts. cycle is
+// false for the re-analysis after a settings save: it has no new evidence,
+// so it does not count toward a conflict's OK (notify.ObserveConflicts).
+func (s *state) analyzeOp(hosts map[string]*model.Host, cycle bool) {
 	now := s.now()
 	list := analysisHosts(hostList(hosts))
 	cur := conflict.Analyze(list, s.obs, s.gateway, s.self.IP, s.ignored, now)
@@ -169,7 +171,7 @@ func (s *state) analyzeOp(hosts map[string]*model.Host) {
 	s.mirror()
 	if s.notify != nil {
 		// Once per analysis: new conflicts are reported, and a conflict
-		// gone from two analyses in a row gets its OK notice.
-		s.addNotices(s.notify.ObserveConflicts(cur))
+		// gone from two cycle analyses in a row gets its OK notice.
+		s.addNotices(s.notify.ObserveConflicts(cur, cycle))
 	}
 }

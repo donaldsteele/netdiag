@@ -662,9 +662,9 @@ func TestApplySettingsIgnoresMACAndResolvesConflict(t *testing.T) {
 	if snap := s.Snapshot(); len(snap.Conflicts) != 0 {
 		t.Fatalf("conflicts after ignore = %+v", snap.Conflicts)
 	}
-	// Gone from two analyses in a row (the ignore and the next cycle): the
-	// conflict's problem closes under its anchor key.
-	waitLive(t, ch, func(st model.LiveStatus) bool { return st.Cycle >= 2 })
+	// Gone from two cycle analyses in a row (the re-analysis after the save
+	// does not count): the conflict's problem closes under its anchor key.
+	waitLive(t, ch, func(st model.LiveStatus) bool { return st.Cycle >= 4 })
 	s.Cancel()
 	res := s.Wait()
 	n := notices(res, model.TriggerIPConflict)
@@ -673,6 +673,38 @@ func TestApplySettingsIgnoresMACAndResolvesConflict(t *testing.T) {
 	}
 	if s.ApplySettings(set) {
 		t.Fatal("apply accepted after finish")
+	}
+}
+
+// A settings save re-analyzes the same evidence. However many saves there
+// are, they do not count as cycles without the conflict, so none of them
+// closes it (v0.6-D18: two cycles).
+func TestSettingsSavesDoNotCloseConflict(t *testing.T) {
+	d := presenceDeps()
+	shared := "00:11:22:33:44:EE"
+	d.ARP = fakeARP{{IP: "10.0.0.5", MAC: shared}, {IP: "10.0.0.6", MAC: shared}}
+	d.LiveInterval = time.Hour // no cycle runs during the test
+	s, err := New(d).Start(context.Background(), model.ScanRequest{CIDR: "10.0.0.0/28", Live: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, unsub := s.Subscribe()
+	defer unsub()
+	waitLive(t, ch, func(model.LiveStatus) bool { return true })
+	set := store.DefaultSettings()
+	set.IgnoredConflictMACs = []string{shared}
+	for i := 0; i < 3; i++ {
+		if !s.ApplySettings(set) {
+			t.Fatal("apply refused on running scan")
+		}
+	}
+	s.Cancel()
+	res := s.Wait()
+	if len(res.Conflicts) != 0 {
+		t.Fatalf("conflicts after ignore = %+v", res.Conflicts)
+	}
+	if n := notices(res, model.TriggerIPConflict); len(n) != 1 || n[0].OK {
+		t.Fatalf("conflict notices = %+v", n)
 	}
 }
 

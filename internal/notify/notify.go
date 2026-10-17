@@ -8,6 +8,7 @@ package notify
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -23,12 +24,13 @@ const DefaultCooldown = 300 * time.Second
 const DefaultSupplyThresholdPct = 15
 
 // Debounce counts (v0.6-D18). A health check is reported after it failed
-// HealthFailRuns runs in a row and fixed after it did not fail HealthOKRuns
-// runs in a row. An offline device is fixed after OnlineOKChecks successful
-// presence checks in a row (OfflineAfterMisses missed checks took it
-// offline), and a conflict after it was absent from ConflictOKRuns analyses
-// in a row. A printer alert closes as soon as the printer stops reporting it:
-// the printer is authoritative.
+// HealthFailRuns runs in a row and fixed after it passed HealthOKRuns runs
+// in a row (a run that could not check, "unavailable", counts neither way).
+// An offline device is fixed after OnlineOKChecks successful presence checks
+// in a row (OfflineAfterMisses missed checks took it offline), and a
+// conflict after it was absent from ConflictOKRuns cycle analyses in a row.
+// A printer alert closes as soon as the printer stops reporting it: the
+// printer is authoritative.
 const (
 	HealthFailRuns = 2
 	HealthOKRuns   = 2
@@ -76,9 +78,12 @@ type OpenFault struct {
 // fault is an open problem plus its progress toward the OK notice.
 type fault struct {
 	OpenFault
-	detail string // what the OK message names (a printer alert's description)
+	detail string // what the OK message names (a printer alert's or supply's description)
 	seen   string // offline: the host's LastSeen when last observed
 	good   int    // good observations in a row
+	// folded holds the printer's general alerts (see general) that came
+	// with this printer alert, by alertID: they are part of this problem.
+	folded map[string]bool
 }
 
 // Engine produces Notices from transitions.
@@ -96,6 +101,8 @@ type Engine struct {
 	open map[string]*fault
 	// bad counts each health check's failed runs in a row (by check id).
 	bad map[string]int
+	// at is the MAC each IP was last observed with (see belongs).
+	at map[string]string
 	// held is the storm guard (SetHold).
 	held bool
 }
@@ -106,7 +113,7 @@ func New(cfg Config, clock func() time.Time) *Engine {
 		clock = time.Now
 	}
 	return &Engine{cfg: cfg, now: clock, last: map[string]time.Time{},
-		open: map[string]*fault{}, bad: map[string]int{}}
+		open: map[string]*fault{}, bad: map[string]int{}, at: map[string]string{}}
 }
 
 // SetConfig replaces the config (dedupe history and open problems are kept).
@@ -119,10 +126,15 @@ func (e *Engine) SetConfig(cfg Config) {
 // SetHold turns the storm guard's hold on or off. While it is on, new
 // presence and health faults are dropped and leave no trace (no open
 // problem, no cooldown, no failed run counted), so this computer losing the
-// network does not report every device offline. OK notices still go out.
+// network does not report every device offline. Turning it on also forgets
+// the failed runs counted before it, so after the hold a check needs its
+// full HealthFailRuns again. OK notices still go out.
 func (e *Engine) SetHold(on bool) {
 	e.mu.Lock()
 	e.held = on
+	if on {
+		clear(e.bad)
+	}
 	e.mu.Unlock()
 }
 
@@ -209,13 +221,36 @@ func (e *Engine) prune(now time.Time) {
 	}
 }
 
-// openFor returns the open problem of one of triggers on h with key part
-// part, under its MAC key or the IP key it may have opened under before the
-// MAC was known (nil when there is none).
+// belongs reports whether the open problem f, found under one of h's keys,
+// is h's. Several devices can answer with one MAC (a range extender or mesh
+// node proxy-ARPs for the devices behind it), so a problem is h's when it
+// opened at h's IP, or when its device moved to h's IP: another MAC answers
+// at its old IP now.
+func (e *Engine) belongs(f *fault, h model.Host) bool {
+	if f.IP == h.IP {
+		return true
+	}
+	m, ok := e.at[f.IP]
+	return ok && m != f.MAC
+}
+
+// hostKey is the key a new problem of trigger on h opens under: Key, or h's
+// IP key while another device behind the same MAC has Key open.
+func (e *Engine) hostKey(trigger string, h model.Host, part string) string {
+	k := Key(trigger, h, part)
+	if f := e.open[k]; f != nil && !e.belongs(f, h) {
+		return keyFor(trigger, "ip:"+h.IP, part)
+	}
+	return k
+}
+
+// openFor returns h's open problem of one of triggers with key part part,
+// under its MAC key or under the IP key it opened under while the MAC was
+// unknown or taken (see hostKey); nil when there is none.
 func (e *Engine) openFor(h model.Host, part string, triggers ...string) *fault {
 	for _, t := range triggers {
 		for _, id := range hostIDs(h) {
-			if f := e.open[keyFor(t, id, part)]; f != nil {
+			if f := e.open[keyFor(t, id, part)]; f != nil && e.belongs(f, h) {
 				return f
 			}
 		}
@@ -239,6 +274,21 @@ func (e *Engine) openOf(trigger string, prefixes ...string) []*fault {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
+}
+
+// hostOpen returns h's open problems of trigger, sorted by key.
+func (e *Engine) hostOpen(trigger string, h model.Host) []*fault {
+	var prefixes []string
+	for _, id := range hostIDs(h) {
+		prefixes = append(prefixes, trigger+"|"+id+"|")
+	}
+	var out []*fault
+	for _, f := range e.openOf(trigger, prefixes...) {
+		if e.belongs(f, h) {
+			out = append(out, f)
+		}
+	}
 	return out
 }
 
@@ -269,10 +319,10 @@ func bestName(h model.Host) string {
 }
 
 // hostNotice is a fault notice about h; emit fills in its id and time.
-func hostNotice(trigger string, h model.Host, part string, ctx sevCtx, title, msg string) model.Notice {
+func (e *Engine) hostNotice(trigger string, h model.Host, part string, ctx sevCtx, title, msg string) model.Notice {
 	return model.Notice{Trigger: trigger, Severity: severityFor(trigger, ctx), IP: h.IP,
-		MAC: strings.ToUpper(h.MAC), Name: bestName(h), Title: title, Message: msg,
-		Key: Key(trigger, h, part)}
+		MAC: macOf(h), Name: bestName(h), Title: title, Message: msg,
+		Key: e.hostKey(trigger, h, part)}
 }
 
 // Observe compares a host's previous and current state. A zero prev (empty IP)
@@ -282,10 +332,13 @@ func (e *Engine) Observe(prev, cur model.Host) []model.Notice {
 	defer e.mu.Unlock()
 	var out []model.Notice
 	l := label(cur)
+	if m := macOf(cur); m != "" {
+		e.at[cur.IP] = m
+	}
 
 	if prev.IP == "" {
 		if cur.IsNew {
-			out = e.emit(out, hostNotice(model.TriggerNewDevice, cur, "", sevCtx{}, "New device",
+			out = e.emit(out, e.hostNotice(model.TriggerNewDevice, cur, devicePart(cur), sevCtx{}, "New device",
 				fmt.Sprintf("%s appeared on the network.", l)), "")
 		}
 		return out
@@ -307,10 +360,10 @@ func (e *Engine) presence(out []model.Notice, prev, cur model.Host, l string) []
 	offline := []string{model.TriggerPrinterOffline, model.TriggerDeviceOffline}
 	if prev.Online && !cur.Online && e.openFor(cur, "", offline...) == nil {
 		if cur.IsPrinter {
-			out = e.emit(out, hostNotice(model.TriggerPrinterOffline, cur, "", sevCtx{}, "Printer offline",
+			out = e.emit(out, e.hostNotice(model.TriggerPrinterOffline, cur, "", sevCtx{}, "Printer offline",
 				fmt.Sprintf("Printer %s stopped responding.", l)), "")
 		} else {
-			out = e.emit(out, hostNotice(model.TriggerDeviceOffline, cur, "", sevCtx{}, "Device offline",
+			out = e.emit(out, e.hostNotice(model.TriggerDeviceOffline, cur, "", sevCtx{}, "Device offline",
 				fmt.Sprintf("%s stopped responding.", l)), "")
 		}
 	}
@@ -334,62 +387,133 @@ func (e *Engine) presence(out []model.Notice, prev, cur model.Host, l string) []
 }
 
 // supplies reports a supply crossing down to the threshold and closes that
-// problem once the supply is more than SupplyHysteresisPct above it.
+// problem once the supply is more than SupplyHysteresisPct above it (or at
+// 100%, for a threshold that leaves no room), once it reports some left
+// without a level (a new cartridge that only says "ok"), or once a printer
+// that still lists its supplies no longer lists it (a cartridge swapped for
+// another kind). A poll that lists no supplies says nothing about them.
 func (e *Engine) supplies(out []model.Notice, pp *model.PrinterInfo, cur model.Host, l string) []model.Notice {
 	thr := e.cfg.SupplyThresholdPct
-	for _, cs := range cur.Printer.Supplies {
-		part := supplyPart(cs.Description)
+	okAt := min(thr+SupplyHysteresisPct+1, 100)
+	before := map[string]model.Supply{}
+	if pp != nil {
+		for i, part := range supplyParts(pp.Supplies) {
+			before[part] = pp.Supplies[i]
+		}
+	}
+	listed := map[string]bool{} // keys of the supplies the printer lists now
+	for i, part := range supplyParts(cur.Printer.Supplies) {
+		cs := cur.Printer.Supplies[i]
+		for _, id := range hostIDs(cur) {
+			listed[keyFor(model.TriggerSupplyLow, id, part)] = true
+		}
 		if f := e.openFor(cur, part, model.TriggerSupplyLow); f != nil {
-			if cs.Percent > thr+SupplyHysteresisPct {
+			switch {
+			case cs.Percent >= okAt:
 				out = e.emitOK(out, f, "Supply OK again",
 					fmt.Sprintf("%s: %s at %d%%.", l, cs.Description, cs.Percent))
+			case cs.Percent < 0 && cs.State == "ok":
+				out = e.emitOK(out, f, "Supply OK again",
+					fmt.Sprintf("%s: %s is no longer low.", l, cs.Description))
 			}
 			continue
 		}
-		if pp == nil {
+		ps, ok := before[part]
+		if ok && ps.Percent >= 0 && cs.Percent >= 0 && ps.Percent > thr && cs.Percent <= thr {
+			out = e.emit(out, e.hostNotice(model.TriggerSupplyLow, cur, part, sevCtx{}, "Supply low",
+				fmt.Sprintf("%s: %s at %d%% (threshold %d%%).", l, cs.Description, cs.Percent, thr)), cs.Description)
+		}
+	}
+	if len(cur.Printer.Supplies) == 0 {
+		return out
+	}
+	for _, f := range e.hostOpen(model.TriggerSupplyLow, cur) {
+		if listed[f.Key] {
 			continue
 		}
-		for _, ps := range pp.Supplies {
-			if ps.Description != cs.Description {
-				continue
-			}
-			if ps.Percent >= 0 && cs.Percent >= 0 && ps.Percent > thr && cs.Percent <= thr {
-				out = e.emit(out, hostNotice(model.TriggerSupplyLow, cur, part, sevCtx{}, "Supply low",
-					fmt.Sprintf("%s: %s at %d%% (threshold %d%%).", l, cs.Description, cs.Percent, thr)), "")
-			}
-			break
+		msg := fmt.Sprintf("%s no longer reports the low supply.", l)
+		if f.detail != "" {
+			msg = fmt.Sprintf("%s no longer reports %s.", l, f.detail)
 		}
+		out = e.emitOK(out, f, "Supply OK again", msg)
 	}
 	return out
 }
 
+// general reports whether a is a printer's general "offline or paused"
+// alert. A printer that stops for a specific reason (a cover open, a paper
+// jam) raises it too, so next to such an error it is part of that problem,
+// not one of its own (v0.6-D22): opening a Zebra's cover is one alert.
+func general(a model.Alert) bool {
+	switch a.Code {
+	case "hrPrinterDetectedErrorState.offline", "paused":
+		return true
+	}
+	return false
+}
+
+// stops reports whether a is a specific error that stops the printer.
+func stops(a model.Alert) bool {
+	return !general(a) && (a.Severity == "critical" || a.Severity == "error")
+}
+
+func alertID(a model.Alert) string { return a.Code + "|" + a.Description }
+
 // printerAlerts reports each alert the printer newly raises under its own key
-// and closes each one as soon as the printer stops reporting it.
+// and closes each one as soon as the printer stops reporting it. A general
+// alert (see general) that comes with a specific error is not reported: the
+// specific error's problem takes it in and stays open until both are gone,
+// since a Zebra clears its cover alert a moment before its offline flag.
 func (e *Engine) printerAlerts(out []model.Notice, pp *model.PrinterInfo, cur model.Host, l string) []model.Notice {
 	was := map[string]bool{}
 	if pp != nil {
 		for _, a := range pp.Alerts {
-			was[a.Code+"|"+a.Description] = true
+			was[alertID(a)] = true
 		}
 	}
-	now := map[string]bool{} // keys of the alerts the printer reports now
-	for _, a := range cur.Printer.Alerts {
-		part := alertPart(a)
-		for _, id := range hostIDs(cur) {
-			now[keyFor(model.TriggerPrinterAlert, id, part)] = true
+	alerts := cur.Printer.Alerts
+	stopped := slices.ContainsFunc(alerts, stops)
+	folded := map[string]bool{} // general alerts an open problem took in
+	for _, f := range e.hostOpen(model.TriggerPrinterAlert, cur) {
+		for id := range f.folded {
+			folded[id] = true
 		}
-		if was[a.Code+"|"+a.Description] || e.openFor(cur, part, model.TriggerPrinterAlert) != nil {
+	}
+	for _, a := range alerts {
+		part := alertPart(a)
+		if was[alertID(a)] || e.openFor(cur, part, model.TriggerPrinterAlert) != nil {
 			continue
 		}
-		out = e.emit(out, hostNotice(model.TriggerPrinterAlert, cur, part, sevCtx{printer: a.Severity},
+		if general(a) && (stopped || folded[alertID(a)]) {
+			continue
+		}
+		out = e.emit(out, e.hostNotice(model.TriggerPrinterAlert, cur, part, sevCtx{printer: a.Severity},
 			"Printer alert", fmt.Sprintf("%s: %s", l, a.Description)), a.Description)
 	}
-	var prefixes []string
-	for _, id := range hostIDs(cur) {
-		prefixes = append(prefixes, model.TriggerPrinterAlert+"|"+id+"|")
+	// The open problem of each specific error the printer reports takes in
+	// the general alerts that have no problem of their own.
+	reported := map[string]bool{}
+	for _, a := range alerts {
+		f := e.openFor(cur, alertPart(a), model.TriggerPrinterAlert)
+		if f == nil {
+			continue
+		}
+		reported[f.Key] = true
+		if !stops(a) {
+			continue
+		}
+		for _, g := range alerts {
+			if general(g) && e.openFor(cur, alertPart(g), model.TriggerPrinterAlert) == nil {
+				if f.folded == nil {
+					f.folded = map[string]bool{}
+				}
+				f.folded[alertID(g)] = true
+			}
+		}
 	}
-	for _, f := range e.openOf(model.TriggerPrinterAlert, prefixes...) {
-		if now[f.Key] {
+	for _, f := range e.hostOpen(model.TriggerPrinterAlert, cur) {
+		lingers := !stopped && slices.ContainsFunc(alerts, func(a model.Alert) bool { return f.folded[alertID(a)] })
+		if reported[f.Key] || lingers {
 			continue
 		}
 		msg := fmt.Sprintf("%s: the printer alert is cleared.", l)
@@ -403,9 +527,12 @@ func (e *Engine) printerAlerts(out []model.Notice, pp *model.PrinterInfo, cur mo
 
 // ObserveConflicts takes the conflicts of one analysis. A conflict whose key
 // (ConflictKey) is not open is reported; an open one closes after its key was
-// absent from ConflictOKRuns analyses in a row. A conflict whose id changed
-// under the same key is the same problem: no OK and no new notice.
-func (e *Engine) ObserveConflicts(cur []model.Conflict) []model.Notice {
+// absent from ConflictOKRuns cycle analyses in a row. cycle is false for a
+// second look at the same evidence (the analysis after a settings save): it
+// reports conflicts but counts nothing toward an OK, so saving a setting
+// cannot close a conflict early. A conflict whose id changed under the same
+// key is the same problem: no OK and no new notice.
+func (e *Engine) ObserveConflicts(cur []model.Conflict, cycle bool) []model.Notice {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	var out []model.Notice
@@ -427,6 +554,9 @@ func (e *Engine) ObserveConflicts(cur []model.Conflict) []model.Notice {
 		out = e.emit(out, model.Notice{Trigger: model.TriggerIPConflict, Severity: severityFor(model.TriggerIPConflict, ctx),
 			IP: first(c.IPs), MAC: mac, Name: c.Name, Title: "Network conflict", Message: c.Detail, Key: k}, "")
 	}
+	if !cycle {
+		return out
+	}
 	for _, f := range e.openOf(model.TriggerIPConflict, model.TriggerIPConflict+"|") {
 		if present[f.Key] {
 			continue
@@ -445,8 +575,11 @@ func (e *Engine) ObserveConflicts(cur []model.Conflict) []model.Notice {
 
 // ObserveHealth takes one health report. A check is reported after it failed
 // HealthFailRuns runs in a row, so one bad run never reaches anyone and a
-// one-shot scan never raises one, and closed after it did not fail
-// HealthOKRuns runs in a row. Checks missing from rep keep their state.
+// one-shot scan never raises one, and closed after it passed (ok, warn or
+// info) HealthOKRuns runs in a row. A run that could not check
+// ("unavailable": no gateway known, a local error, a timeout) says nothing
+// either way and leaves both counts as they are, as do checks missing from
+// rep.
 func (e *Engine) ObserveHealth(rep model.HealthReport) []model.Notice {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -458,7 +591,10 @@ func (e *Engine) ObserveHealth(rep model.HealthReport) []model.Notice {
 		}
 		key := HealthKey(c.ID)
 		f := e.open[key]
-		if c.Status == model.HealthFail {
+		switch c.Status {
+		case model.HealthUnavailable:
+			continue
+		case model.HealthFail:
 			switch {
 			case f != nil:
 				f.good = 0

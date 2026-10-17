@@ -2,6 +2,8 @@ package notify
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -299,6 +301,188 @@ func TestSupplyHysteresis(t *testing.T) {
 	}
 }
 
+// supplied is the test printer with these supplies.
+func supplied(ss ...model.Supply) model.Host {
+	h := printer(true, 0)
+	h.Printer.Supplies = ss
+	return h
+}
+
+// A low supply also closes when it can no longer be fixed by its level: a
+// threshold near 100, a new cartridge that only says some is left, a
+// cartridge swapped for another kind. A poll without supplies closes nothing.
+func TestSupplyOtherWaysOut(t *testing.T) {
+	black := func(pct int, state string) model.Supply {
+		return model.Supply{Description: "Black", Percent: pct, State: state}
+	}
+	lowBlack := func(e *Engine) {
+		t.Helper()
+		if n := e.Observe(supplied(black(97, "ok")), supplied(black(10, "low"))); len(n) != 1 || n[0].OK {
+			t.Fatalf("fault: %v", n)
+		}
+	}
+	t.Run("high threshold", func(t *testing.T) {
+		e, _ := newEng()
+		cfg := DefaultConfig()
+		cfg.SupplyThresholdPct = 96
+		e.SetConfig(cfg)
+		lowBlack(e)
+		if n := e.Observe(supplied(black(10, "low")), supplied(black(99, "ok"))); len(n) != 0 {
+			t.Fatalf("99: %v", n)
+		}
+		if n := e.Observe(supplied(black(99, "ok")), supplied(black(100, "ok"))); len(n) != 1 || !n[0].OK {
+			t.Fatalf("100: %v", n)
+		}
+	})
+	t.Run("some remaining", func(t *testing.T) {
+		e, _ := newEng()
+		lowBlack(e)
+		if n := e.Observe(supplied(black(10, "low")), supplied(black(-1, "unknown"))); len(n) != 0 {
+			t.Fatalf("unknown level: %v", n)
+		}
+		n := e.Observe(supplied(black(-1, "unknown")), supplied(black(-1, "ok")))
+		if len(n) != 1 || !n[0].OK || !strings.HasSuffix(n[0].Message, "Black is no longer low.") {
+			t.Fatalf("some remaining: %v", n)
+		}
+	})
+	t.Run("swapped", func(t *testing.T) {
+		e, _ := newEng()
+		lowBlack(e)
+		if n := e.Observe(supplied(black(10, "low")), supplied()); len(n) != 0 {
+			t.Fatalf("no supplies listed: %v", n)
+		}
+		xl := model.Supply{Description: "Black XL", Percent: 100, State: "ok"}
+		n := e.Observe(supplied(black(10, "low")), supplied(xl))
+		if len(n) != 1 || !n[0].OK || n[0].Message != "10.0.0.5 no longer reports Black." {
+			t.Fatalf("swapped: %v", n)
+		}
+	})
+}
+
+// Two supplies with the same description are two problems: one going low
+// is reported, and the other one's level does not close it.
+func TestSupplySameDescription(t *testing.T) {
+	e, _ := newEng()
+	toner := func(a, b int) model.Host {
+		return supplied(model.Supply{Description: "Toner", Percent: a}, model.Supply{Description: "Toner", Percent: b})
+	}
+	n := e.Observe(toner(50, 90), toner(10, 90))
+	if len(n) != 1 || n[0].OK || n[0].Key != "supplyLow|"+prMAC+"|"+shortHash("Toner") {
+		t.Fatalf("first low: %v", n)
+	}
+	if len(e.Open()) != 1 {
+		t.Fatalf("open: %v", e.Open())
+	}
+	n = e.Observe(toner(10, 90), toner(10, 8))
+	if len(n) != 1 || n[0].OK || n[0].Key != "supplyLow|"+prMAC+"|"+shortHash("Toner")+".2" {
+		t.Fatalf("second low: %v", n)
+	}
+	n = e.Observe(toner(10, 8), toner(10, 100))
+	if len(n) != 1 || !n[0].OK || n[0].Key != "supplyLow|"+prMAC+"|"+shortHash("Toner")+".2" {
+		t.Fatalf("second replaced: %v", n)
+	}
+}
+
+// Several devices can answer with one MAC (a range extender proxy-ARPs for
+// the devices behind it). Their problems stay apart: one device never fixes
+// another's problem, and each device's faults are reported.
+func TestSharedMAC(t *testing.T) {
+	const ext = "AA:BB:CC:DD:EE:01"
+	behind := func(ip string, isPrinter bool) model.Host {
+		h := model.Host{IP: ip, MAC: ext, IsPrinter: isPrinter, Online: true, LastSeen: "2026-01-01T00:00:00Z"}
+		if isPrinter {
+			h.Printer = &model.PrinterInfo{Supplies: []model.Supply{{Description: "Black", Percent: 50}}}
+		}
+		return h
+	}
+	t.Run("offline", func(t *testing.T) {
+		e, c := newEng()
+		a, b, phone := behind("10.0.0.5", true), behind("10.0.0.7", true), behind("10.0.0.9", false)
+		checks(e, c, &phone, true)
+		n := checks(e, c, &a, false, false)
+		if len(n) != 1 || n[0].Key != "printerOffline|"+ext+"|" || n[0].IP != "10.0.0.5" {
+			t.Fatalf("a offline: %v", n)
+		}
+		// The phone keeps answering: that fixes nothing.
+		if n := checks(e, c, &phone, true, true, true); len(n) != 0 {
+			t.Fatalf("phone answers: %v", n)
+		}
+		// b goes offline too: reported, under its IP key.
+		n = checks(e, c, &b, true, false, false)
+		if len(n) != 1 || n[0].Key != "printerOffline|ip:10.0.0.7|" || n[0].IP != "10.0.0.7" || n[0].MAC != ext {
+			t.Fatalf("b offline: %v", n)
+		}
+		// b comes back: b's OK only.
+		n = checks(e, c, &b, true, true)
+		if len(n) != 1 || !n[0].OK || n[0].Key != "printerOffline|ip:10.0.0.7|" {
+			t.Fatalf("b back: %v", n)
+		}
+		if got := e.Open(); len(got) != 1 || got[0].IP != "10.0.0.5" {
+			t.Fatalf("open: %v", got)
+		}
+		n = checks(e, c, &a, true, true)
+		if len(n) != 1 || !n[0].OK || n[0].Key != "printerOffline|"+ext+"|" {
+			t.Fatalf("a back: %v", n)
+		}
+	})
+	t.Run("printer alerts and supplies", func(t *testing.T) {
+		e, _ := newEng()
+		a, b := behind("10.0.0.5", true), behind("10.0.0.7", true)
+		e.Observe(model.Host{}, b)
+		a2 := a
+		a2.Printer = &model.PrinterInfo{Supplies: []model.Supply{{Description: "Black", Percent: 10}}, Alerts: []model.Alert{door}}
+		if n := e.Observe(a, a2); len(n) != 2 {
+			t.Fatalf("a: %v", n)
+		}
+		// b reports no alert and a full supply: a's problems stay open.
+		if n := e.Observe(b, b); len(n) != 0 || len(e.Open()) != 2 {
+			t.Fatalf("b: %v open %v", n, e.Open())
+		}
+		// b's own low supply and door are reported.
+		b2 := b
+		b2.Printer = &model.PrinterInfo{Supplies: []model.Supply{{Description: "Black", Percent: 5}}, Alerts: []model.Alert{door}}
+		n := e.Observe(b, b2)
+		if len(n) != 2 || n[0].IP != "10.0.0.7" || !strings.HasPrefix(n[0].Key, "supplyLow|ip:10.0.0.7|") ||
+			!strings.HasPrefix(n[1].Key, "printerAlert|ip:10.0.0.7|") {
+			t.Fatalf("b faults: %v", n)
+		}
+		if n := e.Observe(a2, a); len(n) != 2 || !n[0].OK || n[0].IP != "10.0.0.5" || !n[1].OK || n[1].IP != "10.0.0.5" {
+			t.Fatalf("a fixed: %v", n)
+		}
+		if got := e.Open(); len(got) != 2 || got[0].IP != "10.0.0.7" || got[1].IP != "10.0.0.7" {
+			t.Fatalf("open: %v", got)
+		}
+	})
+	t.Run("new devices", func(t *testing.T) {
+		e, _ := newEng()
+		for _, ip := range []string{"10.0.0.20", "10.0.0.21"} {
+			h := behind(ip, false)
+			h.IsNew = true
+			n := e.Observe(model.Host{}, h)
+			if len(n) != 1 || n[0].Key != "newDevice|"+ext+"|"+ip {
+				t.Fatalf("%s: %v", ip, n)
+			}
+		}
+	})
+	t.Run("moved", func(t *testing.T) {
+		// A device that moved to a new IP still closes its problem once
+		// another device answers at its old IP.
+		e, c := newEng()
+		a := behind("10.0.0.5", true)
+		checks(e, c, &a, false, false)
+		moved := behind("10.0.0.6", true)
+		if n := checks(e, c, &moved, true, true); len(n) != 0 {
+			t.Fatalf("old IP still its own: %v", n)
+		}
+		other := model.Host{IP: "10.0.0.5", MAC: "11:22:33:44:55:66", Online: true}
+		e.Observe(model.Host{}, other)
+		n := checks(e, c, &moved, true, true)
+		if len(n) != 1 || !n[0].OK || n[0].Key != "printerOffline|"+ext+"|" {
+			t.Fatalf("moved: %v", n)
+		}
+	})
+}
+
 func TestPrinterAlertNewOnly(t *testing.T) {
 	e, _ := newEng()
 	a := model.Alert{Severity: "critical", Code: "3", Description: "Paper jam"}
@@ -340,28 +524,97 @@ func TestPrinterAlertClearedAndRelapse(t *testing.T) {
 	}
 }
 
-// A real Zebra ZD621 clears its alerts one at a time when the cover closes:
-// the door alert goes first, then offline. Each alert closes with its own OK.
+var (
+	door = model.Alert{Severity: "critical", Code: "hrPrinterDetectedErrorState.doorOpen", Description: "Door or cover open"}
+	off  = model.Alert{Severity: "critical", Code: "hrPrinterDetectedErrorState.offline", Description: "Printer offline or paused"}
+	jam  = model.Alert{Severity: "critical", Code: "hrPrinterDetectedErrorState.jammed", Description: "Paper jam"}
+	low  = model.Alert{Severity: "warning", Code: "hrPrinterDetectedErrorState.lowPaper", Description: "Paper low"}
+)
+
+// observeAlerts feeds a printer its alert lists one poll at a time and
+// returns the notices of each poll.
+func observeAlerts(e *Engine, c *clk, polls ...[]model.Alert) [][]model.Notice {
+	var out [][]model.Notice
+	prev := printer(true, 50)
+	for _, as := range polls {
+		c.t = c.t.Add(5 * time.Second)
+		cur := printer(true, 50, as...)
+		out = append(out, e.Observe(prev, cur))
+		prev = cur
+	}
+	return out
+}
+
+// Acceptance (exit criteria 12.1): a real Zebra ZD621 reports "Door or cover
+// open" and "Printer offline or paused" when its cover opens, and clears the
+// door alert a moment before the offline flag when it closes. That is one
+// problem: one alert, and one OK under the same key once both are gone
+// (v0.6-D22).
 func TestPrinterAlertsClearedInSteps(t *testing.T) {
 	e, c := newEng()
-	door := model.Alert{Severity: "critical", Code: "hrPrinterDetectedErrorState.doorOpen", Description: "Door or cover open"}
-	off := model.Alert{Severity: "critical", Code: "hrPrinterDetectedErrorState.offline", Description: "Printer offline or paused"}
-	raised := e.Observe(printer(true, 50), printer(true, 50, door, off))
-	if len(raised) != 2 || raised[0].Key == raised[1].Key {
-		t.Fatalf("raise: %v", raised)
+	n := observeAlerts(e, c, []model.Alert{door, off}, []model.Alert{off}, nil)
+	if len(n[0]) != 1 || n[0][0].OK || n[0][0].Message != "10.0.0.5: Door or cover open" || n[0][0].Severity != "critical" {
+		t.Fatalf("raise: %v", n[0])
 	}
-	c.t = c.t.Add(20 * time.Second)
-	n := e.Observe(printer(true, 50, door, off), printer(true, 50, off))
-	if len(n) != 1 || !n[0].OK || n[0].Key != raised[0].Key || !strings.HasSuffix(n[0].Message, "cleared Door or cover open.") {
-		t.Fatalf("door cleared: %v", n)
+	if len(n[1]) != 0 {
+		t.Fatalf("door cleared, still paused: %v", n[1])
 	}
-	c.t = c.t.Add(20 * time.Second)
-	n = e.Observe(printer(true, 50, off), printer(true, 50))
-	if len(n) != 1 || !n[0].OK || n[0].Key != raised[1].Key || !strings.HasSuffix(n[0].Message, "cleared Printer offline or paused.") {
-		t.Fatalf("offline cleared: %v", n)
+	if len(n[2]) != 1 || !n[2][0].OK || n[2][0].Key != n[0][0].Key || n[2][0].Message != "10.0.0.5: cleared Door or cover open." {
+		t.Fatalf("both cleared: %v", n[2])
 	}
 	if len(e.Open()) != 0 {
 		t.Fatalf("open: %v", e.Open())
+	}
+	// The offline flag a poll before the door (or after it): still one alert.
+	e, c = newEng()
+	n = observeAlerts(e, c, []model.Alert{door}, []model.Alert{door, off}, []model.Alert{off}, nil)
+	if len(n[0]) != 1 || len(n[1]) != 0 || len(n[2]) != 0 || len(n[3]) != 1 || !n[3][0].OK || n[3][0].Key != n[0][0].Key {
+		t.Fatalf("door, then offline: %v", n)
+	}
+}
+
+// The general "offline or paused" flag is a problem of its own when nothing
+// more specific stops the printer, and goes to whichever specific error is
+// still there.
+func TestPrinterGeneralAlert(t *testing.T) {
+	e, c := newEng()
+	n := observeAlerts(e, c, []model.Alert{off}, nil)
+	if len(n[0]) != 1 || n[0][0].Message != "10.0.0.5: Printer offline or paused" || len(n[1]) != 1 || !n[1][0].OK {
+		t.Fatalf("paused alone: %v", n)
+	}
+	// A warning does not stop the printer, so it takes nothing in.
+	e, c = newEng()
+	n = observeAlerts(e, c, []model.Alert{low, off})
+	if len(n[0]) != 2 {
+		t.Fatalf("warning and paused: %v", n)
+	}
+	// Two errors: the door closes on its own while the jam is still there,
+	// and the jam keeps the problem open until the printer resumes.
+	e, c = newEng()
+	n = observeAlerts(e, c, []model.Alert{door, jam, off}, []model.Alert{jam, off}, []model.Alert{off}, nil)
+	if len(n[0]) != 2 || n[0][0].Message != "10.0.0.5: Door or cover open" || n[0][1].Message != "10.0.0.5: Paper jam" {
+		t.Fatalf("raise: %v", n[0])
+	}
+	if len(n[1]) != 1 || !n[1][0].OK || n[1][0].Key != n[0][0].Key {
+		t.Fatalf("door closed: %v", n[1])
+	}
+	if len(n[2]) != 0 || len(n[3]) != 1 || !n[3][0].OK || n[3][0].Key != n[0][1].Key {
+		t.Fatalf("jam cleared, then resumed: %v", n[2:])
+	}
+	// Paused first (its own problem), then the door opens: the door is new,
+	// and each closes when its own alert goes.
+	e, c = newEng()
+	n = observeAlerts(e, c, []model.Alert{off}, []model.Alert{off, door}, []model.Alert{off}, nil)
+	if len(n[0]) != 1 || len(n[1]) != 1 || n[1][0].Message != "10.0.0.5: Door or cover open" ||
+		len(n[2]) != 1 || n[2][0].Key != n[1][0].Key || len(n[3]) != 1 || n[3][0].Key != n[0][0].Key {
+		t.Fatalf("paused, then door: %v", n)
+	}
+	// IPP's "paused" reason is the same kind of flag.
+	e, c = newEng()
+	media := model.Alert{Severity: "critical", Code: "media-empty-error", Description: "Media empty"}
+	paused := model.Alert{Severity: "critical", Code: "paused", Description: "Paused"}
+	if n := observeAlerts(e, c, []model.Alert{media, paused}); len(n[0]) != 1 || n[0][0].Message != "10.0.0.5: Media empty" {
+		t.Fatalf("ipp: %v", n)
 	}
 }
 
@@ -392,12 +645,12 @@ func multiIP(ips ...string) model.Conflict {
 func TestConflictLifecycle(t *testing.T) {
 	e, _ := newEng()
 	c := multiIP("10.0.0.5", "10.0.0.6")
-	n := e.ObserveConflicts([]model.Conflict{c})
+	n := e.ObserveConflicts([]model.Conflict{c}, true)
 	if len(n) != 1 || n[0].Trigger != model.TriggerIPConflict || n[0].IP != "10.0.0.5" ||
 		n[0].Key != "ipConflict|mac_multi_ip|AA:BB:CC:00:00:01" || n[0].Severity != "warn" {
 		t.Fatalf("raise: %v", n)
 	}
-	if n := e.ObserveConflicts([]model.Conflict{c}); len(n) != 0 {
+	if n := e.ObserveConflicts([]model.Conflict{c}, true); len(n) != 0 {
 		t.Fatalf("still there: %v", n)
 	}
 	// The conflict gains an IP: a new id, the same key, no notice at all.
@@ -405,25 +658,56 @@ func TestConflictLifecycle(t *testing.T) {
 	if ConflictKey(c2) != ConflictKey(c) || c2.ID == c.ID {
 		t.Fatal("anchor changed with the ip set")
 	}
-	if n := e.ObserveConflicts([]model.Conflict{c2}); len(n) != 0 {
+	if n := e.ObserveConflicts([]model.Conflict{c2}, true); len(n) != 0 {
 		t.Fatalf("id changed: %v", n)
 	}
 	// Gone once is not enough; back again resets the count.
-	if n := e.ObserveConflicts(nil); len(n) != 0 {
+	if n := e.ObserveConflicts(nil, true); len(n) != 0 {
 		t.Fatalf("gone once: %v", n)
 	}
-	if n := e.ObserveConflicts([]model.Conflict{c2}); len(n) != 0 {
+	if n := e.ObserveConflicts([]model.Conflict{c2}, true); len(n) != 0 {
 		t.Fatalf("back: %v", n)
 	}
-	if n := e.ObserveConflicts(nil); len(n) != 0 {
+	if n := e.ObserveConflicts(nil, true); len(n) != 0 {
 		t.Fatalf("gone once again: %v", n)
 	}
-	n = e.ObserveConflicts(nil)
+	n = e.ObserveConflicts(nil, true)
 	if len(n) != 1 || !n[0].OK || n[0].Key != ConflictKey(c) || n[0].Title != "Network conflict cleared" {
 		t.Fatalf("gone twice: %v", n)
 	}
-	if n := e.ObserveConflicts(nil); len(n) != 0 {
+	if n := e.ObserveConflicts(nil, true); len(n) != 0 {
 		t.Fatalf("after ok: %v", n)
+	}
+}
+
+// The re-analysis after a settings save looks at the same evidence again:
+// it reports a conflict that is there and not open, but never counts toward
+// the OK, so saving a setting cannot close a conflict early.
+func TestConflictSettingsReanalysis(t *testing.T) {
+	e, _ := newEng()
+	c := multiIP("10.0.0.5", "10.0.0.6")
+	e.ObserveConflicts([]model.Conflict{c}, true)
+	if n := e.ObserveConflicts(nil, true); len(n) != 0 {
+		t.Fatalf("gone once: %v", n)
+	}
+	for i := 0; i < 3; i++ {
+		if n := e.ObserveConflicts(nil, false); len(n) != 0 {
+			t.Fatalf("settings save %d: %v", i, n)
+		}
+	}
+	if n := e.ObserveConflicts(nil, true); len(n) != 1 || !n[0].OK {
+		t.Fatalf("second cycle: %v", n)
+	}
+	// A save still reports a conflict that is there.
+	cfg := DefaultConfig()
+	cfg.Triggers[model.TriggerIPConflict] = false
+	e.SetConfig(cfg)
+	if n := e.ObserveConflicts([]model.Conflict{c}, true); len(n) != 0 {
+		t.Fatalf("trigger off: %v", n)
+	}
+	e.SetConfig(DefaultConfig())
+	if n := e.ObserveConflicts([]model.Conflict{c}, false); len(n) != 1 || n[0].OK {
+		t.Fatalf("switched on: %v", n)
 	}
 }
 
@@ -580,6 +864,62 @@ func TestSetHold(t *testing.T) {
 	if n := append(e.ObserveHealth(good), e.ObserveHealth(good)...); len(n) != 1 || !n[0].OK {
 		t.Fatalf("ok while held: %v", n)
 	}
+
+	// A failed run just before the hold does not carry over it: one failed
+	// run after the hold is still only one.
+	e, _ = newEng()
+	if n := e.ObserveHealth(bad); len(n) != 0 {
+		t.Fatalf("run before the hold: %v", n)
+	}
+	e.SetHold(true)
+	e.ObserveHealth(bad)
+	e.SetHold(false)
+	if n := e.ObserveHealth(bad); len(n) != 0 {
+		t.Fatalf("one failed run after the hold: %v", n)
+	}
+	if n := e.ObserveHealth(bad); len(n) != 1 {
+		t.Fatalf("two failed runs after the hold: %v", n)
+	}
+}
+
+// A run that could not check ("unavailable") is no evidence either way: it
+// neither fixes a failed check nor breaks a streak.
+func TestHealthUnavailableIsNeutral(t *testing.T) {
+	e, _ := newEng()
+	bad, ok, na := report(model.HealthFail), report(model.HealthOK), report(model.HealthUnavailable)
+	if n := append(e.ObserveHealth(bad), e.ObserveHealth(na)...); len(n) != 0 {
+		t.Fatalf("fail, unavailable: %v", n)
+	}
+	n := e.ObserveHealth(bad) // fail, unavailable, fail: two failed runs in a row
+	if len(n) != 1 || n[0].OK {
+		t.Fatalf("fault: %v", n)
+	}
+	for i := 0; i < 3; i++ {
+		if n := e.ObserveHealth(na); len(n) != 0 {
+			t.Fatalf("unavailable %d: %v", i, n)
+		}
+	}
+	if n := append(e.ObserveHealth(ok), e.ObserveHealth(na)...); len(n) != 0 {
+		t.Fatalf("one good run: %v", n)
+	}
+	if n := e.ObserveHealth(ok); len(n) != 1 || !n[0].OK {
+		t.Fatalf("good, unavailable, good: %v", n)
+	}
+	// The gateway that only stops answering pings locally is not fixed.
+	gw := func(status string) model.HealthReport {
+		return model.HealthReport{Checks: []model.HealthCheck{{ID: "gateway", Label: "Gateway reachable", Status: status}}}
+	}
+	e, _ = newEng()
+	n = append(e.ObserveHealth(gw(model.HealthFail)), e.ObserveHealth(gw(model.HealthFail))...)
+	if len(n) != 1 || n[0].Severity != "critical" {
+		t.Fatalf("gateway down: %v", n)
+	}
+	if n := append(e.ObserveHealth(gw(model.HealthUnavailable)), e.ObserveHealth(gw(model.HealthUnavailable))...); len(n) != 0 {
+		t.Fatalf("gateway unavailable: %v", n)
+	}
+	if len(e.Open()) != 1 {
+		t.Fatalf("open: %v", e.Open())
+	}
 }
 
 // The one severity map (v0.6 §4.7, README §8.2), for banners and chat.
@@ -622,8 +962,30 @@ func TestSeverityMap(t *testing.T) {
 		t.Fatalf("gateway: %v", n)
 	}
 	flap := model.Conflict{ID: "c-1", Kind: model.ConflictMACFlap, Severity: "fail", IPs: []string{"10.0.0.5"}}
-	if n := e.ObserveConflicts([]model.Conflict{flap}); len(n) != 1 || n[0].Severity != "critical" {
+	if n := e.ObserveConflicts([]model.Conflict{flap}, true); len(n) != 1 || n[0].Severity != "critical" {
 		t.Fatalf("flap: %v", n)
+	}
+}
+
+// The UI harness fixtures (tools/uitest/fixtures/index.mjs) carry notices
+// with the keys and severities this engine gives, so the Fixed specs and the
+// later Problems card specs test what netdiag really sends.
+func TestUITestFixtureKeys(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "tools", "uitest", "fixtures", "index.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	toner := model.Host{IP: "192.168.1.10", MAC: "00:1B:A9:12:34:56"}
+	vm := model.Host{IP: "192.168.1.200", MAC: "00:50:56:AB:CD:EF"}
+	for _, want := range []string{
+		"key: '" + Key(model.TriggerSupplyLow, toner, supplyParts([]model.Supply{{Description: "Black Toner"}})[0]) + "'",
+		"trigger: 'supplyLow', severity: '" + severityFor(model.TriggerSupplyLow, sevCtx{}) + "'",
+		"key: '" + Key(model.TriggerDeviceOffline, vm, "") + "'",
+		"trigger: 'deviceOffline', severity: '" + severityFor(model.TriggerDeviceOffline, sevCtx{}) + "'",
+	} {
+		if !strings.Contains(string(src), want) {
+			t.Errorf("fixtures missing %q", want)
+		}
 	}
 }
 

@@ -3,6 +3,7 @@ package notify
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strconv"
 	"strings"
 
 	"netdiag/internal/model"
@@ -15,9 +16,11 @@ const MaxKeyLen = 200
 
 // Key is the alert key of a problem on host h: <trigger>|<id>|<part>, where
 // id is the host's MAC, or "ip:"+IP while the MAC is unknown, and part tells
-// apart several problems of one trigger on one device (empty for offline).
-// A key longer than MaxKeyLen is shortened to <trigger>|<id>|h:<hash>, which
-// is just as stable.
+// apart several problems of one trigger on one device (empty for offline,
+// the IP for a new device). A key longer than MaxKeyLen is shortened to
+// <trigger>|<id>|h:<hash>, which is just as stable. The engine opens a
+// problem under the "ip:" key instead while another device behind the same
+// MAC (a range extender) has this key open.
 func Key(trigger string, h model.Host, part string) string {
 	return keyFor(trigger, hostID(h), part)
 }
@@ -62,16 +65,20 @@ func keyFor(trigger, id, part string) string {
 	return trigger + "||h:" + h
 }
 
+// macOf is h's MAC as keys carry it (upper case; "" when unknown).
+func macOf(h model.Host) string { return strings.ToUpper(strings.TrimSpace(h.MAC)) }
+
 // hostID is the id part of a host's keys: its MAC, else "ip:"+IP.
 func hostID(h model.Host) string {
-	if m := strings.ToUpper(strings.TrimSpace(h.MAC)); m != "" {
+	if m := macOf(h); m != "" {
 		return m
 	}
 	return "ip:" + h.IP
 }
 
 // hostIDs lists the ids h's problems may be open under: its MAC key first,
-// then the IP key a problem opened under before the MAC was known.
+// then the IP key a problem opened under before the MAC was known (or while
+// another device behind the same MAC had the MAC key open).
 func hostIDs(h model.Host) []string {
 	if id := hostID(h); !strings.HasPrefix(id, "ip:") {
 		return []string{id, "ip:" + h.IP}
@@ -86,11 +93,35 @@ func shortHash(s string) string {
 	return hex.EncodeToString(sum[:4])
 }
 
-// supplyPart and alertPart are the key parts of a low supply and of one
-// printer alert.
-func supplyPart(desc string) string { return shortHash(desc) }
+// supplyParts are the key parts of a printer's low supplies, in list order:
+// the hash of the description, plus ".2", ".3" and so on for the second and
+// later supplies with the same description, so two supplies named alike are
+// two problems.
+func supplyParts(ss []model.Supply) []string {
+	out := make([]string, len(ss))
+	seen := map[string]int{}
+	for i, s := range ss {
+		seen[s.Description]++
+		out[i] = shortHash(s.Description)
+		if n := seen[s.Description]; n > 1 {
+			out[i] += "." + strconv.Itoa(n)
+		}
+	}
+	return out
+}
 
+// alertPart is the key part of one printer alert.
 func alertPart(a model.Alert) string { return a.Code + "|" + shortHash(a.Description) }
+
+// devicePart is the key part of a new device: its IP when the key has its
+// MAC, because several devices can answer with one MAC (a range extender)
+// and each of them is a new device; "" when the key already has the IP.
+func devicePart(h model.Host) string {
+	if macOf(h) == "" {
+		return ""
+	}
+	return h.IP
+}
 
 func first(s []string) string {
 	if len(s) == 0 {
