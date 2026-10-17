@@ -4,10 +4,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
 	"netdiag/internal/model"
+	"netdiag/internal/notify"
 	"netdiag/internal/report"
 )
 
@@ -279,7 +281,62 @@ func Row(h model.Host) DeviceRow {
 // Filters accepted by ListDevices.
 var deviceFilters = []string{"all", "printers", "web", "offline", "conflicts", "new", "mdns", "problems"}
 
-func matchFilter(filter string, h model.Host) bool {
+// filterCtx holds the scan-wide facts some filters need.
+type filterCtx struct {
+	supplyPct   int             // low-supply threshold for "problems"
+	conflictIPs map[string]bool // IPs named by a conflict of the scan
+}
+
+func newFilterCtx(r model.ScanResult, supplyPct int) filterCtx {
+	if supplyPct <= 0 {
+		supplyPct = notify.DefaultSupplyThresholdPct
+	}
+	fc := filterCtx{supplyPct: supplyPct, conflictIPs: map[string]bool{}}
+	for _, c := range r.Conflicts {
+		for _, ip := range c.IPs {
+			fc.conflictIPs[ip] = true
+		}
+	}
+	return fc
+}
+
+// hostOffline mirrors the UI's isOffline (and Stats.Offline): a found device
+// that live mode marked offline. This computer is never offline.
+func hostOffline(h model.Host) bool {
+	return h.Alive && !h.Online && !h.IsSelf
+}
+
+func (fc filterCtx) hasConflict(h model.Host) bool {
+	return len(h.Conflicts) > 0 || fc.conflictIPs[h.IP]
+}
+
+// isProblem mirrors the UI's Problems tab (web/app.js isProblem): offline, in
+// a conflict, a printer with alerts or a supply that is low, empty or at or
+// below the supply threshold, or a web page that failed or answered with an
+// HTTP error.
+func (fc filterCtx) isProblem(h model.Host) bool {
+	if hostOffline(h) || fc.hasConflict(h) {
+		return true
+	}
+	if p := h.Printer; h.IsPrinter && p != nil {
+		if len(p.Alerts) > 0 {
+			return true
+		}
+		for _, s := range p.Supplies {
+			if s.State == "low" || s.State == "empty" || (s.Percent >= 0 && s.Percent <= fc.supplyPct) {
+				return true
+			}
+		}
+	}
+	for _, w := range h.Web {
+		if w.Error != "" || w.Status == 0 || w.Status >= 400 {
+			return true
+		}
+	}
+	return false
+}
+
+func (fc filterCtx) match(filter string, h model.Host) bool {
 	switch filter {
 	case "", "all":
 		return true
@@ -288,15 +345,15 @@ func matchFilter(filter string, h model.Host) bool {
 	case "web":
 		return len(h.Web) > 0
 	case "offline":
-		return !h.Online
+		return hostOffline(h)
 	case "conflicts":
-		return len(h.Conflicts) > 0
+		return fc.hasConflict(h)
 	case "new":
 		return h.IsNew
 	case "mdns":
 		return h.MDNS != nil
 	case "problems":
-		return !h.Online || len(h.Conflicts) > 0 || printerProblem(h.Printer)
+		return fc.isProblem(h)
 	}
 	return false
 }
@@ -347,35 +404,41 @@ func encodeCursor(off int) string {
 	return base64.RawURLEncoding.EncodeToString([]byte("o:" + strconv.Itoa(off)))
 }
 
+// ListOptions selects and pages the devices returned by ListDevices.
+type ListOptions struct {
+	Filter     string // one of deviceFilters; "" means all
+	DeviceType string // exact device type, "" for any
+	Query      string // case-insensitive substring of ip, mac or a name
+	Limit      int    // page size; <= 0 means DefaultDeviceLimit
+	Cursor     string // nextCursor of the previous page
+	// SupplyPct is the low-supply threshold used by filter=problems (the
+	// alerts.supplyThresholdPct setting); <= 0 means the default.
+	SupplyPct int
+}
+
 // ListDevices filters and paginates the hosts of r in stable IP order.
-func ListDevices(r model.ScanResult, filter, deviceType, query string, limit int, cursor string) (DevicePage, error) {
-	filter = strings.ToLower(strings.TrimSpace(filter))
-	valid := filter == ""
-	for _, f := range deviceFilters {
-		if f == filter {
-			valid = true
-		}
-	}
-	if !valid {
+func ListDevices(r model.ScanResult, o ListOptions) (DevicePage, error) {
+	filter := strings.ToLower(strings.TrimSpace(o.Filter))
+	if filter != "" && !slices.Contains(deviceFilters, filter) {
 		return DevicePage{}, fmt.Errorf("unknown filter %q; valid: %s", filter, strings.Join(deviceFilters, "|"))
 	}
-	off, err := decodeCursor(cursor)
+	off, err := decodeCursor(o.Cursor)
 	if err != nil {
 		return DevicePage{}, err
 	}
+	limit := o.Limit
 	if limit <= 0 {
 		limit = DefaultDeviceLimit
 	}
-	if limit > MaxDeviceLimit {
-		limit = MaxDeviceLimit
-	}
-	q := strings.ToLower(strings.TrimSpace(query))
+	limit = min(limit, MaxDeviceLimit)
+	q := strings.ToLower(strings.TrimSpace(o.Query))
+	fc := newFilterCtx(r, o.SupplyPct)
 	var matched []model.Host
 	for _, h := range report.SortHosts(r.Hosts) {
-		if !matchFilter(filter, h) {
+		if !fc.match(filter, h) {
 			continue
 		}
-		if deviceType != "" && h.DeviceType != deviceType {
+		if o.DeviceType != "" && h.DeviceType != o.DeviceType {
 			continue
 		}
 		if !matchQuery(q, h) {

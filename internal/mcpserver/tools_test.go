@@ -486,3 +486,42 @@ func TestServerInstructionsAndInfo(t *testing.T) {
 		t.Fatalf("init = %+v", init)
 	}
 }
+
+// TestListDevicesProblemsUsesSupplyThreshold checks that list_devices reads
+// alerts.supplyThresholdPct from Settings, like the low-supply alerts do.
+func TestListDevicesProblemsUsesSupplyThreshold(t *testing.T) {
+	e := setup(t, "stdio", true, fakePinger{})
+	saved := model.ScanResult{ID: "thr1", State: model.StateDone, StartedAt: "2026-01-02T03:04:05Z",
+		Request: model.ScanRequest{CIDR: "10.0.0.0/24"},
+		Hosts: []model.Host{
+			{IP: "10.0.0.20", Alive: true, Online: true, IsPrinter: true, DeviceType: "printer",
+				Printer: &model.PrinterInfo{Supplies: []model.Supply{{Description: "Black toner", Percent: 20, State: "ok"}}}},
+			{IP: "10.0.0.21", Alive: true, Online: true},
+		}}
+	if err := e.st.SaveScan(saved); err != nil {
+		t.Fatal(err)
+	}
+	problems := func() []string {
+		var page DevicePage
+		e.ok(t, "list_devices", map[string]any{"scanId": "thr1", "filter": "problems"}, &page)
+		var ips []string
+		for _, it := range page.Items {
+			ips = append(ips, it.IP)
+		}
+		return ips
+	}
+	if got := problems(); len(got) != 0 {
+		t.Fatalf("default threshold 15: problems = %v, want none", got)
+	}
+	set, err := e.st.LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	set.Alerts.SupplyThresholdPct = 25
+	if _, err := e.st.SaveSettings(set); err != nil {
+		t.Fatal(err)
+	}
+	if got := problems(); !slices.Equal(got, []string{"10.0.0.20"}) {
+		t.Fatalf("threshold 25: problems = %v, want [10.0.0.20]", got)
+	}
+}

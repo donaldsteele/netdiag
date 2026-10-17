@@ -103,7 +103,7 @@ func TestPaginationCoversAll(t *testing.T) {
 	cursor, prev := "", ""
 	pages := 0
 	for {
-		p, err := ListDevices(r, "all", "", "", 200, cursor)
+		p, err := ListDevices(r, ListOptions{Filter: "all", Limit: 200, Cursor: cursor})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -141,12 +141,12 @@ func ipNum(s string) int {
 
 func TestFilters(t *testing.T) {
 	r := model.ScanResult{ID: "x", Hosts: []model.Host{
-		{IP: "10.0.0.1", Online: true, DeviceType: "router", Web: []model.WebService{{URL: "http://10.0.0.1"}}, MDNS: &model.MDNSInfo{Instance: "Gateway"}},
-		{IP: "10.0.0.2", Online: true, IsPrinter: true, DeviceType: "printer", Printer: &model.PrinterInfo{State: "idle"}},
-		{IP: "10.0.0.3", Online: true, IsPrinter: true, DeviceType: "printer", Printer: &model.PrinterInfo{Supplies: []model.Supply{{State: "low"}}}},
-		{IP: "10.0.0.4", Online: false},
-		{IP: "10.0.0.5", Online: true, Conflicts: []string{"c"}},
-		{IP: "10.0.0.6", Online: true, IsNew: true, Hostname: "NewBox", Snmp: &model.SnmpInfo{SysName: "SwitchX"}},
+		{IP: "10.0.0.1", Alive: true, Online: true, DeviceType: "router", Web: []model.WebService{{URL: "http://10.0.0.1", Status: 200}}, MDNS: &model.MDNSInfo{Instance: "Gateway"}},
+		{IP: "10.0.0.2", Alive: true, Online: true, IsPrinter: true, DeviceType: "printer", Printer: &model.PrinterInfo{State: "idle"}},
+		{IP: "10.0.0.3", Alive: true, Online: true, IsPrinter: true, DeviceType: "printer", Printer: &model.PrinterInfo{Supplies: []model.Supply{{State: "low", Percent: -1}}}},
+		{IP: "10.0.0.4", Alive: true, Online: false},
+		{IP: "10.0.0.5", Alive: true, Online: true, Conflicts: []string{"c"}},
+		{IP: "10.0.0.6", Alive: true, Online: true, IsNew: true, Hostname: "NewBox", Snmp: &model.SnmpInfo{SysName: "SwitchX"}},
 	}}
 	cases := map[string][]string{
 		"all":       {"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5", "10.0.0.6"},
@@ -159,7 +159,7 @@ func TestFilters(t *testing.T) {
 		"problems":  {"10.0.0.3", "10.0.0.4", "10.0.0.5"},
 	}
 	for f, want := range cases {
-		p, err := ListDevices(r, f, "", "", 0, "")
+		p, err := ListDevices(r, ListOptions{Filter: f})
 		if err != nil {
 			t.Fatal(f, err)
 		}
@@ -171,17 +171,87 @@ func TestFilters(t *testing.T) {
 			t.Fatalf("%s: got %v want %v", f, got, want)
 		}
 	}
-	if _, err := ListDevices(r, "bogus", "", "", 0, ""); err == nil {
+	if _, err := ListDevices(r, ListOptions{Filter: "bogus"}); err == nil {
 		t.Fatal("expected unknown filter error")
 	}
-	p, _ := ListDevices(r, "all", "printer", "", 0, "")
+	p, _ := ListDevices(r, ListOptions{Filter: "all", DeviceType: "printer"})
 	if p.Total != 2 {
 		t.Fatalf("deviceType: %d", p.Total)
 	}
 	for q, want := range map[string]string{"newbox": "10.0.0.6", "switchx": "10.0.0.6", "GATEWAY": "10.0.0.1", "0.0.4": "10.0.0.4"} {
-		p, _ := ListDevices(r, "", "", q, 0, "")
+		p, _ := ListDevices(r, ListOptions{Query: q})
 		if p.Total != 1 || p.Items[0].IP != want {
 			t.Fatalf("query %q: %+v", q, p)
+		}
+	}
+}
+
+// TestProblemsMatchesUI pins filter=problems to the UI's Problems tab
+// (web/app.js isProblem), with the supply threshold taken from the caller.
+func TestProblemsMatchesUI(t *testing.T) {
+	printer := func(ip string, p model.PrinterInfo) model.Host {
+		return model.Host{IP: ip, Alive: true, Online: true, IsPrinter: true, Printer: &p}
+	}
+	supply := func(pct int, state string) model.PrinterInfo {
+		return model.PrinterInfo{Supplies: []model.Supply{{Description: "Black toner", Percent: pct, State: state}}}
+	}
+	web := func(ip string, w model.WebService) model.Host {
+		return model.Host{IP: ip, Alive: true, Online: true, Web: []model.WebService{w}}
+	}
+	r := model.ScanResult{ID: "p",
+		Conflicts: []model.Conflict{{ID: "k1", Kind: model.ConflictMACFlap, IPs: []string{"10.0.1.3"}}},
+		Hosts: []model.Host{
+			{IP: "10.0.1.1", Alive: true, Online: true},                            // healthy
+			{IP: "10.0.1.2", Alive: true, Online: false},                           // offline
+			{IP: "10.0.1.3", Alive: true, Online: true},                            // named by a conflict only
+			{IP: "10.0.1.4", Alive: true, Online: true, Conflicts: []string{"k9"}}, // own conflict id
+			{IP: "10.0.1.5", Alive: true, Online: false, IsSelf: true},             // this computer: never offline
+			{IP: "10.0.1.6", Alive: false, Online: false},                          // never found alive
+			printer("10.0.2.1", model.PrinterInfo{Alerts: []model.Alert{{Description: "Cover open"}}}),
+			printer("10.0.2.2", supply(20, "ok")),      // above 15, at or below 25
+			printer("10.0.2.3", supply(15, "ok")),      // at the default threshold
+			printer("10.0.2.4", supply(-1, "unknown")), // unknown level
+			printer("10.0.2.5", supply(-1, "empty")),
+			printer("10.0.2.6", supply(40, "low")),                                                                              // device says low
+			printer("10.0.2.7", model.PrinterInfo{State: "stopped"}),                                                            // the UI only counts alerts and supplies
+			{IP: "10.0.2.8", Alive: true, Online: true, Printer: &model.PrinterInfo{Alerts: []model.Alert{{Description: "x"}}}}, // not a printer
+			web("10.0.3.1", model.WebService{URL: "http://10.0.3.1", Status: 200}),
+			web("10.0.3.2", model.WebService{URL: "http://10.0.3.2", Status: 301}),
+			web("10.0.3.3", model.WebService{URL: "http://10.0.3.3", Status: 404}),
+			web("10.0.3.4", model.WebService{URL: "https://10.0.3.4", Status: 503}),
+			web("10.0.3.5", model.WebService{URL: "http://10.0.3.5", Error: "timeout"}),
+			web("10.0.3.6", model.WebService{URL: "http://10.0.3.6"}), // no status
+		}}
+	base := []string{"10.0.1.2", "10.0.1.3", "10.0.1.4", "10.0.2.1", "10.0.2.3", "10.0.2.5", "10.0.2.6",
+		"10.0.3.3", "10.0.3.4", "10.0.3.5", "10.0.3.6"}
+	with20 := []string{"10.0.1.2", "10.0.1.3", "10.0.1.4", "10.0.2.1", "10.0.2.2", "10.0.2.3", "10.0.2.5", "10.0.2.6",
+		"10.0.3.3", "10.0.3.4", "10.0.3.5", "10.0.3.6"}
+	lowOnly := []string{"10.0.1.2", "10.0.1.3", "10.0.1.4", "10.0.2.1", "10.0.2.5", "10.0.2.6",
+		"10.0.3.3", "10.0.3.4", "10.0.3.5", "10.0.3.6"}
+	for _, c := range []struct {
+		pct  int
+		want []string
+	}{{0, base}, {15, base}, {25, with20}, {20, with20}, {14, lowOnly}, {1, lowOnly}} {
+		p, err := ListDevices(r, ListOptions{Filter: "problems", SupplyPct: c.pct})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, it := range p.Items {
+			got = append(got, it.IP)
+		}
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("threshold %d: got %v want %v", c.pct, got, c.want)
+		}
+	}
+	for f, want := range map[string]string{"offline": "10.0.1.2", "conflicts": "10.0.1.3,10.0.1.4"} {
+		p, _ := ListDevices(r, ListOptions{Filter: f})
+		var got []string
+		for _, it := range p.Items {
+			got = append(got, it.IP)
+		}
+		if strings.Join(got, ",") != want {
+			t.Errorf("%s: got %v want %s", f, got, want)
 		}
 	}
 }
@@ -189,11 +259,11 @@ func TestFilters(t *testing.T) {
 func TestInvalidCursor(t *testing.T) {
 	r := bigScan()
 	for _, c := range []string{"!!!", "bm9wZQ", "bzotMQ"} { // garbage, "nope", "o:-1"
-		if _, err := ListDevices(r, "all", "", "", 10, c); err == nil {
+		if _, err := ListDevices(r, ListOptions{Filter: "all", Limit: 10, Cursor: c}); err == nil {
 			t.Fatalf("cursor %q should fail", c)
 		}
 	}
-	p, err := ListDevices(r, "all", "", "", 1000, "")
+	p, err := ListDevices(r, ListOptions{Filter: "all", Limit: 1000})
 	if err != nil || len(p.Items) != 200 {
 		t.Fatalf("limit clamp: %v %d", err, len(p.Items))
 	}

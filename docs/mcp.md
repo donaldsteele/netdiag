@@ -113,6 +113,15 @@ All tools return compact JSON. List tools return pages (use `cursor` and `nextCu
 | `compare_scans` | What was added, removed and changed between two scans (up to 200 rows per list). | `baseId` (default: previous scan of the same range), `currentId` | Yes |
 | `get_settings` | Current settings. The SNMP community is shown as `***`. | none | Yes |
 
+**What `filter=problems` lists.** The same devices as the **Problems** filter in the netdiag window:
+
+- a device that live mode marked offline (this computer never counts as offline),
+- a device involved in a conflict,
+- a printer with an alert, or with a supply that is low, empty, or at or below the **supply threshold** in Settings (`alerts.supplyThresholdPct`, default 15%),
+- a device whose web page did not answer or answered with an HTTP error (status 400 or higher).
+
+`filter=offline` and `filter=conflicts` use the same offline and conflict rules.
+
 `get_events` and `live` work only for scans started in the same netdiag process. Scans saved earlier are available through `get_scan`, `list_devices` and `compare_scans`.
 
 ## Resources

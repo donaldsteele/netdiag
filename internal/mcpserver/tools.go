@@ -11,6 +11,7 @@ import (
 
 	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
+	"netdiag/internal/notify"
 	"netdiag/internal/scan"
 	"netdiag/internal/service"
 	"netdiag/internal/store"
@@ -190,7 +191,7 @@ func registerTools(s *mcp.Server, svc *service.Service, opts Options) {
 			OpenWorldHint: ptr(false), IdempotentHint: true}}, t.cancelScan)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "list_devices", Title: "List devices in a scan",
-		Description: "Paginated compact device rows for a scan, with optional filter, deviceType and query. Use filter=problems to see what needs attention.",
+		Description: "Paginated compact device rows for a scan, with optional filter, deviceType and query. Use filter=problems to see what needs attention; it matches the Problems tab in the netdiag UI: devices that are offline or in a conflict, printers with alerts or a supply that is low, empty or at or below the supply threshold in Settings, and web pages that failed or returned an HTTP error.",
 		Annotations: readAnn("List devices in a scan")}, t.listDevices)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_device", Title: "Get device details",
@@ -369,8 +370,22 @@ func (t *tools) listDevices(_ context.Context, _ *mcp.CallToolRequest, in listDe
 	if err != nil {
 		return nil, DevicePage{}, err
 	}
-	page, err := ListDevices(r, in.Filter, in.DeviceType, in.Query, in.Limit, in.Cursor)
+	page, err := ListDevices(r, ListOptions{
+		Filter: in.Filter, DeviceType: in.DeviceType, Query: in.Query,
+		Limit: in.Limit, Cursor: in.Cursor, SupplyPct: supplyThreshold(t.svc),
+	})
 	return nil, page, err
+}
+
+// supplyThreshold is the low-supply percentage from Settings
+// (alerts.supplyThresholdPct), or the default when settings cannot be read.
+func supplyThreshold(svc *service.Service) int {
+	if svc != nil {
+		if set, err := svc.LoadSettings(); err == nil && set.Alerts.SupplyThresholdPct > 0 {
+			return set.Alerts.SupplyThresholdPct
+		}
+	}
+	return notify.DefaultSupplyThresholdPct
 }
 
 func (t *tools) getDevice(_ context.Context, _ *mcp.CallToolRequest, in getDeviceIn) (*mcp.CallToolResult, DeviceDetail, error) {
