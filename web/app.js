@@ -144,6 +144,13 @@ document.addEventListener('alpine:init', () => {
       return 'Health: ' + [f ? f + ' fail' : '', w ? w + ' warn' : ''].filter(Boolean).join(', ');
     },
     healthLatency(c) { return c.latencyMs > 0 ? c.latencyMs.toFixed(1) + ' ms' : ''; },
+    // The web server check has no URL to test. Reports saved before
+    // data.configured existed are recognised by their detail text.
+    webUnset(c) {
+      if (!c || c.id !== 'webserver') return false;
+      if (c.data && typeof c.data.configured === 'boolean') return !c.data.configured;
+      return c.status === 'info' && /^no web server configured/.test(c.detail || '');
+    },
 
     // ---- settings ----
     openSettings() {

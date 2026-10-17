@@ -144,7 +144,7 @@
               <div class="hchead"><h3><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + checkIcon(c.id)"></use></svg> <span x-text="c.label"></span></h3>
                 <span class="hs" :class="'hs-' + c.status"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusShape(c.status)"></use></svg> <span x-text="healthStatusText(c.status)"></span></span></div>
               <p class="hdetail mono"><span x-text="c.detail"></span>
-                <a href="#" x-show="c.id === 'webserver' && c.status === 'unavailable'" @click.prevent="openSettings()">Set the web server URL in Settings</a></p>
+                <a href="#" class="setweb" x-show="webUnset(c)" @click.prevent="openSettings()">Set the web server URL in Settings</a></p>
               <p class="hlat mono" x-text="healthLatency(c)"></p>
             </li>
           </template>

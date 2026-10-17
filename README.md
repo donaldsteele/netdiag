@@ -358,7 +358,7 @@ netdiag is not code-signed. In SmartScreen choose "More info", then "Run anyway"
 Run `xattr -d com.apple.quarantine netdiag` in the folder where you unzipped it, then `./netdiag`. See HOW-TO-OPEN.txt.
 
 **The health panel says "not configured" for the web server.**
-That is information, not a fault. Open **Settings** and enter the web server address in "Web server URL" (and optionally the text the page must contain). Then press **Recheck**.
+That is information, not a fault. Click **Set the web server URL in Settings** on the Web server card (or open **Settings**) and enter the web server address in "Web server URL" (and optionally the text the page must contain). Then press **Recheck**.
 
 **The health panel says "not on Wi-Fi" or "unavailable" for Wi-Fi.**
 "Not on Wi-Fi" means this computer is on a cable (or Wi-Fi is off), which is fine. "Unavailable" means the Wi-Fi details could not be read. On recent Windows 11 versions this happens when **Location** is off, because Windows treats Wi-Fi details as location data: open Settings > Privacy & security > Location, turn on **Location services** and **Let desktop apps access your location**, then press **Recheck**. It also happens when the WLAN AutoConfig service is stopped; the panel says which. The rest of the scan is not affected.

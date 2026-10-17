@@ -31,8 +31,9 @@ const matchId = (re, p) => {
 };
 
 // scenario: 'scan' (finite scan run ending in done) or 'live' (snapshot + live transitions).
-// settings replaces the fixture settings document; frames replaces the scan's event stream.
-export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames } = {}) {
+// settings replaces the fixture settings document; frames replaces the scan's event stream;
+// web: state of the web server health check served by /api/health (see fx.webCheck).
+export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset' } = {}) {
   const rec = { requests: [], unmatched: [], external: [], sse: [] };
   const origin = new URL(BASE_URL).origin;
   const MCP_URL = 'http://127.0.0.1:8787/mcp';
@@ -60,8 +61,8 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
       settings = { ...JSON.parse(body), mcpUrl: MCP_URL };
       return json(route, 200, settings);
     }
-    if (method === 'GET' && p === '/api/health') return json(route, 200, fx.health());
-    if (method === 'POST' && p === '/api/health/run') return json(route, 200, fx.health());
+    if (method === 'GET' && p === '/api/health') return json(route, 200, fx.health({ web }));
+    if (method === 'POST' && p === '/api/health/run') return json(route, 200, fx.health({ web }));
     if (method === 'GET' && p === '/api/history') return json(route, 200, history);
     if (method === 'GET' && p === '/api/compare') {
       const base = url.searchParams.get('base') || fx.BASE_ID;

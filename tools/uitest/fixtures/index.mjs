@@ -137,14 +137,29 @@ export function conflict(resolved = false) {
   };
 }
 
-export function health() {
+// Web server URL used by the web server health fixtures.
+export const WEB_URL = 'https://intranet.local/';
+
+// The web server check in each state: 'unset' (no URL in Settings) or 'ok'.
+export function webCheck(state = 'unset') {
+  const base = { id: 'webserver', label: 'Web server' };
+  if (state === 'ok') {
+    return { ...base, status: 'ok', detail: 'HTTP 200 in 12 ms', latencyMs: 12.3,
+      data: { configured: true, url: WEB_URL, status: 200 } };
+  }
+  return { ...base, status: 'info', detail: 'no web server configured (set one in Settings)', latencyMs: 0,
+    data: { configured: false } };
+}
+
+// web: the web server check state (see webCheck).
+export function health({ web = 'unset' } = {}) {
   return {
     checkedAt: T1,
     checks: [
       { id: 'gateway', label: 'Default gateway', status: 'ok', detail: `Reachable at ${GATEWAY}`, latencyMs: 1.4 },
       { id: 'dhcp', label: 'DHCP', status: 'ok', detail: 'Lease active, 23h remaining', latencyMs: 0 },
       { id: 'dns', label: 'DNS', status: 'ok', detail: 'Resolved in 18 ms', latencyMs: 18.2 },
-      { id: 'webserver', label: 'Web server', status: 'unavailable', detail: 'No web server URL configured', latencyMs: 0 },
+      webCheck(web),
       { id: 'internet', label: 'Internet', status: 'ok', detail: 'Reachable', latencyMs: 42.7 },
       { id: 'wifi', label: 'Wi-Fi', status: 'warn', detail: 'Signal 48% on 5 GHz', latencyMs: 0 },
     ],
