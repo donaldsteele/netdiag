@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"net/netip"
 	"time"
 
 	"netdiag/internal/health"
@@ -62,8 +63,13 @@ func (s *Service) RunHealth(ctx context.Context, iface string) model.HealthRepor
 //     scan of this process, when iface is empty or names that scan's
 //     interface, and the interface still has the address it had in the
 //     scan (otherwise the computer has moved to another network);
-//   - else the interface named iface, or the default-route interface;
-//     with the default-route gateway.
+//   - else the interface named iface, or the default-route interface.
+//
+// A gateway is used only when it lies inside the interface's network:
+// with two adapters, the default route's router may belong to the other
+// one. Otherwise the gateway is left empty, and the Gateway check says no
+// router is known for this adapter. When the interfaces cannot be listed,
+// no adapter is named and the default route's router is used.
 func (s *Service) healthTarget(iface string) health.Input {
 	list, lerr := s.cfg.Interfaces()
 	find := func(name string) (netinfo.Iface, bool) {
@@ -77,8 +83,13 @@ func (s *Service) healthTarget(iface string) health.Input {
 	if self, gw, ok := s.latestScanNetwork(); ok && (iface == "" || iface == self.Interface) {
 		f, found := find(self.Interface)
 		if lerr != nil || found && f.IP == self.IP {
-			if gw == "" && found && f.IsDefault {
-				gw, _ = s.cfg.Gateway()
+			if found {
+				switch {
+				case gw == "" && f.IsDefault:
+					gw = s.gatewayOn(f)
+				case gw != "" && !onNetwork(gw, f):
+					gw = ""
+				}
 			}
 			return health.Input{Iface: self.Interface, IfaceIP: self.IP, Gateway: gw}
 		}
@@ -95,12 +106,33 @@ func (s *Service) healthTarget(iface string) health.Input {
 				}
 			}
 		}
-		in.Iface, in.IfaceIP = f.Name, f.IP
+		in.Iface, in.IfaceIP, in.Gateway = f.Name, f.IP, s.gatewayOn(f)
+		return in
 	}
 	if gw, err := s.cfg.Gateway(); err == nil {
 		in.Gateway = gw
 	}
 	return in
+}
+
+// gatewayOn returns the default route's gateway when it lies inside f's
+// network, else "".
+func (s *Service) gatewayOn(f netinfo.Iface) string {
+	if gw, err := s.cfg.Gateway(); err == nil && onNetwork(gw, f) {
+		return gw
+	}
+	return ""
+}
+
+// onNetwork reports whether the address gw lies inside f's network
+// (f.CIDR). An address or network that does not parse is not inside.
+func onNetwork(gw string, f netinfo.Iface) bool {
+	p, err := netip.ParsePrefix(f.CIDR)
+	if err != nil {
+		return false
+	}
+	a, err := netip.ParseAddr(gw)
+	return err == nil && p.Contains(a)
 }
 
 // latestScanNetwork returns this computer's interface and the gateway seen

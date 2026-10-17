@@ -188,7 +188,9 @@ func (r *recordHealth) last() health.Input {
 }
 
 // RunHealth without an interface checks the network of the scan on screen,
-// else the default interface; never simply the first one listed.
+// else the default interface; never simply the first one listed. The
+// router is used only on its own adapter's network: the default route's
+// gateway (192.168.1.1, on wlan0) is not paired with eth0 or vpn0.
 func TestRunHealthTarget(t *testing.T) {
 	deps := scan.Deps{
 		Pinger: fakePinger{}, ARP: fakeARP{}, Ports: fakePorts{}, Web: fakeWeb{},
@@ -196,9 +198,9 @@ func TestRunHealthTarget(t *testing.T) {
 	}
 	rec := &recordHealth{}
 	ifaces := []netinfo.Iface{
-		{Name: "vpn0", IP: "172.16.0.5"},
-		{Name: "wlan0", IP: "192.168.1.20", IsDefault: true},
-		{Name: "eth0", IP: "10.0.0.30"},
+		{Name: "vpn0", IP: "172.16.0.5", CIDR: "172.16.0.0/16"},
+		{Name: "wlan0", IP: "192.168.1.20", CIDR: "192.168.1.0/24", IsDefault: true},
+		{Name: "eth0", IP: "10.0.0.30", CIDR: "10.0.0.0/24"},
 	}
 	var ifErr error
 	s := New(Config{Registry: scan.NewRegistry(scan.New(deps)), Health: rec, BaseCtx: context.Background(),
@@ -208,13 +210,17 @@ func TestRunHealthTarget(t *testing.T) {
 		t.Helper()
 		s.RunHealth(context.Background(), iface)
 		if got := rec.last(); got.Iface != want.Iface || got.IfaceIP != want.IfaceIP || got.Gateway != want.Gateway {
-			t.Errorf("%s: got %s %s gw %s, want %s %s gw %s", name, got.Iface, got.IfaceIP, got.Gateway, want.Iface, want.IfaceIP, want.Gateway)
+			t.Errorf("%s: got %s %s gw %q, want %s %s gw %q", name, got.Iface, got.IfaceIP, got.Gateway, want.Iface, want.IfaceIP, want.Gateway)
 		}
 	}
 	def := health.Input{Iface: "wlan0", IfaceIP: "192.168.1.20", Gateway: "192.168.1.1"}
 	check("no scan: default interface", "", def)
-	check("named interface", "eth0", health.Input{Iface: "eth0", IfaceIP: "10.0.0.30", Gateway: "192.168.1.1"})
+	check("named interface, router on another network", "eth0", health.Input{Iface: "eth0", IfaceIP: "10.0.0.30"})
+	check("named VPN adapter", "vpn0", health.Input{Iface: "vpn0", IfaceIP: "172.16.0.5"})
 	check("unknown name: default interface", "nope", def)
+	ifErr = errors.New("cannot list")
+	check("no scan, interfaces unreadable: default route", "", health.Input{Gateway: "192.168.1.1"})
+	ifErr = nil
 
 	runScan(t, s) // fakeEnv: eth0 10.0.0.30, gateway 10.0.0.1
 	fromScan := health.Input{Iface: "eth0", IfaceIP: "10.0.0.30", Gateway: "10.0.0.1"}
@@ -224,6 +230,11 @@ func TestRunHealthTarget(t *testing.T) {
 	ifErr = errors.New("cannot list")
 	check("interfaces unreadable", "", fromScan)
 	ifErr = nil
+
+	// The scan's router is not on its adapter's network (10.0.0.16/28).
+	ifaces[2].CIDR = "10.0.0.16/28"
+	check("scan router off the network", "", health.Input{Iface: "eth0", IfaceIP: "10.0.0.30"})
+	ifaces[2].CIDR = "10.0.0.0/24"
 
 	// The scan's interface now has another address: another network.
 	ifaces[2].IP = "10.9.9.9"

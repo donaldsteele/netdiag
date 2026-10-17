@@ -92,6 +92,7 @@ Tick only after observing the behaviour on real hardware.
 - [ ] The Web server card's "Set the web server URL in Settings" link shows when no URL is set and opens Settings
 - [ ] On a computer with a VPN or a second network adapter (wired and Wi-Fi on different networks), after scanning one network, **Recheck** and the MCP `run_health_check` tool check that network: the Gateway row names its router, and the Wi-Fi and DHCP rows describe that adapter
 - [ ] Before any scan, MCP `run_health_check` checks the adapter that carries the default route (the one marked as default in the interface list), not a VPN or virtual adapter
+- [ ] On a computer with wired and Wi-Fi on different networks, choose the adapter that does not carry the default route and press **Recheck**: the Gateway row never names the other network's router; when no router on that adapter's network is known it says "no router is known for this network adapter"
 
 ### Health panel
 - [ ] Gateway row shows `ok` with a latency; unplugging the router shows `fail` text, not colour alone

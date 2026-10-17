@@ -205,6 +205,14 @@ func TestGatewayIgnoresPing(t *testing.T) {
 	if c := r.checkGateway(context.Background(), Input{Gateway: "192.168.1.1"}); c.Status != model.HealthOK {
 		t.Fatalf("%+v", c)
 	}
+	// No router known: for the adapter checked, or at all.
+	if c := r.checkGateway(context.Background(), Input{Iface: "Ethernet 2", IfaceIP: "10.0.0.30"}); c.Status != model.HealthUnavailable ||
+		c.Detail != "no router is known for this network adapter (Ethernet 2)" {
+		t.Fatalf("no router for the adapter: %+v", c)
+	}
+	if c := r.checkGateway(context.Background(), Input{}); c.Status != model.HealthUnavailable || c.Detail != "no default gateway detected" {
+		t.Fatalf("no router: %+v", c)
+	}
 }
 
 // The real dial and refusal check: a closed loopback port counts as an

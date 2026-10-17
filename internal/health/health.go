@@ -67,7 +67,7 @@ func ConfigFor(s model.Settings) Config {
 type Input struct {
 	Iface   string // interface name, e.g. "en0" (may be empty)
 	IfaceIP string // interface IPv4 (used to find the adapter on Windows)
-	Gateway string // default gateway IPv4 (may be empty)
+	Gateway string // the router of Iface's network, IPv4 (may be empty)
 	Config  Config
 }
 
@@ -225,6 +225,9 @@ func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 
 func (r *Runner) checkGateway(ctx context.Context, in Input) model.HealthCheck {
 	if in.Gateway == "" {
+		if in.Iface != "" {
+			return mk(0, model.HealthUnavailable, "no router is known for this network adapter ("+in.Iface+")", 0)
+		}
 		return mk(0, model.HealthUnavailable, "no default gateway detected", 0)
 	}
 	ip, err := netip.ParseAddr(in.Gateway)
