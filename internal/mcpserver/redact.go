@@ -8,21 +8,15 @@ import (
 )
 
 // Redacted replaces secret values in anything handed to an agent.
-const Redacted = "***"
+const Redacted = model.Redacted
 
 // DefaultTextCap is the default byte cap for text content.
 const DefaultTextCap = 25000
 
 // RedactScan returns a copy of r with secrets hidden. The input is not
-// modified.
+// modified. It is model.RedactScan, the helper every scan output uses.
 func RedactScan(r model.ScanResult) model.ScanResult {
-	if r.Request.Community != "" {
-		r.Request.Community = Redacted
-	}
-	if r.Request.Ports != nil {
-		r.Request.Ports = append([]int(nil), r.Request.Ports...)
-	}
-	return r
+	return model.RedactScan(r)
 }
 
 // RedactSettings returns a copy of s with the SNMP community hidden.

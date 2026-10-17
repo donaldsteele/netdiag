@@ -90,6 +90,8 @@ func (s *Store) readScan(f fileInfo) (model.ScanResult, error) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return r, err
 	}
+	// Files saved before v0.5.8 hold the SNMP community in clear.
+	r = model.RedactScan(r)
 	if r.ID == "" {
 		r.ID = f.id
 	}
@@ -104,11 +106,13 @@ func (s *Store) readScan(f fileInfo) (model.ScanResult, error) {
 }
 
 // SaveScan atomically stores r (replacing any prior save of the same id) and
-// applies retention. The file is written with schemaVersion 2.
+// applies retention. The file is written with schemaVersion 2 and the SNMP
+// community redacted.
 func (s *Store) SaveScan(r model.ScanResult) error {
 	if !idRe.MatchString(r.ID) || strings.Contains(r.ID, "..") {
 		return errBadID
 	}
+	r = model.RedactScan(r)
 	if r.SchemaVersion < model.HistorySchemaVersion {
 		r.SchemaVersion = model.HistorySchemaVersion
 	}

@@ -3,7 +3,7 @@
   "request": {
     "cidr": "192.168.2.0/24",
     "interface": "Wi-Fi",
-    "community": "public",
+    "community": "***",
     "ports": [
       80,
       443,

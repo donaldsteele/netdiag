@@ -365,3 +365,25 @@ func TestWriteDoesNotMutateResult(t *testing.T) {
 		t.Error("writers reordered the caller's Hosts slice")
 	}
 }
+
+func TestExportsRedactCommunity(t *testing.T) {
+	const secret = "s3cret-community"
+	res := fixture()
+	res.Request.Community = secret
+	var j, c bytes.Buffer
+	if err := WriteJSON(&j, res); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteCSV(&c, res); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(j.String(), secret) || !strings.Contains(j.String(), `"community": "***"`) {
+		t.Fatalf("json export: %s", j.String())
+	}
+	if strings.Contains(c.String(), secret) {
+		t.Fatalf("csv export: %s", c.String())
+	}
+	if res.Request.Community != secret {
+		t.Fatal("WriteJSON changed the caller's scan")
+	}
+}

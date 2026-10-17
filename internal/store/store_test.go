@@ -321,3 +321,35 @@ func TestSettingsMCPFlag(t *testing.T) {
 		t.Fatal("mcp.enabled not persisted")
 	}
 }
+
+// The SNMP community never reaches a history file, and files saved before
+// v0.5.8 (which hold it in clear) are redacted when read.
+func TestHistoryRedactsCommunity(t *testing.T) {
+	const secret = "s3cret-community"
+	s := open(t)
+	r := scan("c1", 1, "10.0.0.0/24")
+	r.Request.Community = secret
+	if err := s.SaveScan(r); err != nil {
+		t.Fatal(err)
+	}
+	if r.Request.Community != secret {
+		t.Fatal("SaveScan changed the caller's scan")
+	}
+	files, _ := filepath.Glob(filepath.Join(s.Dir(), "history", "*.json"))
+	if len(files) != 1 {
+		t.Fatalf("files = %v", files)
+	}
+	data, _ := os.ReadFile(files[0])
+	if strings.Contains(string(data), secret) || !strings.Contains(string(data), `"community":"***"`) {
+		t.Fatalf("saved file: %s", data)
+	}
+
+	old := `{"id":"old2","schemaVersion":2,"startedAt":"2026-01-01T09:00:00Z","state":"done","request":{"cidr":"10.0.0.0/24","community":"` + secret + `"}}`
+	if err := os.WriteFile(filepath.Join(s.Dir(), "history", "20260101T090000Z-old2.json"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.LoadScan("old2")
+	if err != nil || got.Request.Community != model.Redacted {
+		t.Fatalf("old file read: %q %v", got.Request.Community, err)
+	}
+}

@@ -28,7 +28,7 @@ func (s *Service) RedactedSettings() (model.Settings, error) {
 // RedactSettings returns a copy of s with the SNMP community hidden.
 func RedactSettings(s model.Settings) model.Settings {
 	if s.Community != "" {
-		s.Community = "***"
+		s.Community = model.Redacted
 	}
 	return s
 }

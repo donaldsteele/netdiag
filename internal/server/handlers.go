@@ -58,7 +58,7 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown scan")
 		return
 	}
-	writeJSON(w, http.StatusOK, sc.Snapshot())
+	writeJSON(w, http.StatusOK, model.RedactScan(sc.Snapshot()))
 }
 
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
@@ -70,23 +70,24 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
+	format := r.URL.Query().Get("format")
+	if format != "json" && format != "csv" {
+		writeError(w, http.StatusBadRequest, "format must be json or csv")
+		return
+	}
 	sc, ok := s.svc.Get(r.PathValue("id"))
 	if !ok {
 		writeError(w, http.StatusNotFound, "unknown scan")
 		return
 	}
-	format := r.URL.Query().Get("format")
+	res := model.RedactScan(sc.Snapshot())
 	var buf bytes.Buffer
 	var ctype string
 	var err error
-	switch format {
-	case "json":
-		ctype, err = "application/json", report.WriteJSON(&buf, sc.Snapshot())
-	case "csv":
-		ctype, err = "text/csv; charset=utf-8", report.WriteCSV(&buf, sc.Snapshot())
-	default:
-		writeError(w, http.StatusBadRequest, "format must be json or csv")
-		return
+	if format == "json" {
+		ctype, err = "application/json", report.WriteJSON(&buf, res)
+	} else {
+		ctype, err = "text/csv; charset=utf-8", report.WriteCSV(&buf, res)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

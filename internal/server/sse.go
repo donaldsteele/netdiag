@@ -54,7 +54,17 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// writeEvent writes one SSE frame. Snapshot and done events carry the whole
+// scan result, so the SNMP community is redacted first.
 func writeEvent(w http.ResponseWriter, ev model.Event) error {
+	switch d := ev.Data.(type) {
+	case model.ScanResult:
+		ev.Data = model.RedactScan(d)
+	case *model.ScanResult:
+		if d != nil {
+			ev.Data = model.RedactScan(*d)
+		}
+	}
 	b, err := json.Marshal(ev.Data)
 	if err != nil {
 		return err

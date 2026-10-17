@@ -282,7 +282,7 @@ On the command line: `netdiag history` lists the saved scans, and `netdiag compa
 | Windows | `%AppData%\netdiag` (for example `C:\Users\<name>\AppData\Roaming\netdiag`) |
 | macOS | `~/Library/Application Support/netdiag` |
 
-The folder holds `settings.json` (your settings) and a `history` folder with one file per saved scan. To change the folder for one run, set the environment variable `NETDIAG_DATA_DIR` to the folder you want before starting netdiag (for example `set NETDIAG_DATA_DIR=D:\netdiag-data` in Command Prompt, or `$env:NETDIAG_DATA_DIR="D:\netdiag-data"` in PowerShell, or `NETDIAG_DATA_DIR=/path ./netdiag` in Terminal).
+The folder holds `settings.json` (your settings) and a `history` folder with one file per saved scan. Only `settings.json` keeps the SNMP community. Saved scans, exports and everything else netdiag shows outside Settings show it as `***`, so a file you send to someone never gives it away. To change the folder for one run, set the environment variable `NETDIAG_DATA_DIR` to the folder you want before starting netdiag (for example `set NETDIAG_DATA_DIR=D:\netdiag-data` in Command Prompt, or `$env:NETDIAG_DATA_DIR="D:\netdiag-data"` in PowerShell, or `NETDIAG_DATA_DIR=/path ./netdiag` in Terminal).
 
 **How to clear it.** To remove one scan, use **Delete** in the History view. To reset your settings to the defaults, quit netdiag and delete `settings.json`. To clear everything, quit netdiag and delete the whole folder above (or the `NETDIAG_DATA_DIR` folder you chose). netdiag creates the folder again the next time it starts.
 
