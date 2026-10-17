@@ -406,6 +406,10 @@ Dev note: the icons are a vendored subset of [Lucide](https://lucide.dev) (ISC l
 
 Refresh the vendor database with `bash scripts/update-oui.sh` (needs network access).
 
+## Roadmap
+
+Planned work, from the next patch to the v1.0.0 Microsoft Store release, is in [roadmap/README.md](roadmap/README.md), with a detailed plan per version.
+
 ## License
 
 netdiag is licensed under the Apache License, Version 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE). The third-party components built into netdiag and their licenses are listed in [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt), which is also in every release zip.
