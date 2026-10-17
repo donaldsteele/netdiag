@@ -454,7 +454,7 @@ func (e *Engine) supplies(out []model.Notice, pp *model.PrinterInfo, cur model.H
 // general reports whether a is a printer's general "offline or paused"
 // alert. A printer that stops for a specific reason (a cover open, a paper
 // jam) raises it too, so next to such an error it is part of that problem,
-// not one of its own (v0.6-D22): opening a Zebra's cover is one alert.
+// not one of its own (v0.6-D25): opening a Zebra's cover is one alert.
 func general(a model.Alert) bool {
 	switch a.Code {
 	case "hrPrinterDetectedErrorState.offline", "paused":

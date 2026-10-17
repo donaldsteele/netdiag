@@ -560,7 +560,7 @@ func observeAlerts(e *Engine, c *clk, polls ...[]model.Alert) [][]model.Notice {
 // open" and "Printer offline or paused" when its cover opens, and clears the
 // door alert a moment before the offline flag when it closes. That is one
 // problem: one alert, and one OK under the same key once both are gone
-// (v0.6-D22).
+// (v0.6-D25).
 func TestPrinterAlertsClearedInSteps(t *testing.T) {
 	e, c := newEng()
 	n := observeAlerts(e, c, []model.Alert{door, off}, []model.Alert{off}, nil)
