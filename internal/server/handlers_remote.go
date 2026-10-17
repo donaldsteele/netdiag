@@ -77,6 +77,31 @@ func (s *Server) handleRemoteOpen(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleOSOpen opens a page of this computer's own settings, named from a
+// fixed list ({"page":"location"}), for the advice's Open Location
+// settings button. Any other name gets 400; a computer without the page
+// (macOS) gets 501.
+func (s *Server) handleOSOpen(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Page string `json:"page"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if !remote.KnownOSPage(body.Page) {
+		writeError(w, http.StatusBadRequest, "unknown settings page")
+		return
+	}
+	switch err := s.cfg.OpenOSPage(body.Page); {
+	case errors.Is(err, remote.ErrOSPageUnsupported):
+		writeError(w, http.StatusNotImplemented, "netdiag can't open this settings page on this computer")
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // handleRemoteRDPFile downloads a Remote Desktop connection file, for
 // computers where netdiag cannot start Remote Desktop itself.
 func (s *Server) handleRemoteRDPFile(w http.ResponseWriter, r *http.Request) {

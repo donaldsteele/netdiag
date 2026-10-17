@@ -35,6 +35,9 @@ type Config struct {
 	Service    *service.Service                // optional; built from the fields above when nil
 	Version    string                          // reported to MCP clients; default "dev"
 	Remote     remote.Opener                   // opens remote desktop and screen sharing; defaults to remote.System
+	// OpenOSPage opens a page of this computer's settings from the fixed
+	// list (POST /api/os/open); defaults to remote.OpenOSPage.
+	OpenOSPage func(page string) error
 }
 
 // Server is the HTTP server. Create with New, then Listen and Serve.
@@ -68,6 +71,9 @@ func New(cfg Config) *Server {
 	}
 	if cfg.Remote == nil {
 		cfg.Remote = remote.System{}
+	}
+	if cfg.OpenOSPage == nil {
+		cfg.OpenOSPage = remote.OpenOSPage
 	}
 	s := &Server{cfg: cfg, svc: svc, keepalive: 15 * time.Second, baseCtx: ctx, cancel: cancel, quit: make(chan struct{})}
 	s.mcpSrv = mcpserver.New(svc, mcpserver.Options{Transport: "http", Version: cfg.Version})
@@ -152,6 +158,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/remote", s.handleRemoteCaps)
 	mux.HandleFunc("POST /api/scans/{id}/remote", s.handleRemoteOpen)
 	mux.HandleFunc("GET /api/scans/{id}/remote.rdp", s.handleRemoteRDPFile)
+	mux.HandleFunc("POST /api/os/open", s.handleOSOpen)
 	for _, m := range []string{"GET", "POST", "DELETE"} {
 		mux.Handle(m+" /mcp", s.mcpGate(s.mcpHandler))
 	}

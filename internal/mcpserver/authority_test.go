@@ -45,7 +45,8 @@ func TestToolSetMatchesAllowList(t *testing.T) {
 }
 
 func TestNoMutatingCallsInMCPLayer(t *testing.T) {
-	forbidden := []string{"SaveSettings(", "DeleteScan(", "IgnoreMAC(", "handleQuit", "Quit("}
+	// OpenOSPage( (v0.6 M7): agents never open this computer's settings pages.
+	forbidden := []string{"SaveSettings(", "DeleteScan(", "IgnoreMAC(", "handleQuit", "Quit(", "OpenOSPage("}
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
