@@ -189,8 +189,8 @@ Tag `v0.5.7` is at `d69860a`. It shipped four changes:
 Plan: [v0.6.md](v0.6.md). Status: In progress (started 2026-10-17, after the v0.5.8 tag). Every v0.6 decision is decided (12.2).
 
 **Gate**
-- v0.5.8 is tagged.
-- v0.6-D15 is answered before M7.
+- v0.5.8 is tagged (met: tag `v0.5.8`, 2026-10-17).
+- v0.6-D15 is answered before M7 (met: decided 2026-10-17, "add it").
 - The test rig is ready before M10:
   - a standard-user Windows 11 account with the firewall on;
   - a macOS 15 Mac;
@@ -216,7 +216,7 @@ Plan: [v0.6.md](v0.6.md). Status: In progress (started 2026-10-17, after the v0.
   - F10: [§4.9][v06-49]
 - MCP: `get_status`, `list_problems`, `get_runbook`, 4 resources and `netdiag mcp --attach` ([§4.14][v06-414]). Also the runbook registry, footer v2 and 5 runbooks ([§5][v06-5]).
 - Added by review:
-  - D15, the "This network has no internet" switch, which needs the product owner's OK;
+  - D15, the "This network has no internet" switch, approved by the product owner on 2026-10-17;
   - D19, so that MCP `cancel_scan` can't stop a live scan started from the window.
 
 **Notes after v0.5.8** (apply them when you reach the milestone)
@@ -278,7 +278,7 @@ Plan: [v0.7.md](v0.7.md). Status: Planned. The consistency review wrote this pla
   - F14 `MDNSInfo.Details`;
   - the runbook registry, the uiOnly split, `TestRunbook*` and `TestMCPImportsNoActionPackages`.
 - **v0.5.8 has shipped:** the port cap, gateway fallback, RunHealth interface, export fixes, redirects and certificate trust.
-- **Decisions.** V7-D1 to V7-D13 are confirmed. v0.6-D15 is answered, because it decides where #6 stops.
+- **Decisions.** V7-D1 to V7-D13 are confirmed. v0.6-D15 is answered, because it decides where #6 stops (met: decided 2026-10-17, "add it").
 
 **Goal.** Open any device and do something about it:
 - **Check again now** re-checks it on the spot;
@@ -886,7 +886,10 @@ Token: Y means the session token is required (from v0.6). Every route is mocked 
 - **`names.Best(h)`** (v0.7) is the only namer. Its order: the inventory name, then the mDNS instance (F14 `Details`), then SNMP sysName, then the hostname, then the printer model, then the IP. It replaces `label()` (`internal/notify/notify.go:120`) and the v0.6 chat-title chain.
 - **Settings.**
   - `settings.json` stays at schemaVersion 1, and new fields take their defaults when the file is read.
-  - **`RepairSettings`** (v0.6 F7) repairs a bad field on load, field by field, and reports it in `repaired`. Every later version adds its load rules here. It shares one rule set with `NormalizeSettings` (`normalize` in `internal/store/settings.go`), so a new rule is written once; give its path a label in app.js `repairedLabels` (`TestSettingsRepairedUI`).
+  - **`RepairSettings`** (v0.6 F7) repairs a bad field on load, field by field, and reports it in `repaired`. Every later version adds its load rules here. It shares one rule set with `NormalizeSettings` (`normalize` in `internal/store/settings.go`), so a new rule is written once.
+    - A value of the wrong JSON type is reset and reported too, every one of them, and so is a whole object of the wrong type (`"alerts": 5` reports `alerts`). `schemaVersion` is put right without a word (v0.6-D20).
+    - **Labels.** `store.RepairPaths()` lists every path a load can report: each settings field and each object, found from the `json` tags. app.js `repairedLabels` must have a label for exactly those paths (`TestSettingsRepairedUI`), so a new settings field fails the test until it gets one. A reset field with no control in Settings is also listed in app.js `repairedOffPage`: the notice names it but doesn't say "Check them below". Team chat is there until its Settings section lands (v0.6 M11 removes it).
+  - **Saving settings.** Every save goes through `Service.SaveSettings`, which holds the service save lock across the file write, `ApplySettings` and the `OnSettingsSaved` hooks, so the hooks run one save at a time in the order the saves reached `settings.json`. A load-modify-save (`IgnoreMAC`; v0.8's `PauseAlerts` and `ResumeAlerts`, where the v0.8 plan says "the store mutex") holds the same lock and saves through `saveSettingsLocked`. A hook never saves settings.
   - **`settings.chat`** (v0.6): `{enabled, minSeverity}`, with `minSeverity` one of `info`, `warning` (the default, v0.6-D4) or `critical` (`model.ChatSeverity*`).
   - **`NormalizeSettings`** (`internal/store/settings.go`) stays strict for `PUT /api/settings`, and its 400 names the field.
   - v0.8 adds server-owned fields that `PUT /api/settings` never overwrites: `monitor.enabled`, `monitor.cidr`, `monitor.interface`, `monitor.gatewayIP`, `monitor.gatewayMAC` and `alerts.pausedUntil`.
@@ -1236,7 +1239,7 @@ Plan: [§10][v06-10].
 | v0.6-D17 | A post that was never delivered, followed by its resolve | Decided (2026-10-17) | Drop both | M11 |
 | v0.6-D18 | Debounce counts | Decided (2026-10-17) | 2 failing and 2 passing cycles for health and presence; 1 for printer alerts | M5 |
 | v0.6-D19 | MCP `cancel_scan` on a live scan started from the window | Decided (2026-10-17) | Refuse unless an agent started it; answer "ask the person to click Stop live". It narrows a tool that is already allowed. Test: `TestCancelScanRefusesUILive` | M3 |
-| v0.6-D20 | Which settings repairs F7 reports | Decided (implementation, 2026-10-17) | `RepairSettings` resets, and lists in `repaired`, only values the strict save would refuse. Blank or zero values that already mean the default (a blank community or chat level, poll interval 0, expected status 0, a blank internet check URL) are filled in silently, as on save. A value of the wrong JSON type is reset too (Go's decoder names only the first one). Unreadable JSON still gives all defaults with no notice. The file keeps the bad value until the next save, and the page shows the notice once per page load | M1 |
+| v0.6-D20 | Which settings repairs F7 reports | Decided (implementation, 2026-10-17) | `RepairSettings` resets, and lists in `repaired`, only values the strict save would refuse. Blank or zero values that already mean the default (a blank community or chat level, poll interval 0, expected status 0, a blank internet check URL) are filled in silently, as on save. Every value of the wrong JSON type is reset and listed too. Go's decoder names only the first, so the load checks each field (`wrongTypes`), and an object of the wrong type is listed as the object (`alerts`). A bad `schemaVersion` is put right without a word: it is not a setting. Unreadable JSON still gives all defaults with no notice. The file keeps the bad value until the next save. The page keeps the list until Settings opens, so a save made first (Mute alerts, Ignore this MAC) doesn't lose it, and names each field once per page load. A reset field with no control in Settings (team chat until M11, a trusted certificate) is named, but the notice doesn't say "Check them below" for it | M1 |
 
 ### 12.3 v0.7 "Device toolkit"
 
