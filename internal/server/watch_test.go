@@ -95,3 +95,35 @@ func TestIdentity(t *testing.T) {
 		t.Fatalf("foreign host: %d", r.StatusCode)
 	}
 }
+
+// The page attaches to a running scan, asks before it replaces watching,
+// shows the stopped and restarted banners from the heartbeat, rebuilds
+// replayed banners silently and lets only one tab beep (F9).
+func TestWatchGuardUI(t *testing.T) {
+	html, err := readAsset("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js, err := readAsset("app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`<dialog id="restart-dialog"`, `id="restart-btn"`, "Restart watching", "Keep watching",
+		"netdiag is watching this network", `id="backend-stopped"`, "<strong>netdiag has stopped.</strong> Open netdiag again to keep watching.",
+		`id="backend-restarted"`, "<strong>netdiag was restarted.</strong>", "Reload page", "icons.svg#i-refresh-cw"} {
+		if !strings.Contains(string(html), want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	for _, want := range []string{"fetch('/api/scans/running')", "fetch('/api/identity'", "body.replaceLive = true",
+		"r.status === 409 && j.watching", "new BroadcastChannel('netdiag')", "if (n.replay || !this.isBeeper()) return;",
+		"this.hbSchedule(this.sseErr || this.hbFails ? 5000 : 15000)", "this.hbFails >= 2"} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+	// replaceLive is sent only by Restart watching.
+	if n := strings.Count(string(js), "replaceLive"); n != 1 {
+		t.Errorf("app.js names replaceLive %d times, want once (in start)", n)
+	}
+}

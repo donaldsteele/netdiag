@@ -244,6 +244,10 @@ tr.host.isnew{animation:rowin .6s ease-out}
 @keyframes blink{to{visibility:hidden}}
 }
 /* T8: narrow screens. The drawer is full width and the settings form uses less padding. */
+/* restart watching dialog and the stopped / restarted banners (F9) */
+#restart-dialog{max-width:460px}
+#restart-dialog p{margin:var(--s2) 0}
+.alert.backendmsg{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2)}
 @media (max-width:759px){.drawer{width:100%}.sform{padding:var(--s4)}}
 /* v0.3 polish: one brand per layout, compact top bar, drawer rows, narrow ticker */
 .topbar{align-items:flex-end}

@@ -1,5 +1,8 @@
 let tileRaf = 0;
 let tileCur = {}; // non-reactive copy of the tile values, so tweening does not retrigger its own effect
+let hbTimer = 0; // next heartbeat
+let tabs = null; // BroadcastChannel shared by every open netdiag tab
+let restartOpener = null; // element that opened the restart dialog
 document.addEventListener('alpine:init', () => {
   Alpine.data('app', () => ({
     ifaces: [], ifaceName: '', cidr: '', community: 'public',
@@ -15,6 +18,7 @@ document.addEventListener('alpine:init', () => {
     history: [], historyError: '', baseId: '', currentId: '', diff: null, diffError: '', diffBusy: false,
     shown: {},
     remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
+    watching: null, restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: '',
     log: [], logSeq: 0, logHidden: {}, logStick: true, logSeen: {},
     logKinds: [{id: 'scan', label: 'Scan'}, {id: 'host', label: 'New host'}, {id: 'offline', label: 'Offline'}, {id: 'online', label: 'Online'},
                {id: 'conflict', label: 'Conflict'}, {id: 'health', label: 'Health'}, {id: 'notice', label: 'Notice'}, {id: 'error', label: 'Error'}],
@@ -106,9 +110,12 @@ document.addEventListener('alpine:init', () => {
         const d = this.ifaces.find(i => i.isDefault) || this.ifaces[0];
         if (d) { this.ifaceName = d.name; this.cidr = d.suggested || d.cidr; }
       } catch (e) { this.error = 'Could not list network interfaces: ' + e.message; }
+      this.initTabs();
+      await this.reattach();
       this.loadSettings();
       this.loadHealth();
       this.loadRemoteCaps();
+      this.startHeartbeat();
     },
     async loadSettings() {
       try {
@@ -414,14 +421,19 @@ document.addEventListener('alpine:init', () => {
     // ---- alerts ----
     onNotice(n, scanId) {
       // Notice ids (n-<seq>) restart per scan, so the dedupe key includes the scan id.
-      if (!n || n.replay || !n.id) return; // replayed notices stay silent
+      if (!n || !n.id) return;
       const key = (scanId || '') + ':' + n.id;
       if (this.seenNotices[key]) return;
       this.seenNotices[key] = true;
+      // A replayed notice (the page was reloaded or reconnected) rebuilds its
+      // banner silently: no sound, desktop pop-up or log line.
       if (n.ok) { this.onFixed(n, key); return; }
-      this.logPush('notice', (n.title || 'Notice') + (n.message ? ': ' + n.message : ''), n.ip);
+      if (!n.replay) this.logPush('notice', (n.title || 'Notice') + (n.message ? ': ' + n.message : ''), n.ip);
+      // A banner key is unique: never show two banners for one notice.
+      this.banners = this.banners.filter(b => b.bid !== key);
       this.banners.unshift(Object.assign({}, n, {bid: key}));
       if (this.banners.length > 50) this.banners.length = 50;
+      if (n.replay || !this.isBeeper()) return;
       if (this.soundOn()) this.beep(n.severity);
       if (this.settings && this.settings.alerts.desktop && this.desktopState() === 'granted') {
         try { new Notification(n.title || 'netdiag', {body: n.message || '', tag: n.key || n.id}); } catch (e) {}
@@ -660,21 +672,163 @@ document.addEventListener('alpine:init', () => {
       return fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
                          body: body === undefined ? undefined : JSON.stringify(body)});
     },
-    async start() {
+    resetScan() {
       this.error = ''; this.hosts = []; this.warnings = []; this.drawerIP = '';
       this.stage = ''; this.done = 0; this.total = 0; this.state = ''; this.gateway = '';
       this.liveStatus = null; this.announce = ''; this.announced = {}; this.conflicts = [];
       this.seenNotices = {}; this.logSeen = {}; this.remoteMsg = {}; this.remoteShort = {}; this.remoteBusy = {};
+    },
+    // replace is set only by Restart watching: without it the server never
+    // stops a scan that is watching the network and answers 409 instead.
+    async start(replace) {
+      this.error = '';
+      const cidr = this.cidr.trim();
       try {
-        const r = await this.post('/api/scans', {cidr: this.cidr.trim(), interface: this.ifaceName, community: this.community, live: !!this.live});
+        const body = {cidr: cidr, interface: this.ifaceName, community: this.community, live: !!this.live};
+        if (replace === true) body.replaceLive = true;
+        const r = await this.post('/api/scans', body);
         const j = await r.json();
+        if (r.status === 409 && j.watching) { this.askRestart(j.watching, true); return; }
         if (!r.ok) { this.error = j.error || ('Scan failed (HTTP ' + r.status + ')'); return; }
+        this.resetScan();
         this.scanId = j.id; this.running = true; this.state = 'running';
-        this.logPush('scan', 'Scan started: ' + this.cidr.trim() + (this.live ? ' (live)' : ''));
+        this.logPush('scan', (replace === true ? 'Watching restarted: ' : 'Scan started: ') + cidr + (this.live ? ' (live)' : ''));
         this.listen(j.id);
       } catch (e) { this.error = 'Could not start scan: ' + e.message; }
     },
-    listen(id) {
+
+    // ---- never lose netdiag (F9) ----
+    // A reloaded or reopened page attaches to the scan that is running, so the
+    // table, health, banners and live pill come back. The event stream
+    // replays them; replayed notices rebuild their banners without a sound.
+    async reattach() {
+      let sc = null;
+      try {
+        const r = await fetch('/api/scans/running');
+        if (r.ok) sc = ((await r.json()) || {}).scan;
+      } catch (e) {}
+      if (!sc || !sc.id) return false;
+      if (sc.id === this.scanId && this.es) return true;
+      const q = sc.request || {};
+      this.resetScan();
+      if (q.cidr) this.cidr = q.cidr;
+      if (q.interface) this.ifaceName = this.ifaces.some(i => i.name === q.interface) ? q.interface : '';
+      this.live = !!q.live;
+      this.scanId = sc.id; this.running = true; this.state = sc.state || 'running';
+      this.logPush('scan', 'Reconnected to the running scan: ' + (q.cidr || '') + (q.live ? ' (live)' : ''));
+      this.listen(sc.id, true);
+      return true;
+    },
+    // Restart watching, and the answer to a 409 from a tab that did not know
+    // a scan was watching (stale). w is the server's watching scan.
+    async askRestart(w, stale) {
+      const opener = document.activeElement;
+      if (!w) {
+        try {
+          const r = await fetch('/api/scans/running');
+          const sc = r.ok ? ((await r.json()) || {}).scan : null;
+          if (sc) w = {id: sc.id, cidr: (sc.request || {}).cidr, since: sc.liveSince};
+        } catch (e) {}
+      }
+      this.watching = w || {id: this.scanId}; this.restartStale = !!stale;
+      restartOpener = opener;
+      this.$nextTick(() => {
+        const d = this.$refs.restartDlg;
+        if (d && !d.open) d.showModal();
+        const k = document.getElementById('restart-keep');
+        if (k) k.focus();
+      });
+    },
+    restartSince() {
+      const t = Date.parse((this.watching || {}).since || '');
+      return isNaN(t) ? '' : ' (since ' + new Date(t).toTimeString().slice(0, 5) + ')';
+    },
+    closeRestart() { const d = this.$refs.restartDlg; if (d && d.open) d.close(); },
+    // Focuses the first of els that is shown, trying for a few frames while
+    // x-show catches up.
+    focusShown(els, tries) {
+      const el = els.find(e => e && e.isConnected && e.offsetParent !== null);
+      if (el) { el.focus(); return; }
+      if ((tries || 0) < 10) requestAnimationFrame(() => this.focusShown(els, (tries || 0) + 1));
+    },
+    // Keep watching (also Esc): a stale tab attaches to the scan that is
+    // watching. Focus goes back to the button that opened the dialog, or to
+    // Restart watching when that button is gone.
+    async keepWatching() {
+      const stale = this.restartStale, btn = document.getElementById('restart-btn');
+      this.closeRestart();
+      if (stale && await this.reattach()) this.focusShown([btn]);
+      else this.focusShown([restartOpener, btn]);
+    },
+    async restartWatching() {
+      this.closeRestart();
+      this.focusShown([restartOpener, document.getElementById('restart-btn')]);
+      await this.start(true);
+    },
+
+    // The heartbeat asks GET /api/identity every 15 s while the tab is
+    // visible, and every 5 s after a failure or an event stream error. Two
+    // failures in a row mean netdiag has stopped; another instanceId means
+    // it was restarted and this page is out of date.
+    startHeartbeat() {
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.hbSchedule(0); });
+      this.hbTick();
+    },
+    hbSchedule(ms) { clearTimeout(hbTimer); hbTimer = setTimeout(() => this.hbTick(), ms); },
+    async hbTick() {
+      if (this.quitted || this.backend === 'restarted') return;
+      if (document.visibilityState !== 'hidden' || this.sseErr || this.hbFails) await this.beat();
+      this.hbSchedule(this.sseErr || this.hbFails ? 5000 : 15000);
+    },
+    async beat() {
+      let j = null;
+      const ctl = typeof AbortController === 'undefined' ? null : new AbortController();
+      const t = ctl ? setTimeout(() => ctl.abort(), 4000) : 0;
+      try {
+        const r = await fetch('/api/identity', {cache: 'no-store', signal: ctl ? ctl.signal : undefined});
+        if (r.ok) j = await r.json();
+      } catch (e) {}
+      clearTimeout(t);
+      if (this.quitted) return;
+      if (!j || j.app !== 'netdiag') {
+        this.hbFails++;
+        if (this.hbFails >= 2 && this.backend === 'ok') this.backend = 'stopped';
+        return;
+      }
+      this.hbFails = 0;
+      if (!this.instanceId) this.instanceId = j.instanceId || '';
+      if (j.instanceId && j.instanceId !== this.instanceId) this.backend = 'restarted';
+      else if (this.backend === 'stopped') this.backend = 'ok';
+    },
+    reloadPage() { window.location.reload(); },
+
+    // Every open netdiag tab shows the banners, but only the most recently
+    // focused one plays the sound and raises desktop pop-ups.
+    initTabs() {
+      this.tabId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      this.beeper = this.tabId;
+      if (typeof BroadcastChannel === 'undefined') return;
+      try { tabs = new BroadcastChannel('netdiag'); } catch (e) { return; }
+      tabs.onmessage = ev => {
+        const m = ev.data || {};
+        if (m.type === 'focus' && m.id) this.beeper = m.id;
+        else if (m.type === 'bye' && m.id === this.beeper) this.beeper = '';
+      };
+      const claim = () => {
+        this.beeper = this.tabId;
+        try { tabs.postMessage({type: 'focus', id: this.tabId}); } catch (e) {}
+      };
+      window.addEventListener('focus', claim);
+      window.addEventListener('pageshow', ev => { if (ev.persisted) claim(); });
+      window.addEventListener('pagehide', () => { try { tabs.postMessage({type: 'bye', id: this.tabId}); } catch (e) {} });
+      claim();
+    },
+    // No beeper (it closed) means every tab may beep until one is focused.
+    isBeeper() { return !this.beeper || this.beeper === this.tabId; },
+
+    // resumed: attaching to a scan that was already running (reattach), so
+    // the replay is not announced as a new start.
+    listen(id, resumed) {
       if (this.es) this.es.close();
       const es = new EventSource('/api/scans/' + id + '/events');
       this.es = es; this.liveSynced = false;
@@ -705,7 +859,7 @@ document.addEventListener('alpine:init', () => {
         if (this.liveSynced && fresh.length) {
           this.announce = fresh.map(h => ('New device: ' + h.ip + ' ' + (h.vendor || '')).trim()).join('. ');
         }
-        if (!this.liveSynced) this.logPush('scan', 'Live monitoring started');
+        if (!this.liveSynced && !resumed) this.logPush('scan', 'Live monitoring started');
         this.liveSynced = true;
       });
       // Presence events are live-only (never replayed), so a reconnect does
@@ -726,7 +880,13 @@ document.addEventListener('alpine:init', () => {
         es.close(); this.es = null;
       });
       on('error', m => { this.error = (m && m.message) || 'Scan error'; this.logPush('error', this.error); });
-      es.onerror = () => { if (es.readyState === EventSource.CLOSED) this.running = false; };
+      es.onopen = () => { this.sseErr = false; };
+      es.onerror = () => {
+        if (es !== this.es) return;
+        if (es.readyState === EventSource.CLOSED) this.running = false;
+        // The stream broke: check that netdiag is still there sooner.
+        if (!this.sseErr) { this.sseErr = true; if (!this.hbFails) this.hbSchedule(5000); }
+      };
     },
     upsert(h) {
       const i = this.hosts.findIndex(x => x.ip === h.ip);
@@ -738,6 +898,7 @@ document.addEventListener('alpine:init', () => {
       if (this.es) this.es.close();
       try { await this.post('/api/quit'); } catch (e) {}
       this.running = false; this.quitted = true;
+      clearTimeout(hbTimer);
     },
 
     stageLabel() {

@@ -44,8 +44,13 @@ const matchId = (re, p) => {
 // network has no internet" switch in settings for fx.NETWORK, v0.6-D15).
 // osOpen: the status POST /api/os/open answers for the known page
 // (204, or 501 as on macOS); any other page gets 400, as on the server.
-export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired, health: healthState = 'default', osOpen = 204 } = {}) {
-  const rec = { requests: [], unmatched: [], external: [], sse: [] };
+// running: true makes GET /api/scans/running report a live scan (fx.runningScan),
+// so the page reattaches on load, and POST /api/scans without replaceLive
+// answers 409 like handleStart. identity: 'ok', 'down' (no answer) or
+// 'restarted' (another instanceId) for the heartbeat. Specs may change
+// rec.running, rec.identity and rec.frames (the event stream) while the page runs.
+export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired, health: healthState = 'default', osOpen = 204, running = false, identity = 'ok' } = {}) {
+  const rec = { requests: [], unmatched: [], external: [], sse: [], running, identity, frames: null, identityCalls: 0 };
   const origin = new URL(BASE_URL).origin;
   const MCP_URL = 'http://127.0.0.1:8787/mcp';
   let settings = { ...(initialSettings || fx.settings()), mcpUrl: MCP_URL };
@@ -97,7 +102,21 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     if (method === 'GET' && p === '/api/compare/export') {
       return route.fulfill({ status: 200, contentType: 'text/plain', body: 'exported' });
     }
-    if (method === 'POST' && p === '/api/scans') return json(route, 202, { id: fx.SCAN_ID });
+    if (method === 'POST' && p === '/api/scans') {
+      // Mirrors Registry.Start: a scan that is watching is replaced only with replaceLive.
+      if (rec.running && !JSON.parse(body || '{}').replaceLive) {
+        return json(route, 409, { error: 'netdiag is watching this network.', watching: fx.watching() });
+      }
+      return json(route, 202, { id: fx.SCAN_ID });
+    }
+    if (method === 'GET' && p === '/api/scans/running') {
+      return json(route, 200, { scan: rec.running ? fx.runningScan() : null });
+    }
+    if (method === 'GET' && p === '/api/identity') {
+      rec.identityCalls++;
+      if (rec.identity === 'down') return route.abort('connectionrefused');
+      return json(route, 200, fx.identity(rec.identity === 'restarted' ? 2 : 1));
+    }
     if (method === 'POST' && p === '/api/conflicts/ignore') {
       // Mirrors Service.IgnoreMAC: the MAC is added (upper case, once) to the settings list.
       const m = String((JSON.parse(body || '{}').mac) || '').toUpperCase();
@@ -122,7 +141,7 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     const scanId = matchId(/^\/api\/scans\/([^/]+)\/events$/, p);
     if (method === 'GET' && scanId) {
       rec.sse.push(scanId);
-      const frames = customFrames || (scenario === 'live' ? fx.liveFrames() : fx.scanFrames());
+      const frames = rec.frames || customFrames || (scenario === 'live' ? fx.liveFrames() : fx.scanFrames());
       return route.fulfill({
         status: 200,
         headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },

@@ -12,7 +12,7 @@
 </head>
 <body>
 <a class="skip" href="#main">Skip to results</a>
-<div class="shell" :class="{navopen: navOpen}" x-data="app()" x-init="init()" @keydown.escape.window="drawerIP && !$refs.dlg.open && closeDrawer()">
+<div class="shell" :class="{navopen: navOpen}" x-data="app()" x-init="init()" @keydown.escape.window="drawerIP && !$refs.dlg.open && !$refs.restartDlg.open && closeDrawer()">
   <aside class="sidebar" id="sidebar">
     <div class="brand mono" aria-hidden="true">netdiag</div>
     <nav aria-label="Main">
@@ -49,6 +49,7 @@
       <button type="submit" class="primary" x-show="!running" :disabled="!cidr.trim()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-radar"></use></svg>Scan</button>
       <button type="button" x-show="running && state !== 'live'" @click="cancel()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-square"></use></svg>Cancel</button>
       <button type="button" x-show="state === 'live'" @click="cancel()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-square"></use></svg>Stop live</button>
+      <button type="button" id="restart-btn" x-show="state === 'live'" aria-haspopup="dialog" @click="askRestart()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart watching</button>
       <details class="menu" @keydown.escape="$el.open = false">
         <summary><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-download"></use></svg>Export</summary>
         <div class="menupop">
@@ -103,6 +104,9 @@
   <main id="main" tabindex="-1">
     <div class="alert error" role="alert" x-show="error" x-text="error"></div>
     <div class="alert warn" x-show="quitted" role="status">netdiag has stopped. You can close this tab.</div>
+    <div class="alert warn" id="backend-stopped" x-show="backend === 'stopped' && !quitted" role="status"><strong>netdiag has stopped.</strong> Open netdiag again to keep watching.</div>
+    <div class="alert warn backendmsg" id="backend-restarted" x-show="backend === 'restarted' && !quitted" role="status"><span><strong>netdiag was restarted.</strong> This page is out of date.</span>
+      <button type="button" @click="reloadPage()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Reload page</button></div>
 
     <section class="progress" aria-label="Scan progress" x-show="view === 'devices'">
       <div class="stage mono" x-text="stageLabel()"></div>
@@ -444,7 +448,7 @@
       </div>
       <div id="log" class="logbox mono" role="log" aria-label="Activity log" aria-live="off"
            @scroll.window.passive="logOnScroll()" x-effect="logShown().length; logFollow()">
-        <p class="empty" x-show="!log.length">&gt; no events yet - start a scan</p>
+        <p class="empty" x-show="!log.length">&gt; no activity yet - start a scan</p>
         <template x-for="e in logShown()" :key="e.id">
           <div class="logline"><span class="lt" x-text="logTime(e)"></span> <span class="lk" :class="'k-' + e.kind"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + kindIcon(e.kind)"></use></svg><span x-text="e.kind.toUpperCase()"></span></span> <span class="lx" x-text="e.text"></span></div>
         </template>
@@ -574,6 +578,17 @@
       <button type="button" @click="closeSettings()">Cancel</button>
     </p>
   </form>
+</dialog>
+<dialog id="restart-dialog" x-ref="restartDlg" aria-labelledby="restart-h" aria-describedby="restart-q" @cancel.prevent="keepWatching()">
+  <div class="sform">
+    <h2 id="restart-h">Restart watching?</h2>
+    <p id="restart-q"><strong>netdiag is watching this network</strong><span x-text="restartSince()"></span>. Restart with these settings?</p>
+    <p class="sub" id="restart-settings">These settings: <span class="mono" x-text="cidr.trim()"></span><span x-text="live ? ', live mode' : ', one scan without live mode'"></span>.</p>
+    <p class="actions">
+      <button type="button" id="restart-keep" class="primary" @click="keepWatching()">Keep watching</button>
+      <button type="button" id="restart-go" @click="restartWatching()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart</button>
+    </p>
+  </div>
 </dialog>
 </div>
 </body>

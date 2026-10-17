@@ -522,3 +522,44 @@ export function liveFrames() {
     { type: 'health', data: health() },
   ];
 }
+
+// When the fixture live scan began watching (GET /api/scans/running, 409 body).
+export const LIVE_SINCE = '2026-10-10T09:30:12Z';
+
+// GET /api/scans/running while the fixture live scan watches the network.
+export function runningScan() {
+  return { id: SCAN_ID, state: 'live', startedAt: T0, liveSince: LIVE_SINCE,
+    request: { cidr: CIDR, interface: 'Wi-Fi', live: true, liveIntervalSec: 15 } };
+}
+
+// The "watching" object of the 409 POST /api/scans answers while it watches.
+export function watching() {
+  return { id: SCAN_ID, cidr: CIDR, interface: 'Wi-Fi', since: LIVE_SINCE };
+}
+
+// GET /api/identity; n picks the instance (2 = netdiag was restarted).
+export function identity(n = 1) {
+  return { app: 'netdiag', version: 'test', pid: 4242 + n, instanceId: 'i-test-' + n, startedAt: T0 };
+}
+
+// What a page that attaches to the running live scan receives: Bus.Subscribe's
+// replay (stage, initial result, every host, the latest live status and
+// health, then current conflicts and the last notices, both flagged replay).
+// Presence events are never replayed.
+export function replayFrames() {
+  const live = liveFrames();
+  const byType = (t) => live.filter((f) => f.type === t);
+  const snap = byType('snapshot')[0];
+  const hostsNow = new Map(snap.data.hosts.map((h) => [h.ip, h]));
+  for (const f of byType('host')) hostsNow.set(f.data.ip, f.data);
+  return [
+    { type: 'stage', data: { stage: 'live' } },
+    snap,
+    ...[...hostsNow.values()].map((h) => ({ type: 'host', data: h })),
+    byType('live').at(-1),
+    { type: 'health', data: health() },
+    ...byType('conflict').map((f) => ({ type: 'conflict', data: { ...f.data, replay: true } })),
+    { type: 'notice', data: { ...notice(1), replay: true } },
+    ...byType('notice').map((f) => ({ type: 'notice', data: { ...f.data, replay: true } })),
+  ];
+}
