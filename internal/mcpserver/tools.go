@@ -209,7 +209,7 @@ func registerTools(s *mcp.Server, svc *service.Service, opts Options) {
 		Annotations: readAnn("Get latest health report")}, t.getHealth)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "run_health_check", Title: "Run a health check now",
-		Description: "Run the network health checks (" + healthChecksText + ") now (takes up to about 10 seconds) on the network of the running or latest scan, or the default network adapter when there is no scan. Sends real network traffic.",
+		Description: "Run the network health checks (" + healthChecksText + ") now (takes up to about 10 seconds) on the network adapter of the running or most recent scan of this netdiag, or the default network adapter when there is none; the router is checked only if it is on that adapter's network. Sends real network traffic.",
 		Annotations: probeAnn("Run a health check now")}, t.runHealth)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "probe_host", Title: "Probe a single host",

@@ -160,7 +160,7 @@ Scans are limited to ranges of /22 (1024 addresses) or smaller. A /24 typically 
 
 ## Health panel
 
-The health panel sits above the hosts table. Each row shows an icon, a text status, the check name, a short detail and, where it applies, the response time. Status is always written out in words, never only by colour. Click **Recheck** to run the checks again now (they finish within about 10 seconds). Saving Settings with a new Web server address, trusted certificate or expected answer runs them again too, so the Web server card always describes the address in Settings. They check the network adapter chosen in the interface list, with the router found by the latest scan on it. The header shows a summary such as "Health: 1 fail, 2 warn".
+The health panel sits above the hosts table. Each row shows an icon, a text status, the check name, a short detail and, where it applies, the response time. Status is always written out in words, never only by colour. Click **Recheck** to run the checks again now (they finish within about 10 seconds). Saving Settings with a new Web server address, trusted certificate or expected answer runs them again too, so the Web server card always describes the address in Settings. They check the network adapter chosen in the interface list. If that adapter is the one used by the running scan, or by the most recent scan since netdiag was opened, they check the router that scan found. Otherwise they check this computer's main router (the one its internet traffic goes to), but only if it is on the chosen adapter's network. If no router is known for the adapter, the Gateway row says so. The header shows a summary such as "Health: 1 fail, 2 warn".
 
 | Check | What it means |
 |---|---|
