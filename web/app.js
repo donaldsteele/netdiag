@@ -329,10 +329,17 @@ document.addEventListener('alpine:init', () => {
         this.banners.unshift(Object.assign({}, n, fixed, {bid: bid}));
         if (this.banners.length > 50) this.banners.length = 50;
       }
-      this.logPush('notice', 'Fixed: ' + (n.title || 'Notice') + ' ' + this.fixedText(n) + (n.message ? ' ' + n.message : ''), n.ip);
+      this.logPush('notice', 'Fixed: ' + (n.title || 'Notice') + ' ' + this.bannerText(fixed), n.ip);
       if (this.settings && this.settings.alerts.desktop && this.desktopState() === 'granted') {
-        try { new Notification('Fixed: ' + (n.title || 'netdiag'), {body: 'Fixed ' + this.fixedText(n), tag: n.key || n.id, silent: true}); } catch (e) {}
+        try { new Notification('Fixed: ' + (n.title || 'netdiag'), {body: (n.message ? n.message + ' ' : '') + 'Fixed ' + this.fixedText(n), tag: n.key || n.id, silent: true}); } catch (e) {}
       }
+    },
+    // The banner's text after its lead. A Fixed banner keeps the OK message,
+    // which names what was fixed (the check, the printer alert), so three
+    // fixed health checks are three different banners.
+    bannerText(b) {
+      if (!b.ok) return b.message;
+      return this.fixedText(b) + (b.message ? ' ' + b.message : '');
     },
     // "at 10:42 (was down 12 min)." for an OK notice (local time).
     fixedText(n) {

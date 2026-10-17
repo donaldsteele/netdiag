@@ -162,7 +162,8 @@ func TestNoticeDedupeScopedToScan(t *testing.T) {
 
 // An OK notice turns its fault's banner (same key) into a Fixed banner with
 // a shape and a word, never beeps, and replaces the desktop notification
-// with the same tag, silently (v0.6-D8).
+// with the same tag, silently (v0.6-D8). The banner and the notification
+// keep the OK message, which names what was fixed.
 func TestFixedBanners(t *testing.T) {
 	js, _ := readAsset("app.js")
 	html, _ := readAsset("index.html")
@@ -172,6 +173,8 @@ func TestFixedBanners(t *testing.T) {
 		"x.key === n.key && !x.ok",
 		"'Fixed: '",
 		"tag: n.key || n.id, silent: true",
+		"body: (n.message ? n.message + ' ' : '') + 'Fixed '",
+		"return this.fixedText(b) + (b.message ? ' ' + b.message : '');",
 		"(was down ",
 	} {
 		if !strings.Contains(src, want) {
@@ -183,7 +186,7 @@ func TestFixedBanners(t *testing.T) {
 	if i < 0 || j < i || strings.Contains(src[i:j], "beep(") {
 		t.Errorf("onFixed must not beep")
 	}
-	for _, want := range []string{"sevIcon(b.ok ? 'ok' : b.severity)", "bannerLead(b)", "b.ok ? fixedText(b) : b.message", "b.ok ? 'sev-ok'"} {
+	for _, want := range []string{"sevIcon(b.ok ? 'ok' : b.severity)", "bannerLead(b)", "bannerText(b)", "b.ok ? 'sev-ok'"} {
 		if !strings.Contains(string(html), want) {
 			t.Errorf("index.html missing %q", want)
 		}

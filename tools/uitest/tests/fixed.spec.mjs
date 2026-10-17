@@ -56,12 +56,14 @@ test('an OK notice flips its banner to Fixed in place, silently', async ({ page 
   await expect(fixed).toHaveClass(/sev-ok/);
   await expect(fixed.locator('strong')).toHaveText('Fixed: Device back online');
   await expect(fixed).toContainText(/at \d\d:\d\d \(was down 12 min\)\./);
+  // The OK message stays: it says what was fixed.
+  await expect(fixed).toContainText(fx.fixedNotice(2).message);
   await expect(fixed).toContainText('192.168.2.200');
   // Shape plus word: the circle-check glyph, not the warning triangle.
   await expect(fixed.locator('svg.ico use').first()).toHaveAttribute('href', 'icons.svg#i-circle-check');
   await expect(fixed).toHaveAttribute('role', 'status');
 
-  // The fault beeped once (one warn tone); the OK made no sound.
+  // The fault beeped once (one tone); the OK made no sound.
   expect(await page.evaluate(() => window.__tones)).toBe(1);
   // The fault's desktop notification is replaced: same tag, silent.
   const notes = await page.evaluate(() => window.__notes);
@@ -69,7 +71,8 @@ test('an OK notice flips its banner to Fixed in place, silently', async ({ page 
   expect(notes[0]).toMatchObject({ title: 'Device offline', tag: fx.notice(2).key });
   expect(notes[0].silent).toBeFalsy();
   expect(notes[1]).toMatchObject({ title: 'Fixed: Device back online', tag: fx.notice(2).key, silent: true });
-  expect(notes[1].body).toMatch(/^Fixed at \d\d:\d\d \(was down 12 min\)\.$/);
+  expect(notes[1].body.startsWith(fx.fixedNotice(2).message + ' Fixed at ')).toBe(true);
+  expect(notes[1].body).toMatch(/ Fixed at \d\d:\d\d \(was down 12 min\)\.$/);
 
   // Activity: the Fixed line sits under the Notice chip; still 8 chips.
   await page.locator('#tab-activity').click();
@@ -92,10 +95,10 @@ test('an OK for a dismissed or unseen banner adds a compact Fixed banner', async
   const fixed = banners(page).filter({ hasText: 'Fixed: Supply OK again' });
   await expect(fixed).toHaveCount(1);
   await expect(fixed).toContainText('(was down 12 min).');
-  await expect(banners(page).filter({ hasText: 'Warning: Device offline' })).toHaveCount(1);
+  await expect(banners(page).filter({ hasText: 'Notice: Device offline' })).toHaveCount(1);
 
   // Dismiss the fault, then its OK arrives: a new Fixed banner, still no beep.
-  await banners(page).filter({ hasText: 'Warning: Device offline' }).getByRole('button', { name: /Dismiss/ }).click();
+  await banners(page).filter({ hasText: 'Notice: Device offline' }).getByRole('button', { name: /Dismiss/ }).click();
   await expect(banners(page)).toHaveCount(1);
   const tones = await page.evaluate(() => window.__tones);
   await page.evaluate((n) => {
@@ -104,6 +107,25 @@ test('an OK for a dismissed or unseen banner adds a compact Fixed banner', async
   }, fx.fixedNotice(2));
   await expect(banners(page).filter({ hasText: 'Fixed: Device back online' })).toHaveCount(1);
   expect(await page.evaluate(() => window.__tones)).toBe(tones);
+});
+
+// Health checks carry no IP, so the OK message is what tells their Fixed
+// banners and desktop notifications apart.
+test('Fixed banners for several health checks say which check was fixed', async ({ page }) => {
+  const opened = new Date(Date.now() - 5 * 60000).toISOString();
+  const checks = [['gateway', 'Default gateway'], ['dhcp', 'DHCP'], ['dns', 'DNS']];
+  const oks = checks.map(([id, label], i) => ({ type: 'notice', data: {
+    id: `n-${30 + i}`, trigger: 'healthFailed', severity: 'info', title: 'Health check OK again',
+    message: `${label} check is OK again.`, at: new Date().toISOString(), key: `healthFailed||${id}`,
+    ok: true, openedAt: opened } }));
+  await liveWith(page, [...fx.liveFrames(), ...oks]);
+  const fixed = banners(page).filter({ hasText: 'Fixed: Health check OK again' });
+  await expect(fixed).toHaveCount(3);
+  for (const [, label] of checks) {
+    await expect(fixed.filter({ hasText: `${label} check is OK again.` })).toHaveCount(1);
+  }
+  const bodies = (await page.evaluate(() => window.__notes)).filter(n => n.silent).map(n => n.body.split(' Fixed at ')[0]);
+  expect(bodies.sort()).toEqual(checks.map(([, label]) => `${label} check is OK again.`).sort());
 });
 
 for (const theme of ['dark', 'light']) {

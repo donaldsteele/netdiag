@@ -255,9 +255,13 @@ func (l *liveWriter) notice(n model.NoticeEvent) {
 		return
 	}
 	if n.OK {
+		// The message names what was fixed (the check, the printer alert).
 		line := time.Now().Format("15:04:05") + "  FIXED  " + n.Title
 		if n.IP != "" {
 			line += "  " + n.IP
+		}
+		if n.Message != "" {
+			line += "  " + n.Message
 		}
 		if d, ok := downFor(n.Notice); ok {
 			line += "  (was down " + d + ")"

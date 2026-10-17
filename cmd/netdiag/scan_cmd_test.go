@@ -8,8 +8,8 @@ import (
 	"netdiag/internal/model"
 )
 
-// An OK notice prints a FIXED line with how long the problem was open; with
-// --json it is the notice event with ok:true.
+// An OK notice prints a FIXED line with what was fixed and how long the
+// problem was open; with --json it is the notice event with ok:true.
 func TestLiveWriterFixedLine(t *testing.T) {
 	fault := model.Notice{ID: "n-1", Trigger: model.TriggerPrinterOffline, Severity: "warn", IP: "192.168.1.50",
 		Title: "Printer offline", Message: "Printer HP (192.168.1.50) stopped responding.",
@@ -30,8 +30,21 @@ func TestLiveWriterFixedLine(t *testing.T) {
 	if !strings.Contains(lines[0], "  ALERT  [warn]  Printer offline  192.168.1.50  Printer HP") {
 		t.Fatalf("alert line %q", lines[0])
 	}
-	if !strings.HasSuffix(lines[1], "  FIXED  Printer back online  192.168.1.50  (was down 12m)") {
+	if !strings.HasSuffix(lines[1], "  FIXED  Printer back online  192.168.1.50  Printer HP (192.168.1.50) answers again.  (was down 12m)") {
 		t.Fatalf("fixed line %q", lines[1])
+	}
+
+	// Health checks carry no IP: the message tells them apart.
+	out.Reset()
+	for _, check := range []string{"DNS", "DHCP"} {
+		l.notice(model.NoticeEvent{Notice: model.Notice{ID: "n-" + check, Trigger: model.TriggerHealthFailed, Severity: "info",
+			Title: "Health check OK again", Message: check + " check is OK again.", At: "2026-10-17T10:35:00Z",
+			Key: "healthFailed||" + strings.ToLower(check), OK: true, OpenedAt: "2026-10-17T10:30:00Z"}})
+	}
+	lines = strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 || !strings.HasSuffix(lines[0], "  FIXED  Health check OK again  DNS check is OK again.  (was down 5m)") ||
+		!strings.HasSuffix(lines[1], "  FIXED  Health check OK again  DHCP check is OK again.  (was down 5m)") {
+		t.Fatalf("health lines %q", lines)
 	}
 
 	out.Reset()

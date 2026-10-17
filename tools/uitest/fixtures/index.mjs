@@ -176,13 +176,14 @@ export function health({ web = 'unset', webURL = WEB_URL } = {}) {
   };
 }
 
-// Keys follow notify.Key: <trigger>|<MAC or ip:IP>|<part>.
+// Keys and severities follow notify.Key and the severity map (deviceOffline
+// is info); TestUITestFixtureKeys in internal/notify checks them.
 export function notice(n = 1) {
   if (n === 1) {
     return { id: 'n-1', trigger: 'supplyLow', severity: 'warn', ip: ip(10), mac: '00:1B:A9:12:34:56', title: 'Toner low',
-      message: 'Black Toner is at 15% on HL-L2350DW', at: T1, key: 'supplyLow|00:1B:A9:12:34:56|6c1a9b0e' };
+      message: 'Black Toner is at 15% on HL-L2350DW', at: T1, key: 'supplyLow|00:1B:A9:12:34:56|1c3936d3' };
   }
-  return { id: 'n-2', trigger: 'deviceOffline', severity: 'warn', ip: ip(200), mac: '00:50:56:AB:CD:EF', title: 'Device offline',
+  return { id: 'n-2', trigger: 'deviceOffline', severity: 'info', ip: ip(200), mac: '00:50:56:AB:CD:EF', title: 'Device offline',
     message: `VMware, Inc. at ${ip(200)} stopped responding`, at: new Date(Date.now() - 12 * 60000).toISOString(),
     key: 'deviceOffline|00:50:56:AB:CD:EF|' };
 }
