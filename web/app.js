@@ -482,13 +482,20 @@ document.addEventListener('alpine:init', () => {
       if (m < 60) return 'offline for ' + m + 'm';
       return 'offline for ' + Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
     },
+    // The low-supply level from Settings (Alerts > Supply threshold), so the
+    // Problems filter and the "Supply low" alert agree. 15 until settings load.
+    supplyThreshold() {
+      const t = Number(this.settings && this.settings.alerts && this.settings.alerts.supplyThresholdPct);
+      return Number.isFinite(t) && t >= 1 && t <= 100 ? t : 15;
+    },
     isProblem(h) {
       if (this.isOffline(h)) return true;
       if (this.hasConflict(h)) return true;
       const p = h.printer;
       if (h.isPrinter && p) {
         if ((p.alerts || []).length) return true;
-        if ((p.supplies || []).some(s => s.state === 'empty' || s.state === 'low' || (s.percent >= 0 && s.percent <= 15))) return true;
+        const thr = this.supplyThreshold();
+        if ((p.supplies || []).some(s => s.state === 'empty' || s.state === 'low' || (s.percent >= 0 && s.percent <= thr))) return true;
       }
       return (h.web || []).some(w => w.error || !w.status || w.status >= 400);
     },

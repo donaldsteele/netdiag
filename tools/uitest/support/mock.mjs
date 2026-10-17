@@ -31,11 +31,12 @@ const matchId = (re, p) => {
 };
 
 // scenario: 'scan' (finite scan run ending in done) or 'live' (snapshot + live transitions).
-export async function installMocks(page, { scenario = 'scan' } = {}) {
+// settings replaces the fixture settings document; frames replaces the scan's event stream.
+export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames } = {}) {
   const rec = { requests: [], unmatched: [], external: [], sse: [] };
   const origin = new URL(BASE_URL).origin;
   const MCP_URL = 'http://127.0.0.1:8787/mcp';
-  let settings = { ...fx.settings(), mcpUrl: MCP_URL };
+  let settings = { ...(initialSettings || fx.settings()), mcpUrl: MCP_URL };
   let history = fx.history();
 
   const json = (route, status, body) =>
@@ -89,7 +90,7 @@ export async function installMocks(page, { scenario = 'scan' } = {}) {
     const scanId = matchId(/^\/api\/scans\/([^/]+)\/events$/, p);
     if (method === 'GET' && scanId) {
       rec.sse.push(scanId);
-      const frames = scenario === 'live' ? fx.liveFrames() : fx.scanFrames();
+      const frames = customFrames || (scenario === 'live' ? fx.liveFrames() : fx.scanFrames());
       return route.fulfill({
         status: 200,
         headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },

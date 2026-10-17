@@ -241,7 +241,7 @@ In live mode netdiag raises an alert when something changes: a printer goes offl
 - The **bell** button in the top bar mutes or unmutes the beep (a crossed-out bell means muted). The choice is saved in Settings.
 - The **screen** button (**Enable desktop alerts**) in the top bar shows a desktop notification too. Your browser asks for permission when you click the button (it must be a click, so the browser allows the prompt). If you say no, the banner and beep still work and netdiag shows a short note. To change your mind later, use the browser's site settings for the 127.0.0.1 address.
 - Alerts only fire when something changes, not on every check, and the same alert is not repeated within its **cooldown** (default 300 seconds). Opening the page again does not replay old alerts with sound.
-- **Settings** (header button) has the switches for each alert type, the **supply threshold** (percent, 1 to 100, default 15) and the **cooldown** (30 to 3600 seconds). "Device offline" is off by default because it is noisy; "Printer offline" is on.
+- **Settings** (header button) has the switches for each alert type, the **supply threshold** (percent, 1 to 100, default 15) and the **cooldown** (30 to 3600 seconds). The supply threshold also decides when a printer supply counts under the **Problems** filter. "Device offline" is off by default because it is noisy; "Printer offline" is on.
 - On the command line, `netdiag scan --live` prints each alert as a line (`ALERT ...`, or JSON lines with `--json`) and the health summary to stderr.
 
 ## Printer status monitoring
