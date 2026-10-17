@@ -20,6 +20,7 @@ import (
 
 	"netdiag/internal/discovery"
 	"netdiag/internal/model"
+	"netdiag/internal/portprobe"
 )
 
 const (
@@ -30,7 +31,15 @@ const (
 
 	wifiCacheTTL = 60 * time.Second
 	maxBody      = 256 << 10
+
+	// gatewayDialTimeout bounds each TCP try on the gateway when it does
+	// not answer ping.
+	gatewayDialTimeout = 800 * time.Millisecond
 )
+
+// gatewayPorts are tried, in order, when the gateway does not answer ping:
+// most routers serve their admin page on one of them.
+var gatewayPorts = []int{80, 443}
 
 // Config is the settings subset the health checks need.
 type Config struct {
@@ -73,6 +82,11 @@ type Runner struct {
 	// direct UDP query.
 	dnsServers func(ctx context.Context, iface, ip string) ([]string, error)
 	askDNS     func(ctx context.Context, server string, qs []dnsmessage.Question) dnsResult
+	// dial makes one TCP connection and refused tells a refused connection
+	// (the host answered) from silence; the gateway check uses them when
+	// ping gets no reply. nil uses portprobe.Dial and portprobe.Refused.
+	dial    func(ctx context.Context, ip string, port int, timeout time.Duration) (net.Conn, error)
+	refused func(error) bool
 
 	mu       sync.Mutex
 	wifiAt   time.Time
@@ -122,6 +136,12 @@ func (r *Runner) defaults() {
 	}
 	if r.askDNS == nil {
 		r.askDNS = dnsReplies
+	}
+	if r.dial == nil {
+		r.dial = portprobe.Dial
+	}
+	if r.refused == nil {
+		r.refused = portprobe.Refused
 	}
 }
 
@@ -214,10 +234,43 @@ func (r *Runner) checkGateway(ctx context.Context, in Input) model.HealthCheck {
 			break
 		}
 	}
+	// Many routers ignore ping. A TCP connection to their admin page ports
+	// proves the router is there just as well, even when it is refused.
+	if port, d, ok := r.gatewayTCP(ctx, in.Gateway); ok {
+		why := "it does not reply to ping"
+		if lastErr != nil {
+			why = "ping could not run on this computer"
+		}
+		c := mk(0, model.HealthOK, fmt.Sprintf("the router %s answers on port %d (%s)", in.Gateway, port, why), ms(d))
+		c.Data = map[string]any{"method": "tcp", "port": port}
+		return c
+	}
 	if lastErr != nil {
 		return mk(0, model.HealthUnavailable, "ping failed locally: "+lastErr.Error(), 0)
 	}
-	return mk(0, model.HealthFail, in.Gateway+" did not reply to ping (it may block ICMP)", 0)
+	return mk(0, model.HealthFail, in.Gateway+" did not reply to ping or on ports 80 and 443", 0)
+}
+
+// gatewayTCP tries a TCP connection to gw on each of gatewayPorts in turn
+// and returns the first port that answers (connected or refused) and how
+// long the answer took.
+func (r *Runner) gatewayTCP(ctx context.Context, gw string) (int, time.Duration, bool) {
+	for _, port := range gatewayPorts {
+		if ctx.Err() != nil {
+			break
+		}
+		t0 := time.Now()
+		conn, err := r.dial(ctx, gw, port, gatewayDialTimeout)
+		d := time.Since(t0)
+		if err == nil {
+			conn.Close()
+			return port, d, true
+		}
+		if r.refused(err) {
+			return port, d, true
+		}
+	}
+	return 0, 0, false
 }
 
 func (r *Runner) checkDHCP(ctx context.Context, in Input) model.HealthCheck {

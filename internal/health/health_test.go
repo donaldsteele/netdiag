@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -56,6 +57,11 @@ func (f fakePinger) Ping(ctx context.Context, ip netip.Addr, to time.Duration) (
 	return 3 * time.Millisecond, f.ok, f.err
 }
 
+var (
+	errSilent  = errors.New("i/o timeout")
+	errRefused = errors.New("connection refused")
+)
+
 type fakeResolver struct{ err error }
 
 func (f fakeResolver) LookupHost(ctx context.Context, h string) ([]string, error) {
@@ -78,7 +84,11 @@ func newTestRunner(p fakePinger, res fakeResolver, execOut string) *Runner {
 		},
 		dnsServers: func(ctx context.Context, iface, ip string) ([]string, error) {
 			return nil, errors.New("dns servers disabled in test")
-		}}
+		},
+		dial: func(ctx context.Context, ip string, port int, to time.Duration) (net.Conn, error) {
+			return nil, errSilent
+		},
+		refused: func(err error) bool { return errors.Is(err, errRefused) }}
 	_ = execOut
 	r.defaults()
 	return r
@@ -127,6 +137,100 @@ func TestRunChecks(t *testing.T) {
 	rep = r.Run(context.Background(), Input{Config: Config{ExpectStatus: 200}})
 	if byID(rep, "gateway").Status != model.HealthUnavailable || byID(rep, "webserver").Status != model.HealthInfo {
 		t.Errorf("%+v", rep.Checks)
+	}
+}
+
+// A router that ignores ping is still reachable when it answers, or
+// refuses, a TCP connection on port 80 or 443.
+func TestGatewayIgnoresPing(t *testing.T) {
+	cases := []struct {
+		name    string
+		pinger  fakePinger
+		answers map[int]error // port -> dial result; missing = silent
+		status  string
+		detail  string
+		port    int
+	}{
+		{"port 80 open", fakePinger{}, map[int]error{80: nil}, model.HealthOK,
+			"the router 192.168.1.1 answers on port 80 (it does not reply to ping)", 80},
+		{"port 80 refused", fakePinger{}, map[int]error{80: errRefused}, model.HealthOK,
+			"the router 192.168.1.1 answers on port 80 (it does not reply to ping)", 80},
+		{"only 443", fakePinger{}, map[int]error{443: nil}, model.HealthOK,
+			"the router 192.168.1.1 answers on port 443 (it does not reply to ping)", 443},
+		{"silent", fakePinger{}, nil, model.HealthFail,
+			"192.168.1.1 did not reply to ping or on ports 80 and 443", 0},
+		{"ping broken, tcp ok", fakePinger{err: errors.New("no icmp")}, map[int]error{80: nil}, model.HealthOK,
+			"the router 192.168.1.1 answers on port 80 (ping could not run on this computer)", 80},
+		{"ping broken, tcp silent", fakePinger{err: errors.New("no icmp")}, nil, model.HealthUnavailable,
+			"ping failed locally: no icmp", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newTestRunner(tc.pinger, fakeResolver{}, "")
+			var tried []int
+			r.dial = func(ctx context.Context, ip string, port int, to time.Duration) (net.Conn, error) {
+				if ip != "192.168.1.1" || to != gatewayDialTimeout {
+					t.Errorf("dial %s timeout %v", ip, to)
+				}
+				tried = append(tried, port)
+				err, ok := tc.answers[port]
+				if !ok {
+					return nil, errSilent
+				}
+				if err != nil {
+					return nil, err
+				}
+				a, b := net.Pipe()
+				b.Close()
+				return a, nil
+			}
+			c := r.checkGateway(context.Background(), Input{Gateway: "192.168.1.1"})
+			if c.Status != tc.status || c.Detail != tc.detail {
+				t.Fatalf("got %s %q", c.Status, c.Detail)
+			}
+			if tc.port != 0 && (c.Data["port"] != tc.port || c.Data["method"] != "tcp") {
+				t.Fatalf("data %+v", c.Data)
+			}
+			if tc.port == 80 && len(tried) != 1 || tc.port != 80 && len(tried) != 2 {
+				t.Fatalf("ports tried %v", tried)
+			}
+		})
+	}
+	// A reply to ping never needs the TCP fallback.
+	r := newTestRunner(fakePinger{ok: true}, fakeResolver{}, "")
+	r.dial = func(context.Context, string, int, time.Duration) (net.Conn, error) {
+		t.Fatal("dialled although ping replied")
+		return nil, errSilent
+	}
+	if c := r.checkGateway(context.Background(), Input{Gateway: "192.168.1.1"}); c.Status != model.HealthOK {
+		t.Fatalf("%+v", c)
+	}
+}
+
+// The real dial and refusal check: a closed loopback port counts as an
+// answer, so the check reports the gateway reachable.
+func TestGatewayTCPRealDial(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := l.Addr().(*net.TCPAddr).Port
+	defer l.Close()
+	c, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := c.Addr().(*net.TCPAddr).Port
+	c.Close()
+	r := &Runner{}
+	r.defaults()
+	old := gatewayPorts
+	defer func() { gatewayPorts = old }()
+	for _, ports := range [][]int{{open}, {closed}} {
+		gatewayPorts = ports
+		if port, _, ok := r.gatewayTCP(context.Background(), "127.0.0.1"); !ok || port != ports[0] {
+			t.Errorf("ports %v: got %d %v", ports, port, ok)
+		}
 	}
 }
 
