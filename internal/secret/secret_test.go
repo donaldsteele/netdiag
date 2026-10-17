@@ -1,7 +1,6 @@
 package secret
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -39,13 +38,14 @@ func TestSealNothing(t *testing.T) {
 }
 
 // Everything that cannot be opened is ErrCannotOpen, so the owner can say
-// "needs reconnecting" without telling the cases apart.
+// "needs reconnecting" without telling the cases apart. A truncated blob is
+// tested with DPAPI only (dpapi_windows_test.go): the plain variant has no
+// integrity check, so half a token opens as half a token.
 func TestOpenFailsCleanly(t *testing.T) {
 	good, err := Seal([]byte(token))
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := base64.StdEncoding.DecodeString(good.Data)
 	other := ProtectedNone
 	if protection == ProtectedNone {
 		other = ProtectedDPAPI
@@ -56,7 +56,6 @@ func TestOpenFailsCleanly(t *testing.T) {
 		"not base64":       {Protected: protection, Data: "%%%"},
 		"other protection": {Protected: other, Data: good.Data},
 		"unknown":          {Protected: "keychain", Data: good.Data},
-		"truncated":        {Protected: protection, Data: base64.StdEncoding.EncodeToString(raw[:len(raw)/2])},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := Open(s)

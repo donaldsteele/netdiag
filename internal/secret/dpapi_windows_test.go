@@ -52,6 +52,16 @@ func TestDPAPITamperedBlobFails(t *testing.T) {
 	mustCannotOpen(t, raw)
 }
 
+// Half a blob (a file cut short) fails the DPAPI signature check.
+func TestDPAPITruncatedBlobFails(t *testing.T) {
+	s, err := Seal([]byte(token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := base64.StdEncoding.DecodeString(s.Data)
+	mustCannotOpen(t, raw[:len(raw)/2])
+}
+
 // A blob from another user or another computer names a DPAPI master key
 // this user does not have. The master key GUID sits at bytes 24-39 of the
 // blob (after dwVersion, guidProvider and dwMasterKeyVersion); a random one
