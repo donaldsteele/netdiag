@@ -11,6 +11,7 @@ import (
 	"netdiag/internal/model"
 	"netdiag/internal/report"
 	"netdiag/internal/scan"
+	"netdiag/internal/store"
 )
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -69,21 +70,26 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleExport downloads a scan as JSON or CSV. The scan may be running, just
+// finished, or saved in History by an earlier run.
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	format := r.URL.Query().Get("format")
 	if format != "json" && format != "csv" {
 		writeError(w, http.StatusBadRequest, "format must be json or csv")
 		return
 	}
-	sc, ok := s.svc.Get(r.PathValue("id"))
-	if !ok {
+	res, err := s.svc.ResolveScan(r.PathValue("id"))
+	switch {
+	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "unknown scan")
 		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "could not read the saved scan: "+err.Error())
+		return
 	}
-	res := model.RedactScan(sc.Snapshot())
+	res = model.RedactScan(res)
 	var buf bytes.Buffer
 	var ctype string
-	var err error
 	if format == "json" {
 		ctype, err = "application/json", report.WriteJSON(&buf, res)
 	} else {

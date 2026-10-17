@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -171,6 +173,33 @@ func TestHistoryEndpoints(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 403 {
 		t.Fatalf("delete foreign host: %d", resp.StatusCode)
+	}
+}
+
+// A scan saved by an earlier run (only in History, not in memory) exports too.
+func TestExportSavedScan(t *testing.T) {
+	_, u, st := startStore(t)
+	seed(t, st, "s1", "10.0.0.0/24", "2026-01-01T10:00:00Z", "10.0.0.5", "10.0.0.6")
+	r, b := doj(t, "GET", u+"/api/scans/s1/export?format=csv", "", "")
+	if r.StatusCode != 200 || !strings.HasPrefix(b, "ip,mac,") || !strings.Contains(b, "10.0.0.6") ||
+		!strings.HasSuffix(r.Header.Get("Content-Disposition"), `.csv"`) {
+		t.Fatalf("csv: %d %v %q", r.StatusCode, r.Header, b)
+	}
+	r, b = doj(t, "GET", u+"/api/scans/s1/export?format=json", "", "")
+	if r.StatusCode != 200 || !strings.Contains(b, `"id": "s1"`) || !strings.Contains(b, "10.0.0.5") {
+		t.Fatalf("json: %d %q", r.StatusCode, b)
+	}
+	if r, _ := doj(t, "GET", u+"/api/scans/nope/export?format=json", "", ""); r.StatusCode != 404 {
+		t.Fatalf("unknown id: %d", r.StatusCode)
+	}
+	if r, _ := doj(t, "GET", u+"/api/scans/s1/export?format=xml", "", ""); r.StatusCode != 400 {
+		t.Fatalf("bad format: %d", r.StatusCode)
+	}
+	if err := os.WriteFile(filepath.Join(st.Dir(), "history", "20260101T110000Z-bad.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if r, b := doj(t, "GET", u+"/api/scans/bad/export?format=json", "", ""); r.StatusCode != 500 || !strings.Contains(b, "could not read the saved scan") {
+		t.Fatalf("unreadable file: %d %s", r.StatusCode, b)
 	}
 }
 
