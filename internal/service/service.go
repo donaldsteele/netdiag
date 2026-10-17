@@ -41,7 +41,10 @@ type Config struct {
 type Service struct {
 	cfg Config
 
-	// hooksMu guards onSaved, the OnSettingsSaved hooks in call order.
+	// saveMu makes each settings save (SaveSettings, IgnoreMAC) one step:
+	// the write, ApplySettings and the hooks. hooksMu guards onSaved, the
+	// OnSettingsSaved hooks in call order.
+	saveMu  sync.Mutex
 	hooksMu sync.Mutex
 	onSaved []func(model.Settings)
 

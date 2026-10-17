@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -314,6 +316,54 @@ func TestOnSettingsSavedList(t *testing.T) {
 	want := []string{"mcp:c1", "chat:warning", "mcp:c1", "chat:warning"}
 	if !slices.Equal(calls, want) {
 		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+}
+
+// Saves are one step each: a hook always sees the settings that are in the
+// file at that moment, so the last hook call matches settings.json (an MCP
+// gate or a chat router never stays out of step with Settings), and
+// IgnoreMAC's load-modify-save never undoes another save.
+func TestSettingsSavesInOrder(t *testing.T) {
+	s, st := newSvc(t, true, nil)
+	var mu sync.Mutex
+	var last string
+	var stale []string
+	s.OnSettingsSaved(func(set model.Settings) {
+		onDisk, _ := st.LoadSettings()
+		mu.Lock()
+		defer mu.Unlock()
+		last = set.Community
+		if onDisk.Community != set.Community {
+			stale = append(stale, set.Community+"!="+onDisk.Community)
+		}
+	})
+	base, _ := s.LoadSettings()
+	const n = 24
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			in := base
+			in.Community = "c" + strconv.Itoa(i)
+			if _, err := s.SaveSettings(in); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	got, _ := st.LoadSettings()
+	if len(stale) > 0 || got.Community != last {
+		t.Fatalf("hooks out of step with the file: %v (file %q, last hook %q)", stale, got.Community, last)
+	}
+	for i := range n {
+		wg.Go(func() {
+			if err := s.IgnoreMAC(fmt.Sprintf("aa:bb:cc:dd:ee:%02x", i)); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	if got, _ = st.LoadSettings(); len(got.IgnoredConflictMACs) != n || got.Community != last || len(stale) > 0 {
+		t.Fatalf("after %d IgnoreMAC: %d MACs, community %q, stale %v", n, len(got.IgnoredConflictMACs), got.Community, stale)
 	}
 }
 

@@ -43,6 +43,16 @@ func (s *Service) SaveSettings(in model.Settings) (model.Settings, error) {
 	if err := s.needStore(); err != nil {
 		return model.Settings{}, err
 	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	return s.saveSettingsLocked(in)
+}
+
+// saveSettingsLocked does the work of SaveSettings; s.saveMu must be held.
+// The lock covers the file write, ApplySettings and the hooks together, so
+// the hooks see saves in the order they reached settings.json, and a
+// load-modify-save (IgnoreMAC) never undoes a save made in between.
+func (s *Service) saveSettingsLocked(in model.Settings) (model.Settings, error) {
 	norm, err := store.NormalizeSettings(in)
 	if err != nil {
 		return norm, &BadRequestError{Msg: err.Error()}
@@ -65,7 +75,8 @@ func (s *Service) SaveSettings(in model.Settings) (model.Settings, error) {
 
 // OnSettingsSaved adds a hook that is called, in the order added, after
 // every successful SaveSettings (the server's MCP gate; later the team chat
-// manager). Hooks run on the saving goroutine and must not save settings.
+// manager). Hooks run on the saving goroutine, one save at a time and in
+// the order the saves were written, and must not save settings.
 func (s *Service) OnSettingsSaved(f func(model.Settings)) {
 	s.hooksMu.Lock()
 	defer s.hooksMu.Unlock()
@@ -91,6 +102,8 @@ func (s *Service) IgnoreMAC(mac string) error {
 		return &BadRequestError{Msg: "invalid mac"}
 	}
 	m := strings.ToUpper(hw.String())
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 	set, err := s.cfg.Store.LoadSettings()
 	if err != nil {
 		return err
@@ -104,6 +117,6 @@ func (s *Service) IgnoreMAC(mac string) error {
 	if !found {
 		set.IgnoredConflictMACs = append(set.IgnoredConflictMACs, m)
 	}
-	_, err = s.SaveSettings(set)
+	_, err = s.saveSettingsLocked(set)
 	return err
 }
