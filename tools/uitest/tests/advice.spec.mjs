@@ -75,9 +75,13 @@ for (const theme of THEMES) {
   });
 }
 
-test('"This network has no internet" makes Everything looks fine reachable', async ({ page }) => {
+// A network the switch is already on for; it stays on for it.
+const OTHER_NETWORK = 'n-0123456789ab';
+const settingsPuts = (rec) => rec.requests.filter((r) => r.method === 'PUT' && r.path === '/api/settings');
+
+test('"This network has no internet" makes All health checks look fine reachable, for this network only', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
-  const rec = await installMocks(page, { health: 'offline' });
+  const rec = await installMocks(page, { health: 'offline', settings: { ...fx.settings(), noInternetNetworks: [OTHER_NETWORK] } });
   await page.goto('/');
   await page.locator('#tab-health').click();
   const dns = card(page, 'DNS resolving');
@@ -85,38 +89,89 @@ test('"This network has no internet" makes Everything looks fine reachable', asy
   await expect(dns).toContainText('If this network has no internet on purpose, turn on "This network has no internet" in Settings.');
   await expect(page.locator('#health-fine')).toBeHidden();
 
-  await page.locator('#nav-settings').click();
+  // The card's Open Settings goes straight to the switch.
+  await dns.getByRole('button', { name: /^Open Settings/ }).click();
   const dialog = page.locator('#settings-dialog');
+  await expect(dialog).toHaveJSProperty('open', true);
   const sw = dialog.getByRole('switch', { name: 'This network has no internet' });
+  await expect(sw).toBeFocused();
+  await expect(sw).toBeEnabled();
   await expect(sw).not.toBeChecked();
+  await expect(dialog.locator('#nointernet-help')).toContainText('It counts only on this network');
   await sw.check();
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(dialog).toHaveJSProperty('open', false);
-  const puts = rec.requests.filter((r) => r.method === 'PUT' && r.path === '/api/settings');
-  expect(puts).toHaveLength(1);
-  const doc = JSON.parse(puts[0].body);
-  expect(doc.noInternet).toBe(true);
+  expect(settingsPuts(rec)).toHaveLength(1);
+  const doc = JSON.parse(settingsPuts(rec)[0].body);
+  expect(doc.noInternetNetworks).toEqual([OTHER_NETWORK, fx.NETWORK]);
+  expect(doc).not.toHaveProperty('noInternet');
   expect(doc.alerts).toEqual(fx.settings().alerts);
   // The switch changes what the name and internet checks say: check again.
   await expect.poll(() => posts(rec, '/api/health/run').length).toBe(1);
   const fine = page.locator('#health-fine');
   await expect(fine).toBeVisible();
   await expect(fine).toContainText('OK');
-  await expect(fine).toContainText(/Everything looks fine \(checked \d\d:\d\d\)/);
+  await expect(fine).toContainText(/All health checks look fine \(checked \d\d:\d\d\)/);
   await expect(fine.locator('use')).toHaveAttribute('href', 'icons.svg#i-circle-check');
   await expect(dns.locator('.hs')).toContainText('Info');
   await expect(dns).toContainText('This network is set up without internet');
   await expect(card(page, 'Internet reachability')).toContainText('This network is set up without internet, so this check is only for information.');
+
+  // Turning it off again forgets this network only.
+  await dns.getByRole('button', { name: /^Open Settings/ }).click();
+  await expect(sw).toBeFocused();
+  await expect(sw).toBeChecked();
+  await sw.uncheck();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toHaveJSProperty('open', false);
+  expect(JSON.parse(settingsPuts(rec).at(-1).body).noInternetNetworks).toEqual([OTHER_NETWORK]);
+  await expect.poll(() => posts(rec, '/api/health/run').length).toBe(2);
+  await expect(dns.locator('.hs')).toContainText('Warning');
   expect(rec.unmatched).toEqual([]);
 });
 
-test('a no-internet network with the switch on renders Everything looks fine', async ({ page }) => {
+test('a no-internet network with the switch on renders All health checks look fine', async ({ page }) => {
   await initStorage(page, { theme: 'light', live: false });
-  await installMocks(page, { health: 'offline', settings: { ...fx.settings(), noInternet: true } });
+  await installMocks(page, { health: 'offline', settings: { ...fx.settings(), noInternetNetworks: [fx.NETWORK] } });
   await page.goto('/');
   await page.locator('#tab-health').click();
-  await expect(page.locator('#health-fine')).toContainText(/OK Everything looks fine \(checked \d\d:\d\d\)/);
+  await expect(page.locator('#health-fine')).toContainText(/OK All health checks look fine \(checked \d\d:\d\d\)/);
   await expect(page.locator('.hcard .hs', { hasText: /Warning|Failed/ })).toHaveCount(0);
+});
+
+// Serve GET /api/health with edit(report) applied to the 'offline' report.
+async function healthReport(page, noInternet, edit) {
+  await page.route('**/api/health', async (route) => {
+    const h = fx.health({ state: 'offline', noInternet });
+    edit(h);
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(h) });
+  });
+}
+
+test('the switch waits until netdiag knows which network this is', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  await installMocks(page, { health: 'offline' });
+  // A report that names no network: an older one, or a router whose MAC
+  // netdiag could not read.
+  await healthReport(page, false, (h) => { delete h.network; });
+  await page.goto('/');
+  await page.locator('#nav-settings').click();
+  const dialog = page.locator('#settings-dialog');
+  await expect(dialog.getByRole('switch', { name: 'This network has no internet' })).toBeDisabled();
+  await expect(dialog.locator('#nointernet-help')).toContainText("netdiag doesn't know which network this is yet.");
+});
+
+test('the health line waits for a check that could not run', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  await installMocks(page, { health: 'offline', settings: { ...fx.settings(), noInternetNetworks: [fx.NETWORK] } });
+  await healthReport(page, true, (h) => {
+    h.checks[0] = { id: 'gateway', label: 'Gateway reachable', status: 'unavailable', detail: 'no default gateway detected',
+      latencyMs: 0, data: { reason: 'no_gateway' } };
+  });
+  await page.goto('/');
+  await page.locator('#tab-health').click();
+  await expect(page.locator('.hcard')).toHaveCount(6);
+  await expect(page.locator('#health-fine')).toBeHidden();
 });
 
 for (const [alt, heading] of [[0, 'Possible conflict'], [1, 'Possible conflict'], [2, 'Conflict']]) {
@@ -133,7 +188,8 @@ for (const [alt, heading] of [[0, 'Possible conflict'], [1, 'Possible conflict']
     await expect(box.locator('.chead use')).toHaveAttribute('href', alt >= 2 ? 'icons.svg#i-circle-x' : 'icons.svg#i-triangle-alert');
     const cards = box.locator('.cpair .ccard');
     await expect(cards).toHaveCount(2);
-    await expect(cards.nth(0)).toContainText(alt % 2 ? 'Device A:' : 'Device A: Espressif Inc.');
+    // The maker comes from the conflict, so it shows whichever MAC answers now.
+    await expect(cards.nth(0)).toContainText('Device A: Espressif Inc.');
     await expect(cards.nth(0)).toContainText(fx.FLAP_MACS[0]);
     await expect(cards.nth(1)).toContainText(`Device B: Hewlett Packard · ${fx.FLAP_MACS[1]} · also uses 192.168.2.45${alt >= 1 ? ' · seen at ' : ''}`);
     await expect(box.locator('.advice')).toContainText(alt >= 2 ? 'Two devices are taking turns using 192.168.2.44' : 'Possible conflict: the device answering at 192.168.2.44 changed.');
@@ -144,6 +200,47 @@ for (const [alt, heading] of [[0, 'Possible conflict'], [1, 'Possible conflict']
     expect(rec.unmatched).toEqual([]);
   });
 }
+
+// The plan's "Device B: Espressif · 24:6F:28:AA:BB:CC · seen at ...": a
+// device that uses no other address, and that no listed device answers
+// with now, still gets its maker, from the conflict's vendors.
+test('a device that uses no other address still shows its maker', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { frames: framesWith(fx.flapHosts(3, false), [fx.flapConflict(3)]) });
+  await page.goto('/');
+  await scanToFinish(page);
+  await page.locator(`#hosts button.rowbtn[data-ip="${fx.FLAP_IP}"]`).click();
+  const cards = page.locator('#drawer .cpair .ccard');
+  await expect(cards).toHaveCount(2);
+  // 3 alternations end on the second MAC, so no device answers with the first.
+  await expect(cards.nth(0)).toHaveText(/^Device A: Espressif Inc\. · 24:6F:28:AA:BB:CC · seen at \d\d:\d\d, \d\d:\d\d$/);
+  await expect(cards.nth(1)).toHaveText(/^Device B: Hewlett Packard · 3C:52:82:11:22:33 · seen at \d\d:\d\d, \d\d:\d\d$/);
+  await expect(page.locator('#drawer .cbox .chead strong')).toHaveText('Conflict');
+  expect(rec.unmatched).toEqual([]);
+});
+
+// Only a mac_flap can be a "Conflict": a MAC that also took turns at the
+// address, such as an extender's, stays a "Possible conflict" in its
+// mac_multi_ip box, as its advice says it is normal.
+test('mac_multi_ip with an alternating history still reads "Possible conflict"', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const list = fx.hosts();
+  const at = list.find((h) => h.ip === '192.168.2.30');
+  const ext = '00:1B:A9:AA:00:30';
+  at.macHistory = [{ mac: ext, at: '2026-10-10T10:02:00Z' }, { mac: '24:6F:28:00:00:01', at: '2026-10-10T10:07:00Z' },
+    { mac: ext, at: '2026-10-10T10:12:00Z' }];
+  at.conflicts = [fx.CONFLICT_ID];
+  const rec = await installMocks(page, { frames: framesWith(list, [fx.conflict()]) });
+  await page.goto('/');
+  await scanToFinish(page);
+  await page.locator('#hosts button.rowbtn[data-ip="192.168.2.30"]').click();
+  const box = page.locator('#drawer .cbox');
+  await expect(box).toHaveCount(1);
+  await expect(box.locator('.chead strong')).toHaveText('Possible conflict');
+  await expect(box.locator('.chead use')).toHaveAttribute('href', 'icons.svg#i-triangle-alert');
+  await expect(box.locator('.advice')).toContainText('This is normal for Wi-Fi extenders');
+  expect(rec.unmatched).toEqual([]);
+});
 
 test('the conflict pair stacks at 360 px and sits side by side when wide', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });

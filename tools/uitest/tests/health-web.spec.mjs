@@ -69,6 +69,10 @@ for (const theme of THEMES) {
     const trust = card.getByRole('button', { name: 'Trust this certificate' });
     await expect(trust).toBeVisible();
     await expect(page.getByRole('button', { name: 'Trust this certificate' })).toHaveCount(1);
+    // The advice points at that button, not at Settings (which can't trust).
+    await expect(card.locator('.advice ol.steps li').first()).toHaveText(
+      'If this is your own server on this network, open Health in netdiag and press Trust this certificate on the Web server card.');
+    await expect(card.getByRole('button', { name: /^Open Settings/ })).toHaveCount(0);
     await runAxe(page, `health-untrusted-${theme}`, testInfo);
 
     // Saying no saves nothing.

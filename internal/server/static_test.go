@@ -195,16 +195,20 @@ func TestFixedBanners(t *testing.T) {
 
 // The advice UI (v0.6 M7): health cards say what a result means with the raw
 // detail under Technical details, banners have What to try and Show device,
-// the drawer shows the conflict pair and the printer-without-status block,
-// and Settings has the "This network has no internet" switch. Links come
-// only from server data (no URL literal in app.js, TestNoExternalReferences).
+// the drawer shows the conflict pair (with the makers the server names) and
+// the printer-without-status block, and Settings has the "This network has
+// no internet" switch, kept per network. Links come only from server data
+// (no URL literal in app.js, TestNoExternalReferences). Only a mac_flap can
+// read "Conflict". The Health panel's line speaks for the health checks
+// only; M8's Problems card says "Everything looks fine" for the network.
 func TestAdviceUI(t *testing.T) {
 	js, _ := readAsset("app.js")
 	html, _ := readAsset("index.html")
 	for _, want := range []string{
 		"<strong>What this means:</strong>", "<summary>Technical details</summary>", "What to try<span",
 		"Show device<span", `class="plain cpair"`, `id="printer-nostatus"`, `id="set-nointernet"`,
-		"This network has no internet</label>", `id="health-fine"`, "Everything looks fine (checked ",
+		"This network has no internet</label>", `x-model="noInternetHere" :disabled="!healthNetwork()"`,
+		`id="health-fine"`, "All health checks look fine (checked ",
 		"conflictSeen(c) ? 'Conflict' : 'Possible conflict'", `:href="linkAction(a) ? a.target : null"`,
 		`rel="noopener noreferrer"`,
 	} {
@@ -214,8 +218,9 @@ func TestAdviceUI(t *testing.T) {
 	}
 	for _, want := range []string{
 		"this.post('/api/os/open', {page: page})", "a.kind !== 'osSettings' || this.isWindows()",
-		"/^https?:/i.test(a.target || '')", "noInternet: 'This network has no internet'",
-		"return this.alternations(hist) >= 2;",
+		"/^https?:/i.test(a.target || '')", "noInternetNetworks: 'This network has no internet'",
+		"return this.alternations(hist) >= 2;", "if (c.kind !== 'mac_flap') return false;",
+		"noInternet: 'set-nointernet'", "vendors[mac] ||", "this.health && this.health.network",
 	} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("app.js missing %q", want)

@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 import { installMocks, initStorage } from '../support/mock.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 import { runAxe } from '../support/axe.mjs';
+import * as fx from '../fixtures/index.mjs';
 
 async function setup(page) {
   await initStorage(page, { theme: 'dark', live: false });
@@ -70,25 +71,53 @@ test('drawer updates in place when the host goes offline and never closes itself
   await expect(page.locator(`#hosts tr.host:has(button[data-ip="${ip}"]) .badge.offline`)).toBeVisible();
 });
 
-test('254 hosts plus 100 live updates produce no long task over 200 ms', async ({ page }) => {
-  await setup(page);
+// 100 live updates with the drawer open on ip (every fourth one is that
+// device itself) must leave no long task over 200 ms.
+async function updateBudget(page, ip) {
   await page.evaluate(() => {
     window.__long = [];
     new PerformanceObserver((l) => l.getEntries().forEach((e) => window.__long.push(e.duration)))
       .observe({ entryTypes: ['longtask'] });
   });
-  await page.locator('#hosts button.rowbtn[data-ip="192.168.2.10"]').click();
-  await page.evaluate(async () => {
+  await page.locator(`#hosts button.rowbtn[data-ip="${ip}"]`).click();
+  await page.evaluate(async (ip) => {
     const a = window.Alpine.$data(document.querySelector('.shell'));
     for (let i = 0; i < 100; i++) {
-      const h = a.hosts[i % a.hosts.length];
+      const h = i % 4 === 0 ? a.hosts.find((x) => x.ip === ip) : a.hosts[i % a.hosts.length];
       a.upsert({ ...h, rttMs: i + 1, online: i % 2 === 0 });
       await new Promise((r) => setTimeout(r, 10));
     }
-  });
+  }, ip);
   await page.waitForTimeout(300);
   const long = await page.evaluate(() => window.__long);
   expect(Math.max(0, ...long), `long tasks: ${long}`).toBeLessThan(200);
+}
+
+test('254 hosts plus 100 live updates produce no long task over 200 ms', async ({ page }) => {
+  await setup(page);
+  await updateBudget(page, '192.168.2.10');
+});
+
+// The same budget with the advice blocks on screen (v0.6 M7): the drawer on
+// a conflict with its two device cards (built from every listed device),
+// a printer without status in the list, and a banner with What to try.
+test('254 hosts plus 100 live updates with advice blocks produce no long task over 200 ms', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const list = fx.flapHosts(2);
+  list[35] = fx.noStatusPrinter();
+  const rec = await installMocks(page, { frames: fx.framesWith(list, [fx.flapConflict(2)], [fx.notice(1)]) });
+  await page.goto('/');
+  await scanToFinish(page);
+  await expect(page.locator('#hosts tbody tr.host')).toHaveCount(254);
+  await expect(page.locator('#alerts details.btry')).toHaveCount(1);
+  await updateBudget(page, fx.FLAP_IP);
+  await expect(page.locator('#drawer .cpair .ccard')).toHaveCount(2);
+  await expect(page.locator('#drawer .cbox .advice')).toBeVisible();
+  // And with the drawer on the printer without status.
+  await page.keyboard.press('Escape');
+  await updateBudget(page, fx.NOSTATUS_IP);
+  await expect(page.locator('#printer-nostatus')).toBeVisible();
+  expect(rec.unmatched).toEqual([]);
 });
 
 const RDP_HOST = '192.168.2.4';

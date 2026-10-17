@@ -152,7 +152,7 @@
         <span class="sub" x-text="healthSummary()"></span>
       </h2>
       <div id="health-body" x-show="healthOpen">
-        <p class="hfine" id="health-fine" role="status" x-show="healthFine()"><svg class="ico s-ok" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg> <strong>OK</strong> <span x-text="'Everything looks fine (checked ' + healthTime() + ')'"></span></p>
+        <p class="hfine" id="health-fine" role="status" x-show="healthFine()"><svg class="ico s-ok" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg> <strong>OK</strong> <span x-text="'All health checks look fine (checked ' + healthTime() + ')'"></span></p>
         <ul class="plain hcards" x-show="health && (health.checks || []).length" aria-label="Network health checks">
           <template x-for="c in (health ? health.checks || [] : [])" :key="c.id">
             <li class="hcard" :class="'hc-' + c.status">
@@ -535,8 +535,8 @@
             <button type="button" @click="draft.webServer.trustedCert = ''">Forget<span class="sr"> the trusted certificate</span></button></p>
           <p class="sub" id="trusted-pending" x-show="settings && settings.webServer && settings.webServer.trustedCert && !draft.webServer.trustedCert">The certificate is forgotten when you click Save.</p>
           <label>Internet check URL <input type="text" id="set-internet" x-model="draft.internetCheckURL" spellcheck="false" autocomplete="off"></label>
-          <label class="check"><input type="checkbox" role="switch" id="set-nointernet" x-model="draft.noInternet" aria-describedby="nointernet-help"> This network has no internet</label>
-          <p class="sub" id="nointernet-help">Turn this on for a local network that has no internet on purpose. The internet check then stays a note, and names that need the internet are not a warning.</p>
+          <label class="check"><input type="checkbox" role="switch" id="set-nointernet" x-model="noInternetHere" :disabled="!healthNetwork()" aria-describedby="nointernet-help"> This network has no internet</label>
+          <p class="sub" id="nointernet-help"><span x-show="healthNetwork()">Turn this on for a local network that has no internet on purpose. It counts only on this network, the one the health checks last looked at; on other networks the checks stay as they are. Here the internet check then stays a note, and names that need the internet are not a warning.</span><span x-show="!healthNetwork()">netdiag doesn't know which network this is yet. Run the health checks first (Health, then Recheck).</span></p>
         </fieldset>
         <fieldset><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-bell"></use></svg>Alerts</legend>
           <label class="check"><input type="checkbox" x-model="draft.alerts.sound"> Play a sound</label>

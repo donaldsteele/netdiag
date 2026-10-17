@@ -11,7 +11,7 @@ document.addEventListener('alpine:init', () => {
     theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
     view: 'devices', navOpen: false, views: ['devices', 'health', 'activity', 'history'], health: null, healthOpen: true, healthBusy: false, healthMsg: '',
     conflicts: [], banners: [], seenNotices: {},
-    settings: null, draft: null, settingsError: '', storeDown: false, desktopNote: '', audio: null, repairedNote: '', repairedPending: [], repairedShown: [],
+    settings: null, draft: null, noInternetHere: false, settingsError: '', storeDown: false, desktopNote: '', audio: null, repairedNote: '', repairedPending: [], repairedShown: [],
     history: [], historyError: '', baseId: '', currentId: '', diff: null, diffError: '', diffBusy: false,
     shown: {},
     remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
@@ -147,12 +147,17 @@ document.addEventListener('alpine:init', () => {
       return 'Health: ' + [f ? f + ' fail' : '', w ? w + ' warn' : ''].filter(Boolean).join(', ');
     },
     healthLatency(c) { return c.latencyMs > 0 ? c.latencyMs.toFixed(1) + ' ms' : ''; },
-    // No check failing or warning: the health panel says so in words. A
-    // network without internet on purpose gets here too once Settings says
-    // so (v0.6-D15).
+    // Every health check came back fine: none failed or warned, and none
+    // could not finish (a timeout, or the router or the name and web
+    // checks could not run). Wi-Fi and DHCP details this computer doesn't
+    // share don't count. The Health panel says so for its checks only; the
+    // Problems card (M8) says it for the whole network. A network without
+    // internet on purpose gets here too once Settings says so (v0.6-D15).
     healthFine() {
       const c = (this.health && this.health.checks) || [];
-      return c.length > 0 && !c.some(x => x.status === 'fail' || x.status === 'warn');
+      const done = x => x.status !== 'unavailable' ||
+        (x.id === 'wifi' || x.id === 'dhcp') && (x.data || {}).reason !== 'timeout';
+      return c.length > 0 && c.every(x => x.status !== 'fail' && x.status !== 'warn' && done(x));
     },
     healthTime() { return this.clock(this.health && this.health.checkedAt) || 'just now'; },
     // "10:42" in local time for an RFC 3339 time, or ''.
@@ -253,9 +258,10 @@ document.addEventListener('alpine:init', () => {
       this.draft.ignoredConflictMACs = this.draft.ignoredConflictMACs || [];
       this.draft.mcp = this.draft.mcp || {enabled: false};
       this.draft.mcp.enabled = !!this.draft.mcp.enabled;
-      this.draft.noInternet = !!this.draft.noInternet;
+      this.draft.noInternetNetworks = this.draft.noInternetNetworks || [];
+      this.noInternetHere = this.noInternetOn(this.draft);
       this.repairedNote = this.repairedText();
-      const focus = {webserver: 'set-weburl', health: 'set-internet'}[section];
+      const focus = {webserver: 'set-weburl', health: 'set-internet', noInternet: 'set-nointernet'}[section];
       this.$nextTick(() => {
         const d = this.$refs.dlg; if (d && !d.open) d.showModal();
         const f = focus && document.getElementById(focus); if (f) f.focus();
@@ -278,7 +284,7 @@ document.addEventListener('alpine:init', () => {
       community: 'SNMP community', printerStatusPollSec: 'Printer status check in live mode',
       webServer: 'Web server settings', 'webServer.url': 'Web server URL', 'webServer.mustContain': 'Page must contain',
       'webServer.expectStatus': 'Expected HTTP status', 'webServer.trustedCert': 'Trusted certificate',
-      internetCheckURL: 'Internet check URL', noInternet: 'This network has no internet', alerts: 'Alert settings', 'alerts.sound': 'Play a sound', 'alerts.desktop': 'Desktop notifications',
+      internetCheckURL: 'Internet check URL', noInternetNetworks: 'This network has no internet', alerts: 'Alert settings', 'alerts.sound': 'Play a sound', 'alerts.desktop': 'Desktop notifications',
       'alerts.supplyThresholdPct': 'Supply threshold', 'alerts.cooldownSec': 'Repeat-alert cooldown',
       'alerts.triggers': 'Alert types',
       'alerts.triggers.printerOffline': 'Printer goes offline', 'alerts.triggers.deviceOffline': 'Any device goes offline',
@@ -307,6 +313,13 @@ document.addEventListener('alpine:init', () => {
       return t;
     },
     closeSettings() { const d = this.$refs.dlg; if (d && d.open) d.close(); },
+    // The network the health checks last looked at (its id), or '': the
+    // "This network has no internet" switch is kept per network (v0.6-D15).
+    healthNetwork() { return (this.health && this.health.network) || ''; },
+    noInternetOn(set) {
+      const n = this.healthNetwork();
+      return !!n && ((set && set.noInternetNetworks) || []).includes(n);
+    },
     async saveSettings() {
       this.settingsError = '';
       const n = v => (v === '' || v === null ? 0 : Number(v));
@@ -320,14 +333,21 @@ document.addEventListener('alpine:init', () => {
       if (this.draft.webServer.trustedCert && this.draft.webServer.trustedCert === was.trustedCert &&
           hostOf(this.draft.webServer.url) !== hostOf(was.url)) this.draft.webServer.trustedCert = '';
       const webBefore = JSON.stringify(was);
-      const offBefore = !!(this.settings && this.settings.noInternet);
+      // The switch is on or off for this network only; the others keep theirs.
+      const net = this.healthNetwork();
+      const offBefore = this.noInternetOn(this.settings);
+      if (net) {
+        const nets = (this.draft.noInternetNetworks || []).filter(x => x !== net);
+        if (this.noInternetHere) nets.push(net);
+        this.draft.noInternetNetworks = nets;
+      }
       const ok = await this.putSettings(this.draft, true);
       if (!ok) return;
       this.closeSettings();
       // A new web server address, trusted certificate or expected answer
       // makes the Web server card out of date, and so does the "no
       // internet" switch for the name and internet cards: check again.
-      if (JSON.stringify(this.settings.webServer || {}) !== webBefore || !!this.settings.noInternet !== offBefore) await this.recheck();
+      if (JSON.stringify(this.settings.webServer || {}) !== webBefore || this.noInternetOn(this.settings) !== offBefore) await this.recheck();
     },
     async putSettings(doc, showErr) {
       try {
@@ -465,28 +485,33 @@ document.addEventListener('alpine:init', () => {
       }
       return n;
     },
-    // "Conflict" only when the two devices were seen taking turns: the
-    // address's MAC history shows at least two alternations. Without a
-    // history (a scan that is not live), a mac_flap the scan marked "fail"
-    // was seen as a swap (mirrors advice.SwapSeen).
+    // "Conflict" only for a mac_flap whose two devices were seen taking
+    // turns: the address's MAC history shows at least two alternations.
+    // Without a history (a scan that is not live), a mac_flap the scan
+    // marked "fail" was seen as a swap. Every other kind is a "Possible
+    // conflict" (mirrors advice.SwapSeen).
     conflictSeen(c) {
+      if (c.kind !== 'mac_flap') return false;
       const h = this.hosts.find(x => x.ip === (c.ips || [])[0]);
       const hist = (h && h.macHistory) || [];
       if (hist.length) return this.alternations(hist) >= 2;
-      return c.kind === 'mac_flap' && c.severity === 'fail';
+      return c.severity === 'fail';
     },
     // One card per device in a mac_flap or duplicate_name conflict, from the
-    // conflict's MACs, the vendors and addresses netdiag knows for them and
-    // the address's MAC history.
+    // conflict's MACs and their makers (Conflict.vendors, else a listed
+    // device's), the addresses netdiag knows for them and the address's MAC
+    // history.
     conflictCards(c) {
       if (c.kind !== 'mac_flap' && c.kind !== 'duplicate_name') return [];
       const ip0 = (c.ips || [])[0];
       const at = this.hosts.find(x => x.ip === ip0);
       const hist = (at && at.macHistory) || [];
+      const vendors = {};
+      for (const [m, v] of Object.entries(c.vendors || {})) vendors[String(m).toUpperCase()] = v;
       return (c.macs || []).slice(0, 6).map((m, i) => {
         const mac = String(m).toUpperCase();
         const owners = this.hosts.filter(h => String(h.mac || '').toUpperCase() === mac);
-        const parts = [(owners.find(h => h.vendor) || {}).vendor || '', mac];
+        const parts = [vendors[mac] || (owners.find(h => h.vendor) || {}).vendor || '', mac];
         if (c.kind === 'duplicate_name') {
           if (owners.length) parts.push('at ' + owners.map(h => h.ip).join(', '));
         } else {
