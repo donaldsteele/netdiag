@@ -4,6 +4,7 @@ package health
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -68,6 +69,13 @@ func TestWlanError(t *testing.T) {
 		if got := wlanError(tc.err).Error(); !strings.Contains(got, tc.want) {
 			t.Errorf("wlanError(%v) = %q, want it to contain %q", tc.err, got, tc.want)
 		}
+	}
+	// The Location case is told apart by ErrLocationOff, not by its text.
+	if !errors.Is(wlanError(windows.ERROR_ACCESS_DENIED), ErrLocationOff) {
+		t.Error("access denied is not ErrLocationOff")
+	}
+	if errors.Is(wlanError(windows.ERROR_SERVICE_NOT_ACTIVE), ErrLocationOff) {
+		t.Error("service not running is ErrLocationOff")
 	}
 }
 

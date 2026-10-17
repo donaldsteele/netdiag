@@ -37,6 +37,10 @@ const (
 	gatewayDialTimeout = 800 * time.Millisecond
 )
 
+// ErrLocationOff is the Wi-Fi reader's error (wrapped) when Windows hides
+// Wi-Fi details from apps because Location is off.
+var ErrLocationOff = errors.New("Windows blocks Wi-Fi details until Location is on")
+
 // gatewayPorts are tried, in order, when the gateway does not answer ping:
 // most routers serve their admin page on one of them.
 var gatewayPorts = []int{80, 443}
@@ -50,6 +54,10 @@ type Config struct {
 	// the user chose to trust (see model.SettingsWebServer).
 	TrustedCert string
 	InternetURL string
+	// NoInternet is the "This network has no internet" switch (v0.6-D15):
+	// a name server that answers but cannot reach the internet is a note,
+	// not a warning, and both checks say so in Data["noInternet"].
+	NoInternet bool
 }
 
 // ConfigFor maps settings to the health check config.
@@ -60,6 +68,7 @@ func ConfigFor(s model.Settings) Config {
 		ExpectStatus: s.WebServer.ExpectStatus,
 		TrustedCert:  s.WebServer.TrustedCert,
 		InternetURL:  s.InternetCheckURL,
+		NoInternet:   s.NoInternet,
 	}
 }
 
@@ -191,7 +200,7 @@ func (r *Runner) Run(ctx context.Context, in Input) model.HealthReport {
 		go func() {
 			defer func() {
 				if p := recover(); p != nil {
-					ch <- res{i, mk(i, model.HealthUnavailable, fmt.Sprintf("check crashed: %v", p), 0)}
+					ch <- res{i, why(mk(i, model.HealthUnavailable, fmt.Sprintf("check crashed: %v", p), 0), model.ReasonError)}
 				}
 			}()
 			c := fn(ctx, in)
@@ -211,7 +220,7 @@ func (r *Runner) Run(ctx context.Context, in Input) model.HealthReport {
 	}
 	for i := range out {
 		if !done[i] {
-			out[i] = mk(i, model.HealthUnavailable, "timed out", 0)
+			out[i] = why(mk(i, model.HealthUnavailable, "timed out", 0), model.ReasonTimeout)
 		}
 	}
 	return model.HealthReport{CheckedAt: r.Now().UTC().Format(time.RFC3339), Checks: out}
@@ -221,18 +230,28 @@ func mk(i int, status, detail string, ms float64) model.HealthCheck {
 	return model.HealthCheck{ID: checkMeta[i].id, Label: checkMeta[i].label, Status: status, Detail: detail, LatencyMs: ms}
 }
 
+// why sets c's Data["reason"] (model.Reason*), which the advice catalogue
+// keys on, and returns c.
+func why(c model.HealthCheck, reason string) model.HealthCheck {
+	if c.Data == nil {
+		c.Data = map[string]any{}
+	}
+	c.Data["reason"] = reason
+	return c
+}
+
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 
 func (r *Runner) checkGateway(ctx context.Context, in Input) model.HealthCheck {
 	if in.Gateway == "" {
 		if in.Iface != "" {
-			return mk(0, model.HealthUnavailable, "no router is known for this network adapter ("+in.Iface+")", 0)
+			return why(mk(0, model.HealthUnavailable, "no router is known for this network adapter ("+in.Iface+")", 0), model.ReasonNoGateway)
 		}
-		return mk(0, model.HealthUnavailable, "no default gateway detected", 0)
+		return why(mk(0, model.HealthUnavailable, "no default gateway detected", 0), model.ReasonNoGateway)
 	}
 	ip, err := netip.ParseAddr(in.Gateway)
 	if err != nil {
-		return mk(0, model.HealthUnavailable, "invalid gateway address "+in.Gateway, 0)
+		return why(mk(0, model.HealthUnavailable, "invalid gateway address "+in.Gateway, 0), model.ReasonNoGateway)
 	}
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
@@ -246,6 +265,7 @@ func (r *Runner) checkGateway(ctx context.Context, in Input) model.HealthCheck {
 			if rtt > 100*time.Millisecond {
 				c.Status = model.HealthWarn
 				c.Detail += " (slow)"
+				c = why(c, model.ReasonSlow)
 			}
 			return c
 		}
@@ -261,13 +281,13 @@ func (r *Runner) checkGateway(ctx context.Context, in Input) model.HealthCheck {
 			why = "ping could not run on this computer"
 		}
 		c := mk(0, model.HealthOK, fmt.Sprintf("the router %s answers on port %d (%s)", in.Gateway, port, why), ms(d))
-		c.Data = map[string]any{"method": "tcp", "port": port}
+		c.Data = map[string]any{"method": "tcp", "port": port, "reason": model.ReasonTCPOnly}
 		return c
 	}
 	if lastErr != nil {
-		return mk(0, model.HealthUnavailable, "ping failed locally: "+lastErr.Error(), 0)
+		return why(mk(0, model.HealthUnavailable, "ping failed locally: "+lastErr.Error(), 0), model.ReasonPingError)
 	}
-	return mk(0, model.HealthFail, in.Gateway+" did not reply to ping or on ports 80 and 443", 0)
+	return why(mk(0, model.HealthFail, in.Gateway+" did not reply to ping or on ports 80 and 443", 0), model.ReasonNoReply)
 }
 
 // gatewayTCP tries a TCP connection to gw on each of gatewayPorts in turn
@@ -295,7 +315,7 @@ func (r *Runner) gatewayTCP(ctx context.Context, gw string) (int, time.Duration,
 func (r *Runner) checkDHCP(ctx context.Context, in Input) model.HealthCheck {
 	info, err := r.DHCP(ctx, in.Iface, in.IfaceIP)
 	if err != nil {
-		return mk(1, model.HealthUnavailable, err.Error(), 0)
+		return why(mk(1, model.HealthUnavailable, err.Error(), 0), model.ReasonError)
 	}
 	c := mk(1, model.HealthInfo, "", 0)
 	c.Data = map[string]any{"enabled": info.Enabled, "apipa": info.APIPA}
@@ -303,6 +323,7 @@ func (r *Runner) checkDHCP(ctx context.Context, in Input) model.HealthCheck {
 	case info.APIPA:
 		c.Status = model.HealthFail
 		c.Detail = "self-assigned 169.254.x.x address: no DHCP server answered"
+		c.Data["reason"] = model.ReasonAPIPA
 	case info.Enabled:
 		c.Status = model.HealthOK
 		c.Detail = "address obtained by DHCP"
@@ -318,6 +339,7 @@ func (r *Runner) checkDHCP(ctx context.Context, in Input) model.HealthCheck {
 		}
 	default:
 		c.Detail = "static address (no DHCP lease)"
+		c.Data["reason"] = model.ReasonNoLease
 	}
 	return c
 }
@@ -340,7 +362,7 @@ func (r *Runner) checkDNS(ctx context.Context, in Input) model.HealthCheck {
 		msg = err.Error()
 	}
 	if ctx.Err() != nil {
-		return mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: %s", host, msg), 0)
+		return why(mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: %s", host, msg), 0), model.ReasonTimeout)
 	}
 	var de *net.DNSError
 	timedOut := lctx.Err() == context.DeadlineExceeded || errors.As(err, &de) && de.IsTimeout
@@ -351,19 +373,25 @@ func (r *Runner) checkDNS(ctx context.Context, in Input) model.HealthCheck {
 	server, reply, asked, aerr := r.localDNSAnswer(ctx, in, host)
 	switch {
 	case reply == dnsResolved && timedOut:
-		return mk(2, model.HealthWarn, fmt.Sprintf("DNS is slow: %s did not resolve within 3 s, but DNS server %s resolved it when asked again", host, server), 0)
+		return why(mk(2, model.HealthWarn, fmt.Sprintf("DNS is slow: %s did not resolve within 3 s, but DNS server %s resolved it when asked again", host, server), 0), model.ReasonSlow)
 	case reply == dnsResolved:
-		return mk(2, model.HealthWarn, fmt.Sprintf("this computer could not resolve %s (%s), but DNS server %s resolved it when asked directly: another DNS setting, such as a VPN, may be in the way", host, msg, server), 0)
+		return why(mk(2, model.HealthWarn, fmt.Sprintf("this computer could not resolve %s (%s), but DNS server %s resolved it when asked directly: another DNS setting, such as a VPN, may be in the way", host, msg, server), 0), model.ReasonLocalMismatch)
 	case reply == dnsNoSuchName:
-		return mk(2, model.HealthWarn, fmt.Sprintf("DNS server %s answers, but says %s does not exist: check the internet check address in Settings, or a DNS filter may block it", server, host), 0)
+		return why(mk(2, model.HealthWarn, fmt.Sprintf("DNS server %s answers, but says %s does not exist: check the internet check address in Settings, or a DNS filter may block it", server, host), 0), model.ReasonNXDomain)
 	case server != "":
-		return mk(2, model.HealthWarn, fmt.Sprintf("could not resolve %s, but DNS server %s answers: no internet connection, or the DNS server cannot reach the internet (%s)", host, server, msg), 0)
+		c := why(mk(2, model.HealthWarn, fmt.Sprintf("could not resolve %s, but DNS server %s answers: no internet connection, or the DNS server cannot reach the internet (%s)", host, server, msg), 0), model.ReasonNoInternet)
+		if in.Config.NoInternet {
+			// This network has no internet on purpose (v0.6-D15).
+			c.Status = model.HealthInfo
+			c.Data["noInternet"] = true
+		}
+		return c
 	case len(asked) > 0:
-		return mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: no reply from DNS server %s (%s)", host, strings.Join(asked, ", "), msg), 0)
+		return why(mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: no reply from DNS server %s (%s)", host, strings.Join(asked, ", "), msg), 0), model.ReasonNoReply)
 	case aerr != nil:
-		return mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: %s", host, msg), 0)
+		return why(mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: %s", host, msg), 0), model.ReasonError)
 	}
-	return mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: no DNS server is set on this network adapter (%s)", host, msg), 0)
+	return why(mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: no DNS server is set on this network adapter (%s)", host, msg), 0), model.ReasonNoServer)
 }
 
 func (r *Runner) checkInternet(ctx context.Context, in Input) model.HealthCheck {
@@ -371,14 +399,23 @@ func (r *Runner) checkInternet(ctx context.Context, in Input) model.HealthCheck 
 	if strings.TrimSpace(u) == "" {
 		u = DefaultInternetURL
 	}
+	// With the "no internet" switch on, a result that is not ok says so,
+	// for the advice (v0.6-D15). The check is never more than a note.
+	note := func(c model.HealthCheck, reason string) model.HealthCheck {
+		c = why(c, reason)
+		if in.Config.NoInternet {
+			c.Data["noInternet"] = true
+		}
+		return c
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return mk(4, model.HealthInfo, "invalid internet check URL", 0)
+		return note(mk(4, model.HealthInfo, "invalid internet check URL", 0), model.ReasonInvalid)
 	}
 	t0 := time.Now()
 	resp, err := r.HTTP.Do(req)
 	if err != nil {
-		return mk(4, model.HealthInfo, "internet check got no response (local checks are unaffected)", 0)
+		return note(mk(4, model.HealthInfo, "internet check got no response (local checks are unaffected)", 0), model.ReasonNoResponse)
 	}
 	resp.Body.Close()
 	d := time.Since(t0)
@@ -386,9 +423,11 @@ func (r *Runner) checkInternet(ctx context.Context, in Input) model.HealthCheck 
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		return mk(4, model.HealthOK, fmt.Sprintf("internet reachable (HTTP %d, %.0f ms)", resp.StatusCode, ms(d)), ms(d))
 	case resp.StatusCode >= 300 && resp.StatusCode < 400:
-		return mk(4, model.HealthInfo, fmt.Sprintf("redirected (HTTP %d): possible captive portal", resp.StatusCode), ms(d))
+		return note(mk(4, model.HealthInfo, fmt.Sprintf("redirected (HTTP %d): possible captive portal", resp.StatusCode), ms(d)), model.ReasonPortal)
 	default:
-		return mk(4, model.HealthInfo, fmt.Sprintf("internet check returned HTTP %d", resp.StatusCode), ms(d))
+		c := note(mk(4, model.HealthInfo, fmt.Sprintf("internet check returned HTTP %d", resp.StatusCode), ms(d)), model.ReasonStatus)
+		c.Data["status"] = resp.StatusCode
+		return c
 	}
 }
 
@@ -410,10 +449,14 @@ func (r *Runner) checkWiFi(ctx context.Context, in Input) model.HealthCheck {
 		}
 	}
 	if err != nil {
-		return mk(5, model.HealthUnavailable, err.Error(), 0)
+		reason := model.ReasonError
+		if errors.Is(err, ErrLocationOff) {
+			reason = model.ReasonHiddenLocation
+		}
+		return why(mk(5, model.HealthUnavailable, err.Error(), 0), reason)
 	}
 	if !w.Connected {
-		return mk(5, model.HealthInfo, "not connected to Wi-Fi (wired or Wi-Fi off)", 0)
+		return why(mk(5, model.HealthInfo, "not connected to Wi-Fi (wired or Wi-Fi off)", 0), model.ReasonNotConnected)
 	}
 	c := mk(5, model.HealthOK, "", 0)
 	ssid := w.SSID
@@ -434,6 +477,7 @@ func (r *Runner) checkWiFi(ctx context.Context, in Input) model.HealthCheck {
 		data["rssi"] = w.RSSI
 		if w.SignalPct < 40 {
 			c.Status = model.HealthWarn
+			data["reason"] = model.ReasonWeak
 		}
 	}
 	if w.Channel > 0 {

@@ -80,6 +80,9 @@ type Host struct {
 	Conflicts []string `json:"conflicts,omitempty"`
 	// MACHistory holds the last 8 MAC observations (live mode only).
 	MACHistory []MACObservation `json:"macHistory,omitempty"`
+	// Advice is set for a printer that does not report its status, so
+	// netdiag can only see whether it answers (internal/advice).
+	Advice *Advice `json:"advice,omitempty"`
 }
 
 // OfflineAfterMisses is the number of consecutive failed presence checks

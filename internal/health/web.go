@@ -47,7 +47,7 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 	raw := strings.TrimSpace(cfg.WebURL)
 	if raw == "" {
 		c := mk(3, model.HealthInfo, "not configured", 0)
-		c.Data = map[string]any{"configured": false}
+		c.Data = map[string]any{"configured": false, "reason": model.ReasonNotSet}
 		return c
 	}
 	want := cfg.ExpectStatus
@@ -56,7 +56,7 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
-		return webData(mk(3, model.HealthFail, "invalid URL: "+redactErr(err).Error(), 0), raw)
+		return why(webData(mk(3, model.HealthFail, "invalid URL: "+redactErr(err).Error(), 0), raw), model.ReasonInvalid)
 	}
 	host := req.URL.Hostname()
 	trusted := ""
@@ -94,7 +94,7 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 		if c, ok := certFailure(err, raw, fetching, pinnedAt, trusted); ok {
 			return c
 		}
-		return webData(mk(3, model.HealthFail, "request failed: "+redactErr(err).Error(), 0), raw)
+		return why(webData(mk(3, model.HealthFail, "request failed: "+redactErr(err).Error(), 0), raw), model.ReasonRequest)
 	}
 	defer resp.Body.Close()
 	var body []byte
@@ -131,9 +131,11 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 	case resp.StatusCode != want:
 		c.Status = model.HealthFail
 		c.Detail = fmt.Sprintf("HTTP %d (expected %d)%s", resp.StatusCode, want, at)
+		c.Data["reason"] = model.ReasonStatus
 		if loc, err := resp.Location(); err == nil && resp.StatusCode >= 300 && resp.StatusCode <= 399 {
 			shown := loc.Redacted()
 			c.Data["location"] = shown
+			c.Data["reason"] = model.ReasonRedirect
 			switch {
 			case tooMany:
 				c.Detail += fmt.Sprintf(": more than %d redirects, the last one to %s", maxWebRedirects, shown)
@@ -146,12 +148,15 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 	case cfg.MustContain != "" && !strings.Contains(string(body), cfg.MustContain):
 		c.Status = model.HealthFail
 		c.Detail = fmt.Sprintf("HTTP %d but page does not contain %q%s", resp.StatusCode, cfg.MustContain, at)
+		c.Data["reason"] = model.ReasonContent
 	case expired != nil:
 		c.Status = model.HealthWarn
 		c.Detail += "; the certificate you trusted expired on " + certDate(expired.NotAfter)
+		c.Data["reason"] = model.ReasonExpired
 	case d > 2*time.Second:
 		c.Status = model.HealthWarn
 		c.Detail += " (slow)"
+		c.Data["reason"] = model.ReasonSlow
 	}
 	return c
 }
@@ -253,7 +258,7 @@ func certFailure(err error, raw string, at *url.URL, pinnedAt, trusted string) (
 			detail = "the certificate changed since you trusted it: trust the new one only if you know your server has a new certificate"
 		}
 	}
-	c := webData(mk(3, model.HealthFail, detail, 0), raw)
+	c := why(webData(mk(3, model.HealthFail, detail, 0), raw), model.ReasonTLS)
 	if offer {
 		c.Data["certSHA256"] = fp
 	}

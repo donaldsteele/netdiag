@@ -40,6 +40,8 @@ type Conflict struct {
 	FirstSeen string   `json:"firstSeen"`
 	LastSeen  string   `json:"lastSeen"`
 	Detail    string   `json:"detail"`
+	// Advice says what the conflict means and what to try.
+	Advice *Advice `json:"advice,omitempty"`
 }
 
 // Notice is an alert emitted by the notify engine. A fault opens a problem
@@ -62,4 +64,12 @@ type Notice struct {
 	MAC string `json:"mac,omitempty"`
 	// Name is the best name netdiag has for the device (empty: use IP).
 	Name string `json:"name,omitempty"`
+	// Code is the printer alert's code (printerAlert faults only), such as
+	// hrPrinterDetectedErrorState.doorOpen or media-jam-error.
+	Code string `json:"code,omitempty"`
+	// Detail names what the fault is about: the printer alert's or the
+	// low supply's description (printerAlert and supplyLow faults).
+	Detail string `json:"detail,omitempty"`
+	// Advice says what the fault means and what to try (nil on OK notices).
+	Advice *Advice `json:"advice,omitempty"`
 }

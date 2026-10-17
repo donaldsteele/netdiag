@@ -17,10 +17,15 @@ type Settings struct {
 	PrinterStatusPollSec int               `json:"printerStatusPollSec"`
 	WebServer            SettingsWebServer `json:"webServer"`
 	InternetCheckURL     string            `json:"internetCheckURL"`
-	Alerts               SettingsAlerts    `json:"alerts"`
-	IgnoredConflictMACs  []string          `json:"ignoredConflictMACs"`
-	MCP                  SettingsMCP       `json:"mcp"`
-	Chat                 SettingsChat      `json:"chat"`
+	// NoInternet says this network has no internet on purpose (Settings >
+	// Health checks, off by default; v0.6-D15). With it on, the DNS check
+	// does not warn when only internet names fail, and the internet check
+	// stays a note, so "Everything looks fine" can be reached.
+	NoInternet          bool           `json:"noInternet"`
+	Alerts              SettingsAlerts `json:"alerts"`
+	IgnoredConflictMACs []string       `json:"ignoredConflictMACs"`
+	MCP                 SettingsMCP    `json:"mcp"`
+	Chat                SettingsChat   `json:"chat"`
 }
 
 // SettingsMCP controls the HTTP MCP endpoint (agent access). Off by default.

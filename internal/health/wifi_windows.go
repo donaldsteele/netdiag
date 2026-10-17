@@ -218,7 +218,7 @@ func wlanFree(p unsafe.Pointer) { procWlanFreeMemory.Call(uintptr(p)) }
 func wlanError(err error) error {
 	switch {
 	case errors.Is(err, windows.ERROR_ACCESS_DENIED): // Windows 11 24H2+ without location consent
-		return errors.New("Windows blocks Wi-Fi details until Location is on: Settings > Privacy & security > Location, turn on Location services and Let desktop apps access your location")
+		return fmt.Errorf("%w: Settings > Privacy & security > Location, turn on Location services and Let desktop apps access your location", ErrLocationOff)
 	case errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE):
 		return errors.New("Wi-Fi service (WLAN AutoConfig) is not running")
 	}
