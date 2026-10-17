@@ -261,12 +261,19 @@ document.addEventListener('alpine:init', () => {
         this.logPush('conflict', (ev.resolved ? 'Conflict resolved: ' : 'Conflict: ') + (c.detail || c.kind), (c.ips || [])[0]);
       }
     },
+    ignoreConfirmText(mac) {
+      return 'Ignore MAC address ' + mac + '?\n\n' +
+        'netdiag will stop warning about conflicts that involve this device.\n\n' +
+        'You can undo this later: open Settings, press Remove next to it under "Ignored conflict MACs", then Save.';
+    },
     async ignoreMac(mac) {
+      if (this.storeDown) { this.error = 'The data store is unavailable, so the MAC cannot be ignored.'; return; }
+      if (!window.confirm(this.ignoreConfirmText(mac))) return;
       try {
         const r = await this.post('/api/conflicts/ignore', {mac: mac});
         if (r.status === 503) { this.error = 'The data store is unavailable, so the MAC cannot be ignored.'; return; }
         if (!r.ok) { this.error = 'Could not ignore MAC (HTTP ' + r.status + ')'; return; }
-        this.announce = 'Ignoring ' + mac;
+        this.announce = 'Ignoring conflicts for ' + mac + '. To undo, remove it in Settings.';
         this.loadSettings();
         this.conflicts = this.conflicts.filter(c => !(c.macs || []).includes(mac));
       } catch (e) { this.error = 'Could not ignore MAC: ' + e.message; }

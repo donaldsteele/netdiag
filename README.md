@@ -183,7 +183,7 @@ netdiag watches the address table and the names of devices during a scan and in 
 
 Conflicts show as a red or amber **CONFLICT** label on the affected rows, are listed by the **Conflicts** tile and filter on the Devices view (and under **Problems**), and get a section in the detail panel explaining the kind of conflict.
 
-**Wi-Fi range extenders and mesh nodes.** Many extenders and mesh nodes answer ARP for every device they relay, so several IP addresses share one MAC address. netdiag reports this as a warning with this hint: *if this is an extender or mesh node, use Ignore this MAC.* Click **Ignore this MAC** in the detail panel to stop reporting that MAC. The ignored MAC is saved in Settings under "Ignored MACs" (you can remove it again there). While a MAC is ignored, netdiag raises no conflict for it (flapping, multiple IPs or duplicate name); the devices themselves still appear in the list.
+**Wi-Fi range extenders and mesh nodes.** Many extenders and mesh nodes answer ARP for every device they relay, so several IP addresses share one MAC address. netdiag reports this as a warning with this hint: *if this is an extender or mesh node, use Ignore this MAC.* Click **Ignore this MAC** in the detail panel to stop reporting that MAC. netdiag asks you to confirm first. The ignored MAC is saved in Settings under **Ignored conflict MACs**. To undo it, open Settings, press **Remove** next to it, then **Save**. While a MAC is ignored, netdiag raises no conflict for it (flapping, multiple IPs or duplicate name); the devices themselves still appear in the list.
 
 ## Printer discovery (mDNS and IPP)
 
@@ -370,7 +370,7 @@ This computer did not get an address from the router. Check the cable or Wi-Fi c
 No device answered the Bonjour (mDNS) query. Devices may still be found through ping, ARP and ports. Check that the firewall is not blocking netdiag, and that you picked the adapter connected to the network you want to check.
 
 **A "CONFLICT" appears on a device that is fine (for example a Wi-Fi extender).**
-Click **Ignore this MAC** in the detail panel. The MAC is saved in Settings.
+Click **Ignore this MAC** in the detail panel and confirm. The MAC is saved in Settings under **Ignored conflict MACs**, where **Remove** (then **Save**) undoes it.
 
 **The page does not load after the window opens.**
 Keep the black window open. Closing it stops netdiag. If the browser did not open, copy the address shown in the window (it begins with `http://127.0.0.1:`) into your browser.

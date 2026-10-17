@@ -71,7 +71,13 @@ export async function installMocks(page, { scenario = 'scan' } = {}) {
       return route.fulfill({ status: 200, contentType: 'text/plain', body: 'exported' });
     }
     if (method === 'POST' && p === '/api/scans') return json(route, 202, { id: fx.SCAN_ID });
-    if (method === 'POST' && p === '/api/conflicts/ignore') return empty(route);
+    if (method === 'POST' && p === '/api/conflicts/ignore') {
+      // Mirrors Service.IgnoreMAC: the MAC is added (upper case, once) to the settings list.
+      const m = String((JSON.parse(body || '{}').mac) || '').toUpperCase();
+      const list = settings.ignoredConflictMACs || [];
+      if (m && !list.includes(m)) settings = { ...settings, ignoredConflictMACs: [...list, m] };
+      return empty(route);
+    }
     if (method === 'GET' && p === '/api/remote') return json(route, 200, fx.remoteCaps());
     if (method === 'POST' && /^\/api\/scans\/[^/]+\/remote$/.test(p)) return empty(route);
     if (method === 'GET' && /^\/api\/scans\/[^/]+\/remote\.rdp$/.test(p)) {
