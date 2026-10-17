@@ -130,7 +130,7 @@ func readScanResource(svc *service.Service, uri string) (*mcp.ReadResourceResult
 	r = RedactScan(r)
 	switch {
 	case !devices:
-		return jsonResource(uri, Summarize(r))
+		return jsonResource(uri, Summarize(r, supplyThreshold(svc)))
 	case ip == "":
 		page, err := ListDevices(r, ListOptions{Filter: "all", Limit: resDeviceLimit})
 		if err != nil {

@@ -120,7 +120,7 @@ All tools return compact JSON. List tools return pages (use `cursor` and `nextCu
 - a printer with an alert, or with a supply that is low, empty, or at or below the **supply threshold** in Settings (`alerts.supplyThresholdPct`, default 15%),
 - a device whose web page did not answer or answered with an HTTP error (status 400 or higher).
 
-`filter=offline` and `filter=conflicts` use the same offline and conflict rules.
+`filter=offline` and `filter=conflicts` use the same offline and conflict rules. The printer alerts in the `get_scan` and `start_scan` summaries are the printers this filter lists for an alert or a supply, with the same threshold; `lowSupplies` names each supply at or below it.
 
 `get_events` and `live` work only for scans started in the same netdiag process. Scans saved earlier are available through `get_scan`, `list_devices` and `compare_scans`.
 

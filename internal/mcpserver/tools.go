@@ -278,7 +278,7 @@ func (t *tools) startScan(ctx context.Context, req *mcp.CallToolRequest, in star
 	if errors.Is(err, scan.ErrBusy) {
 		if run, ok := t.svc.Registry().Running(); ok {
 			snap := RedactScan(run.Snapshot())
-			return nil, startScanOut{ScanSummary: Summarize(snap), AlreadyRunning: true,
+			return nil, startScanOut{ScanSummary: Summarize(snap, supplyThreshold(t.svc)), AlreadyRunning: true,
 				StillRunning: snap.State == model.StateRunning}, nil
 		}
 		return nil, startScanOut{}, errors.New("a scan is already running; call get_scan or try again shortly")
@@ -288,7 +288,7 @@ func (t *tools) startScan(ctx context.Context, req *mcp.CallToolRequest, in star
 	}
 	t.wait(ctx, req, sc, time.Duration(wait)*time.Second, in.Live)
 	snap := RedactScan(sc.Snapshot())
-	return nil, startScanOut{ScanSummary: Summarize(snap), StillRunning: snap.State == model.StateRunning}, nil
+	return nil, startScanOut{ScanSummary: Summarize(snap, supplyThreshold(t.svc)), StillRunning: snap.State == model.StateRunning}, nil
 }
 
 // wait blocks until the scan finishes (or, in live mode, completes its
@@ -346,7 +346,7 @@ func (t *tools) getScan(_ context.Context, _ *mcp.CallToolRequest, in scanIDIn) 
 	if err != nil {
 		return nil, ScanSummary{}, err
 	}
-	return nil, Summarize(r), nil
+	return nil, Summarize(r, supplyThreshold(t.svc)), nil
 }
 
 func (t *tools) cancelScan(_ context.Context, _ *mcp.CallToolRequest, in scanIDIn) (*mcp.CallToolResult, cancelOut, error) {

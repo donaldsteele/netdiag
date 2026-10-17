@@ -537,8 +537,9 @@ func TestHealthTextNamesEveryCheck(t *testing.T) {
 	}
 }
 
-// TestListDevicesProblemsUsesSupplyThreshold checks that list_devices reads
-// alerts.supplyThresholdPct from Settings, like the low-supply alerts do.
+// TestListDevicesProblemsUsesSupplyThreshold checks that list_devices and
+// the get_scan summary's printer alerts read alerts.supplyThresholdPct
+// from Settings, like the low-supply alerts do.
 func TestListDevicesProblemsUsesSupplyThreshold(t *testing.T) {
 	e := setup(t, "stdio", true, fakePinger{})
 	saved := model.ScanResult{ID: "thr1", State: model.StateDone, StartedAt: "2026-01-02T03:04:05Z",
@@ -560,8 +561,16 @@ func TestListDevicesProblemsUsesSupplyThreshold(t *testing.T) {
 		}
 		return ips
 	}
+	alerts := func() []PrinterAlert {
+		var sum ScanSummary
+		e.ok(t, "get_scan", map[string]any{"scanId": "thr1"}, &sum)
+		return sum.PrinterAlerts
+	}
 	if got := problems(); len(got) != 0 {
 		t.Fatalf("default threshold 15: problems = %v, want none", got)
+	}
+	if got := alerts(); len(got) != 0 {
+		t.Fatalf("default threshold 15: printer alerts = %+v, want none", got)
 	}
 	set, err := e.st.LoadSettings()
 	if err != nil {
@@ -573,5 +582,8 @@ func TestListDevicesProblemsUsesSupplyThreshold(t *testing.T) {
 	}
 	if got := problems(); !slices.Equal(got, []string{"10.0.0.20"}) {
 		t.Fatalf("threshold 25: problems = %v, want [10.0.0.20]", got)
+	}
+	if got := alerts(); len(got) != 1 || got[0].IP != "10.0.0.20" || !slices.Equal(got[0].LowSupplies, []string{"Black toner 20%"}) {
+		t.Fatalf("threshold 25: printer alerts = %+v, want 10.0.0.20 with Black toner 20%%", got)
 	}
 }

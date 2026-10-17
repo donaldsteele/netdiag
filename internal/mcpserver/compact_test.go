@@ -64,7 +64,7 @@ func bigScan() model.ScanResult {
 
 func TestSummarizeBounded(t *testing.T) {
 	r := bigScan()
-	s := Summarize(r)
+	s := Summarize(r, 0)
 	b, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestSummarizeBounded(t *testing.T) {
 
 func TestSummarizeStatesAndOK(t *testing.T) {
 	r := model.ScanResult{State: model.StateRunning, Health: &model.HealthReport{Checks: []model.HealthCheck{{ID: "a", Status: "ok"}}}}
-	s := Summarize(r)
+	s := Summarize(r, 0)
 	if s.Health.Summary != "all ok" || !strings.Contains(s.NextStep, "still running") {
 		t.Fatalf("%+v", s)
 	}
@@ -252,6 +252,64 @@ func TestProblemsMatchesUI(t *testing.T) {
 		}
 		if strings.Join(got, ",") != want {
 			t.Errorf("%s: got %v want %s", f, got, want)
+		}
+	}
+}
+
+// TestSummarizePrinterAlertsMatchProblems pins the summary's printer
+// alerts to the printers filter=problems lists (and so to the UI's
+// Problems tab), with the same supply threshold.
+func TestSummarizePrinterAlertsMatchProblems(t *testing.T) {
+	printer := func(ip string, p model.PrinterInfo) model.Host {
+		return model.Host{IP: ip, Alive: true, Online: true, IsPrinter: true, Printer: &p}
+	}
+	supply := func(pct int, state string) model.PrinterInfo {
+		return model.PrinterInfo{Supplies: []model.Supply{{Description: "Black toner", Percent: pct, State: state}}}
+	}
+	r := model.ScanResult{ID: "pa", State: model.StateDone, Hosts: []model.Host{
+		printer("10.0.2.1", model.PrinterInfo{State: "idle", Alerts: []model.Alert{{Description: "Cover open"}}}),
+		printer("10.0.2.2", supply(20, "ok")),
+		printer("10.0.2.3", supply(15, "ok")),
+		printer("10.0.2.4", supply(-1, "unknown")),
+		printer("10.0.2.5", supply(-1, "empty")),
+		printer("10.0.2.6", supply(40, "low")),
+		printer("10.0.2.7", model.PrinterInfo{State: "stopped"}),
+		{IP: "10.0.2.8", Alive: true, Online: true, Printer: &model.PrinterInfo{Alerts: []model.Alert{{Description: "x"}}}}, // not a printer
+		printer("10.0.2.9", model.PrinterInfo{Supplies: []model.Supply{
+			{Description: "Cyan", Percent: -1, State: "low"}, {Description: "Magenta", Percent: 60, State: "ok"},
+			{Description: "Yellow", Percent: 0, State: "empty"}}}),
+	}}
+	labels := map[string][]string{"10.0.2.1": {}, "10.0.2.2": {"Black toner 20%"}, "10.0.2.3": {"Black toner 15%"},
+		"10.0.2.5": {"Black toner empty"}, "10.0.2.6": {"Black toner 40%"}, "10.0.2.9": {"Cyan low", "Yellow empty"}}
+	for _, c := range []struct {
+		pct  int
+		want string
+	}{
+		{0, "10.0.2.1,10.0.2.3,10.0.2.5,10.0.2.6,10.0.2.9"},
+		{15, "10.0.2.1,10.0.2.3,10.0.2.5,10.0.2.6,10.0.2.9"},
+		{25, "10.0.2.1,10.0.2.2,10.0.2.3,10.0.2.5,10.0.2.6,10.0.2.9"},
+		{14, "10.0.2.1,10.0.2.5,10.0.2.6,10.0.2.9"},
+	} {
+		var got []string
+		for _, a := range Summarize(r, c.pct).PrinterAlerts {
+			got = append(got, a.IP)
+			if want := labels[a.IP]; strings.Join(a.LowSupplies, "|") != strings.Join(want, "|") {
+				t.Errorf("threshold %d, %s: low supplies %q, want %q", c.pct, a.IP, a.LowSupplies, want)
+			}
+		}
+		if strings.Join(got, ",") != c.want {
+			t.Errorf("threshold %d: printer alerts %v, want %s", c.pct, got, c.want)
+		}
+		page, err := ListDevices(r, ListOptions{Filter: "problems", SupplyPct: c.pct})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var problems []string
+		for _, it := range page.Items {
+			problems = append(problems, it.IP)
+		}
+		if strings.Join(problems, ",") != c.want {
+			t.Errorf("threshold %d: problems %v, printer alerts %v", c.pct, problems, got)
 		}
 	}
 }

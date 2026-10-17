@@ -116,33 +116,25 @@ func capStrings(in []string, n int) []string {
 	return out
 }
 
-func supplyLabels(p *model.PrinterInfo) []string {
+// supplyLabels lists the supplies of p that are low (see lowSupply), as
+// "Black toner 8%", "Black toner empty" or, with no known level,
+// "Black toner low".
+func (fc filterCtx) supplyLabels(p *model.PrinterInfo) []string {
 	out := []string{}
 	for _, s := range p.Supplies {
-		if s.State == "low" || s.State == "empty" {
-			if s.State == "empty" && s.Percent == 0 {
-				out = append(out, s.Description+" empty")
-			} else {
-				out = append(out, fmt.Sprintf("%s %d%%", s.Description, s.Percent))
-			}
+		if !fc.lowSupply(s) {
+			continue
+		}
+		switch {
+		case s.State == "empty" && s.Percent <= 0:
+			out = append(out, s.Description+" empty")
+		case s.Percent < 0:
+			out = append(out, s.Description+" "+s.State)
+		default:
+			out = append(out, fmt.Sprintf("%s %d%%", s.Description, s.Percent))
 		}
 	}
 	return out
-}
-
-func printerProblem(p *model.PrinterInfo) bool {
-	if p == nil {
-		return false
-	}
-	if p.State == "stopped" || len(p.Alerts) > 0 {
-		return true
-	}
-	for _, s := range p.Supplies {
-		if s.State == "low" || s.State == "empty" {
-			return true
-		}
-	}
-	return false
 }
 
 func nonNil(s []string) []string {
@@ -152,8 +144,12 @@ func nonNil(s []string) []string {
 	return s
 }
 
-// Summarize builds a bounded ScanSummary.
-func Summarize(r model.ScanResult) ScanSummary {
+// Summarize builds a bounded ScanSummary. supplyPct is the low-supply
+// threshold (alerts.supplyThresholdPct; <= 0 means the default): the
+// printer alerts are the printers list_devices filter=problems lists for
+// their alerts or supplies, like the Problems tab.
+func Summarize(r model.ScanResult, supplyPct int) ScanSummary {
+	fc := newFilterCtx(r, supplyPct)
 	s := ScanSummary{
 		ScanID: r.ID, State: r.State,
 		Request:    SummaryRequest{CIDR: r.Request.CIDR, Interface: r.Request.Interface, Live: r.Request.Live},
@@ -212,7 +208,7 @@ func Summarize(r model.ScanResult) ScanSummary {
 		})
 	}
 	for _, h := range report.SortHosts(r.Hosts) {
-		if !printerProblem(h.Printer) {
+		if !fc.printerProblem(h) {
 			continue
 		}
 		if len(s.PrinterAlerts) >= maxSummaryPrinters {
@@ -226,7 +222,7 @@ func Summarize(r model.ScanResult) ScanSummary {
 		s.PrinterAlerts = append(s.PrinterAlerts, PrinterAlert{
 			IP: h.IP, Model: clip(h.Printer.Model, 40), State: h.Printer.State,
 			Alerts:      capStrings(al, maxPrinterAlerts),
-			LowSupplies: capStrings(supplyLabels(h.Printer), maxPrinterSupplies),
+			LowSupplies: capStrings(fc.supplyLabels(h.Printer), maxPrinterSupplies),
 		})
 	}
 	switch r.State {
@@ -315,18 +311,8 @@ func (fc filterCtx) hasConflict(h model.Host) bool {
 // below the supply threshold, or a web page that failed or answered with an
 // HTTP error.
 func (fc filterCtx) isProblem(h model.Host) bool {
-	if hostOffline(h) || fc.hasConflict(h) {
+	if hostOffline(h) || fc.hasConflict(h) || fc.printerProblem(h) {
 		return true
-	}
-	if p := h.Printer; h.IsPrinter && p != nil {
-		if len(p.Alerts) > 0 {
-			return true
-		}
-		for _, s := range p.Supplies {
-			if s.State == "low" || s.State == "empty" || (s.Percent >= 0 && s.Percent <= fc.supplyPct) {
-				return true
-			}
-		}
 	}
 	for _, w := range h.Web {
 		if w.Error != "" || w.Status == 0 || w.Status >= 400 {
@@ -334,6 +320,31 @@ func (fc filterCtx) isProblem(h model.Host) bool {
 		}
 	}
 	return false
+}
+
+// printerProblem is the printer part of isProblem: a printer with alerts
+// or a low supply. A printer's state alone (such as "stopped") does not
+// count, as in the UI.
+func (fc filterCtx) printerProblem(h model.Host) bool {
+	p := h.Printer
+	if !h.IsPrinter || p == nil {
+		return false
+	}
+	if len(p.Alerts) > 0 {
+		return true
+	}
+	for _, s := range p.Supplies {
+		if fc.lowSupply(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// lowSupply reports a supply that is low, empty, or at or below the supply
+// threshold.
+func (fc filterCtx) lowSupply(s model.Supply) bool {
+	return s.State == "low" || s.State == "empty" || (s.Percent >= 0 && s.Percent <= fc.supplyPct)
 }
 
 func (fc filterCtx) match(filter string, h model.Host) bool {
