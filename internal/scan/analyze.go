@@ -45,6 +45,24 @@ func (s *state) addNotices(hosts map[string]*model.Host, ns []model.Notice) {
 	s.mirror()
 }
 
+// vendors returns the maker of each of macs that has a known one, by MAC,
+// or nil.
+func (s *state) vendors(macs []string) map[string]string {
+	if s.vendor == nil {
+		return nil
+	}
+	var out map[string]string
+	for _, m := range macs {
+		if v := s.vendor(m); v != "" {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[m] = v
+		}
+	}
+	return out
+}
+
 // advise sets the advice on each fault notice in ns, in place: a conflict
 // or a health check's own advice when the notice is about one the scan
 // has, else the catalogue's answer for the notice and its device.
@@ -169,6 +187,7 @@ func (s *state) analyzeOp(hosts map[string]*model.Host, cycle bool) {
 	var added []model.Conflict
 	for i := range cur {
 		keep[cur[i].ID] = true
+		cur[i].Vendors = s.vendors(cur[i].MACs)
 		cur[i].Advice = advice.Conflict(cur[i], x)
 		if o, ok := old[cur[i].ID]; ok {
 			if o.FirstSeen != "" && o.FirstSeen < cur[i].FirstSeen {

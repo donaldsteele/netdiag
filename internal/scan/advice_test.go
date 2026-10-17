@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"maps"
 	"testing"
 
 	"netdiag/internal/arp"
@@ -38,7 +39,9 @@ func TestHealthAndNoticeAdvice(t *testing.T) {
 }
 
 // TestConflictAdvice: a mac_flap conflict and its notice carry the advice
-// for a swap that was seen, with Show device on the address.
+// for a swap that was seen, with Show device on the address, and the
+// conflict names the maker of each MAC that has a known one, including a
+// MAC no device answers with any more (the drawer's device cards).
 func TestConflictAdvice(t *testing.T) {
 	sp := &scriptPinger{sweepAlive: map[string]bool{}, script: map[string][]bool{}, presence: map[string]int{}}
 	a := []arp.Entry{{IP: "10.0.0.5", MAC: "00:11:22:33:44:0A"}}
@@ -48,6 +51,7 @@ func TestConflictAdvice(t *testing.T) {
 	d.ARP = &scriptARP{tables: [][]arp.Entry{a, a, b, a, b, a, b}}
 	d.Ports = fakePorts{"10.0.0.5": {80}}
 	d.TCP = fakePorts{"10.0.0.5": {80}}
+	d.Vendors = fakeVendors{"00:11:22:33:44:0A": "Espressif Inc."}
 	_, res := runCycles(t, d, "10.0.0.0/28", 6)
 	var flap *model.Conflict
 	for i, c := range res.Conflicts {
@@ -59,6 +63,9 @@ func TestConflictAdvice(t *testing.T) {
 	if flap == nil || flap.Advice == nil || flap.Advice.Meaning != want || len(flap.Advice.Actions) != 1 ||
 		flap.Advice.Actions[0].Kind != model.ActionShowDevice || flap.Advice.Actions[0].Target != "10.0.0.5" {
 		t.Fatalf("conflict = %+v", flap)
+	}
+	if !maps.Equal(flap.Vendors, map[string]string{"00:11:22:33:44:0A": "Espressif Inc."}) {
+		t.Fatalf("vendors = %v", flap.Vendors)
 	}
 	n := notices(res, model.TriggerIPConflict)
 	if len(n) != 1 || n[0].Advice == nil || n[0].Advice.Meaning != want {

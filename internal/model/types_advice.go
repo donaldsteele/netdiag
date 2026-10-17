@@ -43,12 +43,14 @@ const (
 	ActionOSSettings = "osSettings"
 )
 
-// Settings sections an ActionOpenSettings can point at.
+// Settings sections an ActionOpenSettings can point at; the page puts
+// focus on the matching field.
 const (
-	SettingsSectionWebServer = "webserver"
-	SettingsSectionHealth    = "health"
-	SettingsSectionAlerts    = "alerts"
-	SettingsSectionChat      = "chat"
+	SettingsSectionWebServer  = "webserver"  // the Web server URL
+	SettingsSectionHealth     = "health"     // the Internet check URL
+	SettingsSectionNoInternet = "noInternet" // the "This network has no internet" switch
+	SettingsSectionAlerts     = "alerts"
+	SettingsSectionChat       = "chat"
 )
 
 // OSPageLocation is the Windows Location privacy page: Windows hides Wi-Fi

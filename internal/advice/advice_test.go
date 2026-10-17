@@ -54,7 +54,8 @@ func every() map[string]*model.Advice {
 	for _, goos := range oses {
 		for id, reasons := range Reasons() {
 			for _, r := range reasons {
-				for _, data := range []map[string]any{nil, {"noInternet": true, "status": 503, "signalPct": 32}} {
+				for _, data := range []map[string]any{nil, {"noInternet": true, "status": 503, "signalPct": 32,
+					"pingError": true, "certSHA256": strings.Repeat("ab", 32)}} {
 					name := goos + " " + id + " " + r
 					if data != nil {
 						name += " with data"
@@ -194,6 +195,7 @@ func TestHealthAdvice(t *testing.T) {
 	}{
 		{"gateway", model.ReasonNoReply, nil, "This computer can't reach your router.", []string{model.ActionRecheck}},
 		{"gateway", model.ReasonTCPOnly, nil, "Your router doesn't answer ping, but its web page answers, so it is working.", []string{model.ActionOpenRouter}},
+		{"gateway", model.ReasonTCPOnly, map[string]any{"pingError": true}, "netdiag couldn't send its test message from this computer, but your router's web page answers, so it is working.", []string{model.ActionOpenRouter}},
 		{"gateway", model.ReasonSlow, nil, "Your router answers, but slowly (182 ms).", []string{model.ActionRecheck}},
 		{"dhcp", model.ReasonAPIPA, nil, "This computer didn't get an address from the router, so it can't talk to other devices.", []string{model.ActionRecheck}},
 		{"dns", model.ReasonNoInternet, nil, "Your local network works, but internet names can't be looked up. Usually this means there is no internet connection right now.", []string{model.ActionRecheck, model.ActionOpenSettings}},
@@ -204,6 +206,7 @@ func TestHealthAdvice(t *testing.T) {
 		{"dns", model.ReasonNoServer, nil, "This computer has no name server set.", nil},
 		{"webserver", model.ReasonNotSet, nil, "No web server is set, so this check is skipped.", []string{model.ActionOpenSettings}},
 		{"webserver", model.ReasonStatus, map[string]any{"status": float64(503)}, "The web server isn't answering as expected (HTTP 503).", []string{model.ActionOpenSettings, model.ActionRecheck}},
+		{"webserver", model.ReasonTLS, map[string]any{"certSHA256": strings.Repeat("ab", 32)}, "The web server's certificate isn't trusted.", nil},
 		{"webserver", model.ReasonTLS, nil, "The web server's certificate isn't trusted.", []string{model.ActionOpenSettings}},
 		{"internet", model.ReasonPortal, nil, "This network wants you to sign in first, on a Wi-Fi login page.", nil},
 		{"internet", model.ReasonNoResponse, nil, "netdiag couldn't reach the internet. Devices on the local network still work.", []string{model.ActionRecheck}},
@@ -226,6 +229,36 @@ func TestHealthAdvice(t *testing.T) {
 		}
 		if a.Technical != "raw detail for "+tc.id {
 			t.Errorf("%s %s: Technical %q", tc.id, tc.reason, a.Technical)
+		}
+	}
+	// The no-internet advice opens Settings at the switch; the name and
+	// internet check addresses at the Internet check URL; a certificate
+	// offered for trust points at the card's Trust this certificate button,
+	// and never claims Settings can trust it.
+	for _, tc := range []struct {
+		c      model.HealthCheck
+		target string
+	}{
+		{check("dns", model.ReasonNoInternet, nil), model.SettingsSectionNoInternet},
+		{check("dns", model.ReasonNoInternet, map[string]any{"noInternet": true}), model.SettingsSectionNoInternet},
+		{check("internet", model.ReasonNoResponse, map[string]any{"noInternet": true}), model.SettingsSectionNoInternet},
+		{check("dns", model.ReasonNXDomain, nil), model.SettingsSectionHealth},
+		{check("internet", model.ReasonStatus, nil), model.SettingsSectionHealth},
+		{check("webserver", model.ReasonNotSet, nil), model.SettingsSectionWebServer},
+	} {
+		a := Health(tc.c, x)
+		i := slices.IndexFunc(a.Actions, func(a model.AdviceAction) bool { return a.Kind == model.ActionOpenSettings })
+		if i < 0 || a.Actions[i].Target != tc.target {
+			t.Errorf("%s %s: Open Settings %+v, want target %s", tc.c.ID, model.HealthReason(tc.c), a.Actions, tc.target)
+		}
+	}
+	tls := Health(check("webserver", model.ReasonTLS, map[string]any{"certSHA256": strings.Repeat("ab", 32)}), x)
+	if len(tls.Steps) == 0 || !strings.Contains(tls.Steps[0], "press Trust this certificate on the Web server card") {
+		t.Errorf("tls: %+v", tls)
+	}
+	for _, s := range tls.Steps {
+		if strings.Contains(s, "Settings") || strings.Contains(s, " here") {
+			t.Errorf("tls step %q", s)
 		}
 	}
 	if a := Health(check("wifi", model.ReasonError, nil), Ctx{GOOS: "darwin"}); a == nil ||
@@ -439,7 +472,7 @@ func TestUITestFixtureAdvice(t *testing.T) {
 		"dns no_internet":          hc("dns", model.HealthWarn, model.ReasonNoInternet, nil),
 		"dns no_internet, switch":  hc("dns", model.HealthInfo, model.ReasonNoInternet, map[string]any{"noInternet": true}),
 		"web not_set":              hc("webserver", model.HealthInfo, model.ReasonNotSet, nil),
-		"web tls":                  hc("webserver", model.HealthFail, model.ReasonTLS, nil),
+		"web tls":                  hc("webserver", model.HealthFail, model.ReasonTLS, map[string]any{"certSHA256": strings.Repeat("ab", 32)}),
 		"web status":               hc("webserver", model.HealthFail, model.ReasonStatus, map[string]any{"status": 503}),
 		"internet no_response":     hc("internet", model.HealthInfo, model.ReasonNoResponse, nil),
 		"internet, switch":         hc("internet", model.HealthInfo, model.ReasonNoResponse, map[string]any{"noInternet": true}),
@@ -469,6 +502,18 @@ func TestUITestFixtureAdvice(t *testing.T) {
 			if !strings.Contains(string(src), quoted(s)) {
 				t.Errorf("%s: fixtures lack %s", name, quoted(s))
 			}
+		}
+	}
+	// The network the fixture health reports name is a real network id,
+	// and the advice buttons that open Settings use known targets.
+	m := regexp.MustCompile(`export const NETWORK = '([^']*)'`).FindStringSubmatch(string(src))
+	if m == nil || !model.ValidNetworkID(m[1]) {
+		t.Errorf("fixture NETWORK %v is not a network id", m)
+	}
+	for _, sm := range regexp.MustCompile(`settingsAction\('([^']*)'\)`).FindAllStringSubmatch(string(src), -1) {
+		if !slices.Contains([]string{model.SettingsSectionWebServer, model.SettingsSectionHealth, model.SettingsSectionNoInternet,
+			model.SettingsSectionAlerts, model.SettingsSectionChat}, sm[1]) {
+			t.Errorf("fixture Open Settings target %q", sm[1])
 		}
 	}
 }

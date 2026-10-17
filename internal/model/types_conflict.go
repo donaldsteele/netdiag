@@ -40,6 +40,10 @@ type Conflict struct {
 	FirstSeen string   `json:"firstSeen"`
 	LastSeen  string   `json:"lastSeen"`
 	Detail    string   `json:"detail"`
+	// Vendors names the maker of each MAC in MACs that has a known one
+	// (MAC → vendor), so the page can tell the two devices apart even when
+	// one of them uses no other address.
+	Vendors map[string]string `json:"vendors,omitempty"`
 	// Advice says what the conflict means and what to try.
 	Advice *Advice `json:"advice,omitempty"`
 }

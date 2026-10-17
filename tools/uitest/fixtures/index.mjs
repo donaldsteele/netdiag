@@ -8,6 +8,10 @@ export const BASE_ID = 'h-20261009-1800';
 export const GATEWAY = '192.168.2.1';
 export const SELF_IP = '192.168.2.50';
 export const CIDR = '192.168.2.0/24';
+// The id the health checks give this network, in the form model.NetworkID
+// makes; the "This network has no internet" switch is kept per network id
+// (v0.6-D15).
+export const NETWORK = 'n-5f2c0a9d3e71';
 export const TOTAL_HOSTS = 254;
 export const CONFLICT_ID = 'c-1';
 
@@ -159,6 +163,9 @@ export const FLAP_IP = ip(44);
 export const FLAP_MACS = ['24:6F:28:AA:BB:CC', '3C:52:82:11:22:33'];
 export const FLAP_ID = 'c-flap';
 
+// The makers the scan names for the two MACs (Conflict.Vendors).
+export const FLAP_VENDORS = { [FLAP_MACS[0]]: 'Espressif Inc.', [FLAP_MACS[1]]: 'Hewlett Packard' };
+
 // flapConflict(alternations): a mac_flap conflict at FLAP_IP. With 2 or
 // more alternations the swap was seen ("Conflict"); with fewer it is a
 // "Possible conflict" (internal/advice SwapSeen).
@@ -171,22 +178,24 @@ export function flapConflict(alternations = 2) {
     : advice("Possible conflict: the device answering at 192.168.2.44 changed.",
       ["If you just replaced a device, this is expected.", "If it happens again, netdiag will show both devices here."], [], detail);
   return { id: FLAP_ID, kind: 'mac_flap', severity: 'fail', ips: [FLAP_IP], macs: [...FLAP_MACS], name: '',
-    firstSeen: T0, lastSeen: T1, detail, advice: a };
+    firstSeen: T0, lastSeen: T1, detail, vendors: { ...FLAP_VENDORS }, advice: a };
 }
 
-// flapHosts(alternations): hosts() with FLAP_IP's MAC history showing that
-// many alternations (10:02, 10:07, 10:12 ... in UTC) and the second MAC
-// also answering at .45, plus their vendors.
-export function flapHosts(alternations = 2) {
+// flapHosts(alternations, alsoAt): hosts() with FLAP_IP's MAC history
+// showing that many alternations (10:02, 10:07, 10:12 ... in UTC), and,
+// unless alsoAt is false, the second MAC also answering at .45.
+export function flapHosts(alternations = 2, alsoAt = true) {
   const list = hosts();
   const at = (i) => `2026-10-10T10:${String(2 + 5 * i).padStart(2, '0')}:00Z`;
   const hist = [];
   for (let i = 0; i <= alternations; i++) hist.push({ mac: FLAP_MACS[i % 2], at: at(i) });
   const flap = list.find((h) => h.ip === FLAP_IP);
   const mac = hist[hist.length - 1].mac;
-  Object.assign(flap, { mac, vendor: mac === FLAP_MACS[0] ? 'Espressif Inc.' : 'Hewlett Packard', macHistory: hist, conflicts: [FLAP_ID] });
-  const other = list.find((h) => h.ip === ip(45));
-  Object.assign(other, { alive: true, online: true, mac: FLAP_MACS[1], vendor: 'Hewlett Packard', foundBy: ['arp'] });
+  Object.assign(flap, { mac, vendor: FLAP_VENDORS[mac], macHistory: hist, conflicts: [FLAP_ID] });
+  if (alsoAt) {
+    const other = list.find((h) => h.ip === ip(45));
+    Object.assign(other, { alive: true, online: true, mac: FLAP_MACS[1], vendor: FLAP_VENDORS[FLAP_MACS[1]], foundBy: ['arp'] });
+  }
   return list;
 }
 
@@ -227,8 +236,8 @@ export function webCheck(state = 'unset', url = WEB_URL) {
       data: { configured: true, url, certSHA256: CERT_SHA256, certSubject: 'intranet.local',
         certExpires: '2027-10-01T00:00:00Z', reason: 'tls' },
       advice: advice("The web server's certificate isn't trusted.",
-        ["If this is your own server on this network, choose to trust its certificate here or in Settings.",
-          "Otherwise, ask whoever looks after it."], [settingsAction('webserver')], detail) };
+        ["If this is your own server on this network, open Health in netdiag and press Trust this certificate on the Web server card.",
+          "Otherwise, ask whoever looks after it."], [], detail) };
   }
   if (state === 'down') {
     const detail = 'HTTP 503 (expected 200)';
@@ -254,8 +263,9 @@ function wifiWeak(pct = 48) {
 // web: the web server check state and webURL its reported address (see webCheck).
 // state: 'default' (Wi-Fi weak, the rest fine); 'all' (every check has
 // something to say, each with its advice); 'offline' (a local network
-// without internet), where noInternet is the "This network has no internet"
-// switch (v0.6-D15) the checks ran with.
+// without internet), where noInternet says whether the "This network has
+// no internet" switch (v0.6-D15) was on for NETWORK when the checks ran.
+// Every report names the network it checked (NETWORK).
 export function health({ web = 'unset', webURL = WEB_URL, state = 'default', noInternet = false } = {}) {
   if (state === 'all') return healthAll();
   if (state === 'offline') return healthOffline(noInternet);
@@ -269,7 +279,7 @@ export function health({ web = 'unset', webURL = WEB_URL, state = 'default', noI
     return h;
   }
   return {
-    checkedAt: T1,
+    checkedAt: T1, network: NETWORK,
     checks: [
       { id: 'gateway', label: 'Default gateway', status: 'ok', detail: `Reachable at ${GATEWAY}`, latencyMs: 1.4 },
       { id: 'dhcp', label: 'DHCP', status: 'ok', detail: 'Lease active, 23h remaining', latencyMs: 0 },
@@ -288,7 +298,7 @@ export function healthAll() {
   const dns = 'could not resolve connectivitycheck.gstatic.com, but DNS server 192.168.2.1 answers: no internet connection, or the DNS server cannot reach the internet (i/o timeout)';
   const inet = 'internet check got no response (local checks are unaffected)';
   return {
-    checkedAt: T1,
+    checkedAt: T1, network: NETWORK,
     checks: [
       { id: 'gateway', label: 'Gateway reachable', status: 'fail', detail: gw, latencyMs: 0, data: { reason: 'no_reply' },
         advice: advice("This computer can't reach your router.",
@@ -312,13 +322,13 @@ function dnsNoInternet(noInternet, detail = 'could not resolve connectivitycheck
   if (noInternet) {
     return { id: 'dns', label: 'DNS resolving', status: 'info', detail, latencyMs: 0, data: { reason: 'no_internet', noInternet: true },
       advice: advice("This network is set up without internet, so internet names can't be looked up. That is expected.",
-        ["If this network has internet now, turn off \"This network has no internet\" in Settings."], [settingsAction('health')], detail) };
+        ["If this network has internet now, turn off \"This network has no internet\" in Settings."], [settingsAction('noInternet')], detail) };
   }
   return { id: 'dns', label: 'DNS resolving', status: 'warn', detail, latencyMs: 0, data: { reason: 'no_internet' },
     advice: advice("Your local network works, but internet names can't be looked up. Usually this means there is no internet connection right now.",
       ["If this network should have internet, restart the router or modem.",
         "If this network has no internet on purpose, turn on \"This network has no internet\" in Settings."],
-      [RECHECK, settingsAction('health')], detail) };
+      [RECHECK, settingsAction('noInternet')], detail) };
 }
 
 // healthOffline(noInternet): a local network with no internet. Without the
@@ -327,12 +337,12 @@ export function healthOffline(noInternet = false) {
   const inet = 'internet check got no response (local checks are unaffected)';
   const internet = noInternet
     ? { id: 'internet', label: 'Internet reachability', status: 'info', detail: inet, latencyMs: 0, data: { reason: 'no_response', noInternet: true },
-      advice: advice("This network is set up without internet, so this check is only for information.", [], [settingsAction('health')], inet) }
+      advice: advice("This network is set up without internet, so this check is only for information.", [], [settingsAction('noInternet')], inet) }
     : { id: 'internet', label: 'Internet reachability', status: 'info', detail: inet, latencyMs: 0, data: { reason: 'no_response' },
       advice: advice("netdiag couldn't reach the internet. Devices on the local network still work.",
         ["If this network should have internet, restart the router or modem."], [RECHECK], inet) };
   return {
-    checkedAt: T1,
+    checkedAt: T1, network: NETWORK,
     checks: [
       { id: 'gateway', label: 'Gateway reachable', status: 'ok', detail: `${GATEWAY} replied in 2 ms`, latencyMs: 1.9 },
       { id: 'dhcp', label: 'DHCP lease', status: 'ok', detail: 'address obtained by DHCP from 192.168.2.1', latencyMs: 0 },
@@ -390,8 +400,8 @@ export function settings() {
       triggers: { printerOffline: true, deviceOffline: true, supplyLow: true, printerAlert: true,
         newDevice: true, ipConflict: true, healthFailed: true },
     },
+    noInternetNetworks: [],
     ignoredConflictMACs: [],
-    noInternet: false,
     mcp: { enabled: false },
     chat: { enabled: false, minSeverity: 'warning' },
   };

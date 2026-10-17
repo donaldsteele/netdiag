@@ -23,7 +23,8 @@ type state struct {
 	emit func(model.Event)
 
 	// Fields below are owned by the run goroutine: only touch them inside ops.
-	notify    *notify.Engine // nil: no notices
+	notify    *notify.Engine          // nil: no notices
+	vendor    func(mac string) string // a MAC's maker, for conflicts (nil: none)
 	gateway   string
 	ignored   []string
 	keepHist  bool // attach MACHistory to hosts (live mode)

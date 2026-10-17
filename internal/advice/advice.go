@@ -159,6 +159,10 @@ func health(c model.HealthCheck, reason string, x Ctx) *model.Advice {
 		if u := RouterURL(x.Gateway); u != "" {
 			acts = append(acts, model.AdviceAction{Kind: model.ActionOpenRouter, Label: LabelOpenRouter, Target: u})
 		}
+		if pingErr, _ := c.Data["pingError"].(bool); pingErr {
+			// Ping could not run on this computer: not the router's doing.
+			return adv("netdiag couldn't send its test message from this computer, but your router's web page answers, so it is working.", nil, acts...)
+		}
 		return adv("Your router doesn't answer ping, but its web page answers, so it is working.", nil, acts...)
 	case "gateway|" + model.ReasonSlow:
 		return adv(fmt.Sprintf("Your router answers, but slowly (%s).", millis(c.LatencyMs)),
@@ -186,12 +190,12 @@ func health(c model.HealthCheck, reason string, x Ctx) *model.Advice {
 		if noInternet {
 			return adv("This network is set up without internet, so internet names can't be looked up. That is expected.",
 				steps(`If this network has internet now, turn off "This network has no internet" in Settings.`),
-				settings(model.SettingsSectionHealth))
+				settings(model.SettingsSectionNoInternet))
 		}
 		return adv("Your local network works, but internet names can't be looked up. Usually this means there is no internet connection right now.",
 			steps("If this network should have internet, restart the router or modem.",
 				`If this network has no internet on purpose, turn on "This network has no internet" in Settings.`),
-			recheck(), settings(model.SettingsSectionHealth))
+			recheck(), settings(model.SettingsSectionNoInternet))
 	case "dns|" + model.ReasonLocalMismatch:
 		return adv("Your name server works, but this computer asks somewhere else first, for example an old VPN setting.",
 			steps("Disconnect any VPN and check again.",
@@ -220,9 +224,17 @@ func health(c model.HealthCheck, reason string, x Ctx) *model.Advice {
 	case "webserver|" + model.ReasonRequest:
 		return adv("The web server isn't answering.", webSteps(), settings(model.SettingsSectionWebServer), recheck())
 	case "webserver|" + model.ReasonTLS:
+		if fp, _ := c.Data["certSHA256"].(string); fp == "" {
+			// No certificate offered to trust: another address of the
+			// server, with a different certificate, answered.
+			return adv("The web server's certificate isn't trusted.",
+				steps("The server sends you to another address that uses a different certificate. Set that address as the Web server URL in Settings.",
+					"Otherwise, ask whoever looks after it."), settings(model.SettingsSectionWebServer))
+		}
+		// The Web server card has the Trust this certificate button.
 		return adv("The web server's certificate isn't trusted.",
-			steps("If this is your own server on this network, choose to trust its certificate here or in Settings.",
-				"Otherwise, ask whoever looks after it."), settings(model.SettingsSectionWebServer))
+			steps("If this is your own server on this network, open Health in netdiag and press Trust this certificate on the Web server card.",
+				"Otherwise, ask whoever looks after it."))
 	case "webserver|" + model.ReasonRedirect:
 		return adv("The web server sends visitors to another address, so the page you set isn't the one that answers.",
 			steps("Open Settings and set the address it sends you to."),
@@ -244,7 +256,7 @@ func health(c model.HealthCheck, reason string, x Ctx) *model.Advice {
 	case "internet|" + model.ReasonNoResponse:
 		if noInternet {
 			return adv("This network is set up without internet, so this check is only for information.", nil,
-				settings(model.SettingsSectionHealth))
+				settings(model.SettingsSectionNoInternet))
 		}
 		return adv("netdiag couldn't reach the internet. Devices on the local network still work.",
 			steps("If this network should have internet, restart the router or modem."), recheck())

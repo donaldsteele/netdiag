@@ -524,6 +524,7 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 	})
 	r.st.emit = s.bus.Publish
 	r.st.gateway = gw
+	r.st.vendor = d.Vendors.Lookup
 	r.st.ignored = slices.Clone(s.settings.IgnoredConflictMACs)
 	r.st.keepHist = req.Live
 	r.st.notify = notify.New(notifyConfig(s.settings), d.Now)
