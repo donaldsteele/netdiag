@@ -76,8 +76,10 @@ func TestSDKImportIsolated(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			switch d.Name() {
-			case ".git", "node_modules", "vendor":
+			// Like the go tool, skip directories starting with "." or "_"
+			// (.git, .claude/worktrees with other checkouts of this repo).
+			n := d.Name()
+			if p != root && (strings.HasPrefix(n, ".") || strings.HasPrefix(n, "_")) || n == "node_modules" || n == "vendor" {
 				return filepath.SkipDir
 			}
 			return nil
