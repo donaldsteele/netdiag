@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -16,6 +17,8 @@ import (
 	"time"
 
 	"netdiag/internal/bubbles"
+	"netdiag/internal/bubbles/bubblestest"
+	"netdiag/internal/bubbles/protocol"
 	"netdiag/internal/secret"
 	"netdiag/internal/store"
 )
@@ -389,5 +392,44 @@ func TestSaveRefusesIncompleteConnection(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, store.FileBubbles)); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("a file was written")
+	}
+}
+
+// A connection saved after pairing and loaded again still talks to the
+// server: the token and the pin survive bubbles.json, and TokenPrefix is
+// what bubbles shows in Admin > Apps.
+func TestSavedConnectionTalksToServer(t *testing.T) {
+	f := bubblestest.New(t)
+	ctx := context.Background()
+	p, err := bubbles.RequestPairing(ctx, f.API.URL, f.CAFingerprint,
+		protocol.PairingRequest{AppName: "netdiag", RequestedScopes: []string{protocol.ScopeChannelsRead}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.SetPollInterval(time.Millisecond)
+	f.SetPairingState(protocol.PairingApproved)
+	cfg, err := p.Wait(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _ := newStore(t)
+	srv := Server{Name: "Office", BaseURL: cfg.BaseURL, OnboardingURL: f.Onboard.URL, CAFingerprint: cfg.CAFingerprint}
+	if err := SaveConnection(st, NewConnection(srv, "netdiag", f.Scopes(), cfg.Token, time.Now())); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadConnection(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := bubbles.New(c.ClientConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chs, err := client.ListChannels(ctx); err != nil || len(chs) != 1 {
+		t.Fatalf("channels %+v %v", chs, err)
+	}
+	self, err := client.Self(ctx)
+	if err != nil || c.TokenPrefix() != self.Token.Prefix {
+		t.Fatalf("prefix %q, bubbles shows %+v (%v)", c.TokenPrefix(), self, err)
 	}
 }

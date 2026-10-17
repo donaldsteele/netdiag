@@ -4,8 +4,9 @@
 // Copied from github.com/donaldsteele/bubbles v0.2.0,
 // pkg/bubblesclient/pairing.go, plus sleepCtx from
 // pkg/bubblesclient/events.go.
-// Modified for netdiag: the package name and the protocol import path, and
-// FetchCA's client uses a transport without a proxy.
+// Modified for netdiag: the package name and the protocol import path,
+// FetchCA's client uses a transport without a proxy, and SetPollInterval
+// lets callers' tests poll quickly.
 
 package bubbles
 
@@ -107,6 +108,15 @@ func (p *Pairing) Code() string { return p.code }
 
 // ExpiresAt is when the request lapses (zero if unknown).
 func (p *Pairing) ExpiresAt() time.Time { return p.expires }
+
+// SetPollInterval sets how long Wait waits before each poll while the
+// request is pending (1 s by default; d <= 0 keeps it). Call it before
+// Wait. Tests use it to pair in milliseconds.
+func (p *Pairing) SetPollInterval(d time.Duration) {
+	if d > 0 {
+		p.poll = d
+	}
+}
 
 // Wait polls with backoff until the request is approved, denied or expired,
 // or ctx ends. On approval it returns a Config carrying the token and the
