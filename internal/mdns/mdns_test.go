@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -148,8 +149,11 @@ func TestParseMalformed(t *testing.T) {
 			t.Fatal("nil answers")
 		}
 	}
-	q, _ := buildQuery(1, []string{"_ipp._tcp.local."}, nil, nil, false)
-	if _, err := Parse(q); !errors.Is(err, ErrNotResponse) {
+	qs, _ := buildQueries(1, []string{"_ipp._tcp.local."}, nil, nil, false)
+	if len(qs) != 1 {
+		t.Fatalf("queries = %d, want 1", len(qs))
+	}
+	if _, err := Parse(qs[0]); !errors.Is(err, ErrNotResponse) {
 		t.Errorf("query parsed as response: %v", err)
 	}
 }
@@ -413,27 +417,132 @@ func TestDefaultServicesCoverDeviceTypes(t *testing.T) {
 	}
 }
 
-// The default query fits one datagram in both rounds, and round 2 still
-// has room for every follow-up question of typical instance names.
+// longLabel is a 63-byte instance label, the longest DNS allows.
+func longLabel(i int) string {
+	l := fmt.Sprintf("HP Color LaserJet MFP M479fdw (3A1B%02d) ", i)
+	return l + strings.Repeat("x", 63-len(l))
+}
+
+// roundQuestions returns the questions of every packet of one round, and
+// fails when a packet is larger than maxQuerySize.
+func roundQuestions(t *testing.T, pkts [][]byte) []dnsmessage.Question {
+	t.Helper()
+	var qs []dnsmessage.Question
+	for i, p := range pkts {
+		if len(p) > maxQuerySize {
+			t.Errorf("packet %d is %d bytes, over %d", i, len(p), maxQuerySize)
+		}
+		qs = append(qs, questions(t, p)...)
+	}
+	return qs
+}
+
+// Round 1 of the default query is one datagram. Round 2 is one datagram for
+// typical instance names; with the longest names it is split into several,
+// each within maxQuerySize, and no follow-up question is dropped.
 func TestDefaultQueryFits(t *testing.T) {
 	fqdn := make([]string, len(DefaultServices))
 	for i, s := range DefaultServices {
 		fqdn[i] = s + ".local."
 	}
-	q1, err := buildQuery(1, fqdn, nil, nil, false)
-	if err != nil || len(q1) > maxQuerySize || len(questions(t, q1)) != len(fqdn) {
-		t.Fatalf("round 1: %d bytes, err %v", len(q1), err)
+	q1, err := buildQueries(1, fqdn, nil, nil, false)
+	if err != nil || len(q1) != 1 || len(roundQuestions(t, q1)) != len(fqdn) {
+		t.Fatalf("round 1: %d packets, err %v", len(q1), err)
 	}
-	var srv []string
+	cases := []struct {
+		name    string
+		label   func(i int) string
+		packets int // 0: more than one
+	}{
+		{"typical names", func(i int) string { return fmt.Sprintf("Brother HL-L2350DW series %02d", i) }, 1},
+		{"63-byte names", longLabel, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var srv []string
+			for i := range maxFollowUps {
+				// One service type each, so no follow-up shares a suffix.
+				srv = append(srv, c.label(i)+"."+fqdn[i%len(fqdn)])
+			}
+			q2, err := buildQueries(1, fqdn, srv, []string{"printer.local."}, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (c.packets == 1 && len(q2) != 1) || (c.packets == 0 && len(q2) < 2) {
+				t.Fatalf("round 2 has %d packets", len(q2))
+			}
+			qs := roundQuestions(t, q2)
+			if want := 2*len(fqdn) + 2*maxFollowUps + 1; len(qs) != want {
+				t.Fatalf("round 2 has %d questions, want %d", len(qs), want)
+			}
+			// The PTR repeats lead the first packet, QU then QM.
+			first := questions(t, q2[0])
+			for i := range 2 * len(fqdn) {
+				q := first[i]
+				if q.Type != dnsmessage.TypePTR || q.Name.String() != fqdn[i%len(fqdn)] || (q.Class&qu != 0) != (i < len(fqdn)) {
+					t.Fatalf("question %d = %v", i, q)
+				}
+			}
+			got := map[string]int{}
+			for _, q := range qs[2*len(fqdn):] {
+				got[q.Type.String()+" "+q.Name.String()]++
+			}
+			for _, n := range srv {
+				if got["TypeSRV "+n] != 1 || got["TypeTXT "+n] != 1 {
+					t.Errorf("follow-ups for %q: %v", n, got)
+				}
+			}
+			if got["TypeA printer.local."] != 1 {
+				t.Errorf("A follow-up missing: %v", got)
+			}
+		})
+	}
+}
+
+// Round 2 asks every follow-up question even when long instance names need
+// more than one datagram.
+func TestBrowseRound2SplitsLongNames(t *testing.T) {
+	var insts []string
+	resp := dnsmessage.NewBuilder(nil, dnsmessage.Header{ID: 0x7777, Response: true, Authoritative: true})
+	resp.EnableCompression()
+	_ = resp.StartAnswers()
 	for i := range maxFollowUps {
-		srv = append(srv, fmt.Sprintf("Brother HL-L2350DW series %02d._ipp._tcp.local.", i))
+		svc := DefaultServices[i] + ".local."
+		inst := longLabel(i) + "." + svc
+		insts = append(insts, inst)
+		_ = resp.PTRResource(rh(svc, dnsmessage.TypePTR), dnsmessage.PTRResource{PTR: mustName(inst)})
 	}
-	q2, err := buildQuery(1, fqdn, srv, nil, true)
-	if err != nil || len(q2) > maxQuerySize {
-		t.Fatalf("round 2: %d bytes, err %v", len(q2), err)
+	ptrs, err := resp.Finish()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if n := len(questions(t, q2)); n != 2*len(fqdn)+2*maxFollowUps {
-		t.Errorf("round 2 has %d questions, want %d", n, 2*len(fqdn)+2*maxFollowUps)
+	f := newFake(func(n int, _ []byte) []pkt {
+		if n == 1 {
+			return []pkt{{ptrs, src(192, 168, 1, 50)}}
+		}
+		return nil
+	})
+	b := Browser{Dial: func(string) (Transport, error) { return f, nil }}
+	recs, err := b.Browse(context.Background(), "", nil, 300*time.Millisecond)
+	if err != nil || len(recs) != 1 || len(recs[0].Info.Details) != maxFollowUps {
+		t.Fatalf("recs %+v, err %v", recs, err)
+	}
+	f.mu.Lock()
+	writes := slices.Clone(f.writes)
+	f.mu.Unlock()
+	if len(writes) < 3 {
+		t.Fatalf("sent %d packets, want round 1 and at least two for round 2", len(writes))
+	}
+	got := map[string]int{}
+	for _, q := range roundQuestions(t, writes[1:]) {
+		if q.Type == dnsmessage.TypeSRV || q.Type == dnsmessage.TypeTXT {
+			got[q.Name.String()]++
+		}
+	}
+	for _, n := range insts {
+		if got[n] != 2 {
+			t.Errorf("round 2 asked %d SRV/TXT questions for %q, want 2", got[n], n)
+		}
 	}
 }
 

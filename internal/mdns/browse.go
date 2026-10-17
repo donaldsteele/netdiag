@@ -28,7 +28,8 @@ const MaxRounds = 2
 // maxFollowUps bounds round-2 SRV/TXT/A follow-up questions.
 const maxFollowUps = 16
 
-// maxQuerySize keeps a query inside one unfragmented datagram.
+// maxQuerySize keeps each query packet inside one unfragmented datagram; a
+// round with more questions is sent as several packets (buildQueries).
 const maxQuerySize = 1400
 
 // qu is the "unicast response" bit in the question class (RFC 6762 5.4).
@@ -90,8 +91,9 @@ func Browse(ctx context.Context, ifaceName string, services []string, window tim
 //
 // Round 1 sends QU PTR questions at t=0. Round 2 (at window/3) repeats them
 // as both QU and QM and adds SRV/TXT/A follow-ups for incompletely resolved
-// instances. An empty result with a nil error means "no responses". An error
-// is returned only when the socket cannot be opened or the first query
+// instances. A round that does not fit one datagram is sent as several
+// (buildQueries). An empty result with a nil error means "no responses". An
+// error is returned only when the socket cannot be opened or the first query
 // cannot be sent. Cancelling ctx ends the browse early with what was
 // collected so far.
 func (b *Browser) Browse(ctx context.Context, ifaceName string, services []string, window time.Duration) ([]Record, error) {
@@ -142,12 +144,14 @@ func (b *Browser) Browse(ctx context.Context, ifaceName string, services []strin
 	}
 	col := newCollector()
 
-	q, err := buildQuery(uint16(rand.Uint32()), fqdn, nil, nil, false)
+	qs, err := buildQueries(uint16(rand.Uint32()), fqdn, nil, nil, false)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := t.WriteTo(q, dest); err != nil {
-		return nil, fmt.Errorf("mdns: send query: %w", err)
+	for i, q := range qs {
+		if _, err := t.WriteTo(q, dest); err != nil && i == 0 {
+			return nil, fmt.Errorf("mdns: send query: %w", err)
+		}
 	}
 	sent := 1
 
@@ -164,7 +168,8 @@ func (b *Browser) Browse(ctx context.Context, ifaceName string, services []strin
 		}
 		if !now.Before(dl) {
 			srv, a := col.pending(maxFollowUps)
-			if q, err := buildQuery(uint16(rand.Uint32()), fqdn, srv, a, true); err == nil {
+			qs, _ := buildQueries(uint16(rand.Uint32()), fqdn, srv, a, true)
+			for _, q := range qs {
 				_, _ = t.WriteTo(q, dest) // best effort
 			}
 			sent++
@@ -210,55 +215,72 @@ func srcAddr(a net.Addr) netip.Addr {
 	return netip.Addr{}
 }
 
-// buildQuery builds one query. PTR questions for services are always QU;
-// when withQM is set they are repeated without the QU bit. srv names get
-// SRV+TXT questions and a names get A questions (QU). Follow-ups are dropped
-// if the packet would exceed maxQuerySize.
-func buildQuery(id uint16, services, srv, a []string, withQM bool) ([]byte, error) {
-	type question struct {
-		name string
-		typ  dnsmessage.Type
-		cls  dnsmessage.Class
+// buildQueries builds the queries of one round. PTR questions for services
+// are always QU; when withQM is set they are repeated without the QU bit.
+// srv names get SRV+TXT questions and a names get A questions (QU). The
+// questions are packed in that order into as many packets as needed, each
+// at most maxQuerySize bytes, so the PTR questions lead the first packet and
+// no follow-up is dropped. Names that are not valid DNS names are skipped;
+// with no valid name at all there is no packet.
+func buildQueries(id uint16, services, srv, a []string, withQM bool) ([][]byte, error) {
+	var qs []dnsmessage.Question
+	add := func(n string, typ dnsmessage.Type, cls dnsmessage.Class) {
+		name, err := dnsmessage.NewName(n)
+		if err != nil {
+			return // over-long instance name; skip it
+		}
+		qs = append(qs, dnsmessage.Question{Name: name, Type: typ, Class: cls})
 	}
-	var qs []question
 	for _, s := range services {
-		qs = append(qs, question{s, dnsmessage.TypePTR, dnsmessage.ClassINET | qu})
+		add(s, dnsmessage.TypePTR, dnsmessage.ClassINET|qu)
 	}
 	if withQM {
 		for _, s := range services {
-			qs = append(qs, question{s, dnsmessage.TypePTR, dnsmessage.ClassINET})
+			add(s, dnsmessage.TypePTR, dnsmessage.ClassINET)
 		}
 	}
-	base := len(qs)
 	for _, n := range srv {
-		qs = append(qs, question{n, dnsmessage.TypeSRV, dnsmessage.ClassINET | qu},
-			question{n, dnsmessage.TypeTXT, dnsmessage.ClassINET | qu})
+		add(n, dnsmessage.TypeSRV, dnsmessage.ClassINET|qu)
+		add(n, dnsmessage.TypeTXT, dnsmessage.ClassINET|qu)
 	}
 	for _, n := range a {
-		qs = append(qs, question{n, dnsmessage.TypeA, dnsmessage.ClassINET | qu})
+		add(n, dnsmessage.TypeA, dnsmessage.ClassINET|qu)
 	}
-	for {
-		bld := dnsmessage.NewBuilder(make([]byte, 0, 512), dnsmessage.Header{ID: id})
-		bld.EnableCompression()
-		if err := bld.StartQuestions(); err != nil {
-			return nil, err
-		}
-		for _, q := range qs {
-			name, err := dnsmessage.NewName(q.name)
-			if err != nil {
-				continue // over-long instance name; skip it
-			}
-			if err := bld.Question(dnsmessage.Question{Name: name, Type: q.typ, Class: q.cls}); err != nil {
-				continue
-			}
-		}
-		msg, err := bld.Finish()
+
+	var out [][]byte
+	var cur []dnsmessage.Question
+	var last []byte // cur, encoded
+	for _, q := range qs {
+		msg, err := encodeQuery(id, append(cur, q))
 		if err != nil {
 			return nil, err
 		}
-		if len(msg) <= maxQuerySize || len(qs) <= base {
-			return msg, nil
+		if len(msg) > maxQuerySize && len(cur) > 0 {
+			out = append(out, last)
+			cur = nil
+			if msg, err = encodeQuery(id, []dnsmessage.Question{q}); err != nil {
+				return nil, err
+			}
 		}
-		qs = qs[:len(qs)-1]
+		cur, last = append(cur, q), msg
 	}
+	if len(cur) > 0 {
+		out = append(out, last)
+	}
+	return out, nil
+}
+
+// encodeQuery encodes one query packet with name compression.
+func encodeQuery(id uint16, qs []dnsmessage.Question) ([]byte, error) {
+	bld := dnsmessage.NewBuilder(make([]byte, 0, 512), dnsmessage.Header{ID: id})
+	bld.EnableCompression()
+	if err := bld.StartQuestions(); err != nil {
+		return nil, err
+	}
+	for _, q := range qs {
+		if err := bld.Question(q); err != nil {
+			return nil, err
+		}
+	}
+	return bld.Finish()
 }
