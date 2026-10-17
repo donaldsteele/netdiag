@@ -340,9 +340,22 @@ func (c *collector) pending(limit int) (srv []string, a []string) {
 	return srv, a
 }
 
+// idLabelServices name their instances with machine identifiers, not a
+// name for people: _apple-mobdev2 (iPhone and iPad Wi-Fi sync) uses
+// "<MAC>@<IPv6 address>", and Matter uses hex fabric and node IDs. They sort
+// last and never supply MDNSInfo.Instance.
+var idLabelServices = []string{"_apple-mobdev2._tcp", "_matter._tcp", "_matterc._udp", "_matterd._udp"}
+
+func idLabel(svc string) bool { return slices.Contains(idLabelServices, svc) }
+
+// serviceRank orders instances for the per-address fields: printer services
+// first, identifier-labelled services last.
 func serviceRank(svc string) int {
-	if IsPrinterService(svc) {
+	switch {
+	case IsPrinterService(svc):
 		return 0
+	case idLabel(svc):
+		return 2
 	}
 	return 1
 }
@@ -350,7 +363,9 @@ func serviceRank(svc string) int {
 // records resolves the collected data into per-IPv4 records sorted by IP.
 // An instance is attributed to the IPv4 addresses of its SRV target; when
 // those are unknown, to the source address of the packet that announced it.
-// Printer service instances take precedence for Instance/Hostname/TXT.
+// Printer service instances take precedence for Instance/Hostname/TXT, and
+// identifier-labelled ones (idLabelServices) come last and leave Instance
+// empty when nothing else names the address.
 // Details lists every instance with its own port and TXT keys, sorted by
 // service type, then instance label.
 func (c *collector) records() []Record {
@@ -387,7 +402,7 @@ func (c *collector) records() []Record {
 		}
 		for _, ip := range ips {
 			m := get(ip)
-			if m.Instance == "" {
+			if m.Instance == "" && !idLabel(in.service) {
 				m.Instance = in.label
 			}
 			if m.Hostname == "" && in.target != "" {

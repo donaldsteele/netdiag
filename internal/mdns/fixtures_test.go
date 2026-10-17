@@ -96,6 +96,24 @@ var fixtureBuilders = map[string]func() ([]byte, error){
 		_ = b.AResource(rh("host-33.local.", dnsmessage.TypeA), dnsmessage.AResource{A: [4]byte{192, 168, 1, 33}})
 		return b.Finish()
 	},
+	// An iPhone with Wi-Fi sync on. _apple-mobdev2 names its instance with
+	// the MAC and link-local IPv6 address; _companion-link uses the phone's
+	// name.
+	"iphone.hex": func() ([]byte, error) {
+		const sync = "70:3e:ac:12:34:56@fe80::723e:acff:fe12:3456-supportsRP-24._apple-mobdev2._tcp.local."
+		const comp = "Don's iPhone._companion-link._tcp.local."
+		b := dnsmessage.NewBuilder(nil, dnsmessage.Header{ID: 0x6666, Response: true, Authoritative: true})
+		b.EnableCompression()
+		_ = b.StartAnswers()
+		_ = b.PTRResource(rh("_apple-mobdev2._tcp.local.", dnsmessage.TypePTR), dnsmessage.PTRResource{PTR: mustName(sync)})
+		_ = b.PTRResource(rh("_companion-link._tcp.local.", dnsmessage.TypePTR), dnsmessage.PTRResource{PTR: mustName(comp)})
+		_ = b.StartAdditionals()
+		_ = b.SRVResource(rh(sync, dnsmessage.TypeSRV), dnsmessage.SRVResource{Port: 32498, Target: mustName("Dons-iPhone.local.")})
+		_ = b.SRVResource(rh(comp, dnsmessage.TypeSRV), dnsmessage.SRVResource{Port: 49153, Target: mustName("Dons-iPhone.local.")})
+		_ = b.TXTResource(rh(comp, dnsmessage.TypeTXT), dnsmessage.TXTResource{TXT: []string{"rpVr=360.4", "rpMd=iPhone15,2"}})
+		_ = b.AResource(rh("Dons-iPhone.local.", dnsmessage.TypeA), dnsmessage.AResource{A: [4]byte{192, 168, 1, 34}})
+		return b.Finish()
+	},
 	"cast_ptr.hex": func() ([]byte, error) {
 		b := dnsmessage.NewBuilder(nil, dnsmessage.Header{ID: 0x3333, Response: true, Authoritative: true})
 		_ = b.StartAnswers()

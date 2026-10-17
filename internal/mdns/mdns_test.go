@@ -349,6 +349,50 @@ func TestCompanionLinkClassifiesAsPhone(t *testing.T) {
 	}
 }
 
+// An iPhone's mDNS name comes from _companion-link, not from the MAC@IPv6
+// label of _apple-mobdev2, which sorts first. The label stays in Details.
+func TestIPhoneInstanceName(t *testing.T) {
+	recs := browseOnce(t, map[string]*net.UDPAddr{"iphone.hex": src(192, 168, 1, 34)})
+	if len(recs) != 1 || recs[0].IP != "192.168.1.34" {
+		t.Fatalf("recs: %+v", recs)
+	}
+	info := recs[0].Info
+	if info.Instance != "Don's iPhone" || info.Hostname != "Dons-iPhone.local" ||
+		!reflect.DeepEqual(info.Services, []string{"_apple-mobdev2._tcp", "_companion-link._tcp"}) {
+		t.Fatalf("info: %+v", info)
+	}
+	want := []model.MDNSService{
+		{Type: "_apple-mobdev2._tcp", Instance: "70:3e:ac:12:34:56@fe80::723e:acff:fe12:3456-supportsRP-24", Port: 32498},
+		{Type: "_companion-link._tcp", Instance: "Don's iPhone", Port: 49153,
+			TXT: map[string]string{"rpvr": "360.4", "rpmd": "iPhone15,2"}},
+	}
+	if !reflect.DeepEqual(info.Details, want) {
+		t.Fatalf("details:\n got %+v\nwant %+v", info.Details, want)
+	}
+	h := model.Host{IP: recs[0].IP, Alive: true, Online: true, MDNS: &info}
+	if typ, why := devtype.Classify(h, "192.168.1.1"); typ != devtype.Phone || why != "mdns _apple-mobdev2" {
+		t.Fatalf("classified %q (%s), want phone from mdns", typ, why)
+	}
+}
+
+// Services whose instance labels are machine identifiers never name the
+// address: a Matter-only plug has no mDNS name until it announces a named
+// service.
+func TestInstanceSkipsIdentifierLabels(t *testing.T) {
+	c := newCollector()
+	ip := netip.MustParseAddr("192.168.1.60")
+	const id = "A1B2C3D4E5F60708-0000000000000001"
+	c.add(&Answers{PTR: []PTR{{Service: "_matter._tcp.local.", Instance: id + "._matter._tcp.local."}}}, ip)
+	recs := c.records()
+	if len(recs) != 1 || recs[0].Info.Instance != "" || len(recs[0].Info.Details) != 1 || recs[0].Info.Details[0].Instance != id {
+		t.Fatalf("matter only: %+v", recs)
+	}
+	c.add(&Answers{PTR: []PTR{{Service: "_hap._tcp.local.", Instance: "Desk plug._hap._tcp.local."}}}, ip)
+	if recs = c.records(); len(recs) != 1 || recs[0].Info.Instance != "Desk plug" || len(recs[0].Info.Details) != 2 {
+		t.Fatalf("matter and hap: %+v", recs)
+	}
+}
+
 // Every service a device type rule keys on, and team chat, is asked for.
 func TestDefaultServicesCoverDeviceTypes(t *testing.T) {
 	want := append(devtype.MDNSServices(), "_bubbles._tcp")
