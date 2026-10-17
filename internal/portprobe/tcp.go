@@ -3,9 +3,7 @@ package portprobe
 
 import (
 	"context"
-	"net"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -22,8 +20,7 @@ func ScanPorts(ctx context.Context, ip string, ports []int) []int {
 		wg.Add(1)
 		go func(p int) {
 			defer wg.Done()
-			d := net.Dialer{Timeout: ConnectTimeout}
-			c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(ip, strconv.Itoa(p)))
+			c, err := Dial(ctx, ip, p, ConnectTimeout)
 			if err != nil {
 				return
 			}

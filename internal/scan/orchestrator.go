@@ -10,10 +10,8 @@ import (
 	"net"
 	"net/netip"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"netdiag/internal/arp"
@@ -182,13 +180,12 @@ type portChecker struct{}
 // Reachable dials ip:port once. A refused connection also proves the host
 // is up (it answered with a reset).
 func (portChecker) Reachable(ctx context.Context, ip string, port int, timeout time.Duration) bool {
-	d := net.Dialer{Timeout: timeout}
-	c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(ip, strconv.Itoa(port)))
+	c, err := portprobe.Dial(ctx, ip, port, timeout)
 	if err == nil {
 		c.Close()
 		return true
 	}
-	return ctx.Err() == nil && errors.Is(err, syscall.ECONNREFUSED)
+	return ctx.Err() == nil && portprobe.Refused(err)
 }
 
 type webProber struct{}
