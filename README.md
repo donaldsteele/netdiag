@@ -343,7 +343,7 @@ That is information, not a fault. Open **Settings** and enter the web server add
 "Not on Wi-Fi" means this computer is on a cable (or Wi-Fi is off), which is fine. "Unavailable" means the Wi-Fi details could not be read. On recent Windows 11 versions this happens when **Location** is off, because Windows treats Wi-Fi details as location data: open Settings > Privacy & security > Location, turn on **Location services** and **Let desktop apps access your location**, then press **Recheck**. It also happens when the WLAN AutoConfig service is stopped; the panel says which. The rest of the scan is not affected.
 
 **The health panel says "self-assigned 169.254.x.x address" (DHCP fail).**
-This computer did not get an address from the router. Check the cable or Wi-Fi connection, and restart the network connection or the computer. Ask the venue to check the DHCP server if it keeps happening.
+This computer did not get an address from the router. Check the cable or Wi-Fi connection, and restart the network connection or the computer. If it keeps happening, ask whoever looks after the network to check the DHCP server (usually the router).
 
 **"mdns: no responses" in the scan notes.**
 No device answered the Bonjour (mDNS) query. Devices may still be found through ping, ARP and ports. Check that the firewall is not blocking netdiag, and that you picked the adapter connected to the network you want to check.
