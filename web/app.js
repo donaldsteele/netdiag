@@ -96,6 +96,8 @@ document.addEventListener('alpine:init', () => {
            {id: 'web', label: 'Web'}, {id: 'problems', label: 'Problems'}, {id: 'new', label: 'New'},
            {id: 'offline', label: 'Offline'}, {id: 'conflicts', label: 'Conflicts'}],
 
+    // Alpine calls init() itself (index.html has no x-init): a second call
+    // would open a second tab channel and heartbeat.
     async init() {
       try { const v = localStorage.getItem('netdiag.live'); if (v !== null) this.live = v === '1'; } catch (e) {}
       try { const sv = localStorage.getItem('netdiag.view'); if (this.views.includes(sv)) this.view = sv; } catch (e) {}
@@ -738,9 +740,10 @@ document.addEventListener('alpine:init', () => {
     // tab starts one, when the heartbeat answers, when the tab is focused and
     // when its own scan ends (Restart watching in another tab ends it). Only
     // a scan in live mode: a single scan ends by itself, and the person may
-    // still be reading the last results. force: another tab started a scan,
-    // so a tab still attached to the old one looks too. Never while the
-    // restart dialog asks the person.
+    // still be reading the last results. force: another tab started a scan
+    // (or netdiag answers again after it seemed stopped), so a tab still
+    // attached to the old one looks too. Never while the restart dialog asks
+    // the person.
     async follow(force, skip) {
       if (this.starting || this.quitted || this.backend !== 'ok') return false;
       if (this.attached() && !force) return false;
@@ -811,9 +814,16 @@ document.addEventListener('alpine:init', () => {
       this.hbSchedule(this.sseErr || this.hbFails ? 5000 : 15000);
     },
     async beat() {
-      let j = null;
+      let j = null, t = 0, due = Date.now() + 4000;
       const ctl = typeof AbortController === 'undefined' ? null : new AbortController();
-      const t = ctl ? setTimeout(() => ctl.abort(), 4000) : 0;
+      // The call gets 4 s. A timer that fires late means the page itself was
+      // busy (drawing a big table), and the answer may be waiting: give it
+      // another 4 s rather than count it as netdiag not answering.
+      const arm = () => { t = setTimeout(() => {
+        if (Date.now() - due < 1000) { ctl.abort(); return; }
+        due = Date.now() + 4000; arm();
+      }, due - Date.now()); };
+      if (ctl) arm();
       try {
         const r = await fetch('/api/identity', {cache: 'no-store', signal: ctl ? ctl.signal : undefined});
         if (r.ok) j = await r.json();
@@ -828,9 +838,12 @@ document.addEventListener('alpine:init', () => {
       this.hbFails = 0;
       if (!this.instanceId) this.instanceId = j.instanceId || '';
       if (j.instanceId && j.instanceId !== this.instanceId) { this.backend = 'restarted'; return; }
-      if (this.backend === 'stopped') this.backend = 'ok';
-      // A scan started by an agent or in another browser: follow it.
-      this.follow(false);
+      const back = this.backend === 'stopped';
+      if (back) this.backend = 'ok';
+      // A scan started by an agent or in another browser: follow it. When
+      // netdiag answers again, look even while attached: another tab's word
+      // that it started a scan may have come while this tab could not follow.
+      this.follow(back);
     },
     reloadPage() { window.location.reload(); },
 
@@ -932,6 +945,9 @@ document.addEventListener('alpine:init', () => {
                                  : ('Device went offline: ' + p.ip + ' ' + (h.vendor || '')).trim();
       });
       on('done', r => {
+        // Only the stream this tab follows ends its attach (listen closes an
+        // old one, which then sends nothing more).
+        if (es !== this.es) return;
         this.liveStatus = null;
         if (r.health) this.health = r.health;
         if (r.conflicts) this.conflicts = r.conflicts;

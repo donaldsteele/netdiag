@@ -267,6 +267,81 @@ test('quitting stops the heartbeat and shows only the quit message', async ({ pa
   await expect(page.locator('#backend-stopped')).toBeHidden();
 });
 
+// Alpine calls init() itself. Calling it again from x-init opened a second
+// tab channel and a second heartbeat, so one slow moment counted as both of
+// the failures that mean netdiag has stopped.
+test('the page starts once: one tab channel, one heartbeat, one attach', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__channels = 0;
+    const Real = window.BroadcastChannel;
+    window.BroadcastChannel = class extends Real { constructor(name) { super(name); window.__channels++; } };
+  });
+  let lists = 0;
+  page.on('request', (r) => { if (new URL(r.url()).pathname === '/api/interfaces') lists++; });
+  await initStorage(page, { theme: 'dark', live: true });
+  const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
+  await page.goto('/');
+  await expect(page.locator('.livepill')).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => app(page, (a) => a.settings !== null), { timeout: 15_000 }).toBe(true);
+  await expect.poll(() => rec.identityCalls).toBeGreaterThan(0);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.__channels), 'tab channels').toBe(1);
+  expect(lists, 'interface lists').toBe(1);
+  expect(rec.runningCalls, 'running scan lookups').toBe(1);
+  expect(rec.sse, 'event streams').toEqual([fx.SCAN_ID]);
+  expect(rec.unmatched, 'unmatched requests').toEqual([]);
+});
+
+// The 4 s limit is for netdiag, not for a page busy drawing a big table: a
+// heartbeat timer that fires late gives the waiting answer more time.
+test('a page too busy to read the heartbeat answer in time does not call netdiag stopped', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { scenario: 'scan' });
+  await page.goto('/');
+  await expect.poll(() => rec.identityCalls).toBeGreaterThan(0);
+  await expect.poll(() => app(page, (a) => a.settings !== null), { timeout: 15_000 }).toBe(true);
+  // The answer comes after 300 ms, while the page is busy.
+  await page.route('**/api/identity', async (route) => {
+    await new Promise((r) => setTimeout(r, 300));
+    await route.fallback();
+  });
+  for (let i = 0; i < 2; i++) {
+    const calls = rec.identityCalls;
+    const fails = await app(page, async (a) => {
+      const beat = a.beat();
+      await new Promise((r) => setTimeout(r, 50));
+      const end = Date.now() + 5000;
+      while (Date.now() < end) { /* the page is busy for 5 s */ }
+      await beat;
+      return a.hbFails;
+    });
+    expect(rec.identityCalls, 'the heartbeat asked').toBeGreaterThan(calls);
+    expect(fails, 'heartbeat failures').toBe(0);
+  }
+  await expect(page.locator('#backend-stopped')).toBeHidden();
+  expect(await app(page, (a) => a.backend)).toBe('ok');
+  expect(rec.unmatched, 'unmatched requests').toEqual([]);
+});
+
+test('a heartbeat call that netdiag never answers gives up after 4 s', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { scenario: 'scan' });
+  await page.goto('/');
+  await expect.poll(() => rec.identityCalls).toBeGreaterThan(0);
+  // No heartbeat of its own during the test; let one already asking finish.
+  await app(page, (a) => a.hbSchedule(600_000));
+  await page.waitForTimeout(200);
+  await page.route('**/api/identity', () => {}); // netdiag hangs
+  const r = await app(page, async (a) => {
+    const t0 = Date.now();
+    await a.beat();
+    return { ms: Date.now() - t0, fails: a.hbFails };
+  });
+  expect(r.fails, 'heartbeat failures').toBe(1);
+  expect(r.ms, 'ms until it gave up').toBeGreaterThanOrEqual(3_900);
+  expect(r.ms, 'ms until it gave up').toBeLessThan(10_000);
+});
+
 
 // A replayed OK notice turns its fault's banner into Fixed as silently as
 // the fault's banner came back: no Activity line, sound or desktop pop-up.
@@ -484,6 +559,66 @@ test('when watching is restarted elsewhere, the page follows the new scan instea
   await expect(page.getByRole('button', { name: 'Restart watching', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Scan', exact: true })).toBeHidden();
   expect(await app(page, (a) => a.scanId)).toBe(NEW_ID);
+  expect(errors, 'page errors').toEqual([]);
+  expect(rec.unmatched, 'unmatched requests').toEqual([]);
+});
+
+// A tab that hears another tab restart watching while it shows netdiag
+// stopped cannot follow then; it looks again as soon as netdiag answers.
+test('a tab told of a new scan while netdiag seemed stopped follows it once netdiag answers', async ({ page }) => {
+  const errors = watchErrors(page);
+  await initStorage(page, { theme: 'dark', live: true });
+  const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
+  await page.goto('/');
+  await expect(page.locator('.livepill')).toBeVisible(SLOW);
+  await settled(page);
+  // No heartbeat of its own during the test; let one already asking finish.
+  await app(page, (a) => a.hbSchedule(600_000));
+  await page.waitForTimeout(200);
+
+  await app(page, (a) => { a.backend = 'stopped'; });
+  await expect(page.locator('#backend-stopped')).toBeVisible();
+  rec.scanId = NEW_ID;
+  await page.evaluate((id) => {
+    window.__otherTab = new BroadcastChannel('netdiag');
+    window.__otherTab.postMessage({ type: 'started', id });
+  }, NEW_ID);
+  await page.waitForTimeout(300);
+  expect(rec.sse, 'no follow while netdiag seems stopped').toEqual([fx.SCAN_ID]);
+
+  await app(page, (a) => a.beat());
+  await expect.poll(() => rec.sse, SLOW).toEqual([fx.SCAN_ID, NEW_ID]);
+  await expect(page.locator('#backend-stopped')).toBeHidden();
+  await expect(page.locator('.livepill')).toBeVisible(SLOW);
+  expect(await app(page, (a) => a.scanId)).toBe(NEW_ID);
+  expect(errors, 'page errors').toEqual([]);
+  expect(rec.unmatched, 'unmatched requests').toEqual([]);
+});
+
+// Only the stream the tab follows can end its attach: a done from a stream
+// it already left changes nothing.
+test('a done from a scan the tab already left does not clear the new attach', async ({ page }) => {
+  const errors = watchErrors(page);
+  await initStorage(page, { theme: 'dark', live: true });
+  const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
+  await page.goto('/');
+  await expect(page.locator('.livepill')).toBeVisible(SLOW);
+  await settled(page);
+  await app(page, (a) => { window.__oldStream = a.es; });
+
+  rec.scanId = NEW_ID;
+  await page.evaluate((id) => {
+    window.__otherTab = new BroadcastChannel('netdiag');
+    window.__otherTab.postMessage({ type: 'started', id });
+  }, NEW_ID);
+  await expect.poll(() => rec.sse, SLOW).toEqual([fx.SCAN_ID, NEW_ID]);
+  await expect.poll(() => app(page, (a) => a.scanId), SLOW).toBe(NEW_ID);
+  await page.evaluate(() => window.__oldStream.dispatchEvent(new MessageEvent('done', { data: JSON.stringify({ state: 'cancelled' }) })));
+  await page.waitForTimeout(300);
+  expect(await app(page, (a) => a.attached()), 'still following the new scan').toBe(true);
+  expect(await app(page, (a) => a.log.some((e) => e.text.startsWith('Scan cancelled'))), 'no finished line').toBe(false);
+  await expect(page.locator('.livepill')).toBeVisible();
+  expect(rec.sse).toEqual([fx.SCAN_ID, NEW_ID]);
   expect(errors, 'page errors').toEqual([]);
   expect(rec.unmatched, 'unmatched requests').toEqual([]);
 });

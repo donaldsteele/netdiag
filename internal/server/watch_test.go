@@ -122,6 +122,11 @@ func TestWatchGuardUI(t *testing.T) {
 			t.Errorf("app.js missing %q", want)
 		}
 	}
+	// Alpine calls init() itself; a second call from x-init would open a
+	// second tab channel and heartbeat.
+	if strings.Contains(string(html), `x-init="init()"`) {
+		t.Error(`index.html calls init() from x-init; Alpine already calls it`)
+	}
 	// replaceLive is sent only by Restart watching.
 	if n := strings.Count(string(js), "replaceLive"); n != 1 {
 		t.Errorf("app.js names replaceLive %d times, want once (in start)", n)

@@ -12,7 +12,7 @@
 </head>
 <body>
 <a class="skip" href="#main">Skip to results</a>
-<div class="shell" :class="{navopen: navOpen}" x-data="app()" x-init="init()" @keydown.escape.window="drawerIP && !$refs.dlg.open && !$refs.restartDlg.open && closeDrawer()">
+<div class="shell" :class="{navopen: navOpen}" x-data="app()" @keydown.escape.window="drawerIP && !$refs.dlg.open && !$refs.restartDlg.open && closeDrawer()">
   <aside class="sidebar" id="sidebar">
     <div class="brand mono" aria-hidden="true">netdiag</div>
     <nav aria-label="Main">
