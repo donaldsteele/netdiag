@@ -109,7 +109,7 @@ type listDevicesIn struct {
 	ScanID     string `json:"scanId" jsonschema:"scan id"`
 	Filter     string `json:"filter,omitempty" jsonschema:"one of all, printers, web, offline, conflicts, new, mdns, problems"`
 	DeviceType string `json:"deviceType,omitempty" jsonschema:"only devices of this device type"`
-	Query      string `json:"query,omitempty" jsonschema:"substring match on ip, mac, hostname or vendor"`
+	Query      string `json:"query,omitempty" jsonschema:"substring match on ip, mac, hostname, vendor, SNMP name, mDNS names or mDNS service types such as _ipp._tcp"`
 	Limit      int    `json:"limit,omitempty" jsonschema:"page size (default 50, max 200)"`
 	Cursor     string `json:"cursor,omitempty" jsonschema:"nextCursor from the previous page"`
 }

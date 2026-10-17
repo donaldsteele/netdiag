@@ -143,14 +143,41 @@ func classify(h *model.Host, gateway string) {
 	h.DeviceType, h.DeviceTypeReason = string(t), why
 }
 
+// maxMDNSDetails caps the service details kept for one host across live
+// cycles, so a responder that keeps inventing instance names cannot grow
+// the host without bound.
+const maxMDNSDetails = 64
+
 // mergeMDNS returns a new MDNSInfo combining old (may be nil) and add.
+// Details are merged by Type+Instance: a newer entry replaces the older
+// one, but keeps the older port or TXT keys when it has none (a live cycle
+// may hear only the PTR answer).
 func mergeMDNS(old *model.MDNSInfo, add model.MDNSInfo) *model.MDNSInfo {
 	out := model.MDNSInfo{}
 	if old != nil {
 		out = *old
 		out.Services = slices.Clone(old.Services)
 		out.TXT = maps.Clone(old.TXT)
+		out.Details = slices.Clone(old.Details)
 	}
+	for _, d := range add.Details {
+		i := slices.IndexFunc(out.Details, func(o model.MDNSService) bool {
+			return o.Type == d.Type && o.Instance == d.Instance
+		})
+		switch {
+		case i >= 0:
+			if d.Port == 0 {
+				d.Port = out.Details[i].Port
+			}
+			if len(d.TXT) == 0 {
+				d.TXT = out.Details[i].TXT
+			}
+			out.Details[i] = d
+		case len(out.Details) < maxMDNSDetails:
+			out.Details = append(out.Details, d)
+		}
+	}
+	mdns.SortDetails(out.Details)
 	if add.Instance != "" {
 		out.Instance = add.Instance
 	}
@@ -179,7 +206,10 @@ func mdnsEqual(old *model.MDNSInfo, add model.MDNSInfo) bool {
 	}
 	m := mergeMDNS(old, add)
 	return m.Instance == old.Instance && m.Hostname == old.Hostname &&
-		slices.Equal(m.Services, old.Services) && maps.Equal(m.TXT, old.TXT)
+		slices.Equal(m.Services, old.Services) && maps.Equal(m.TXT, old.TXT) &&
+		slices.EqualFunc(m.Details, old.Details, func(a, b model.MDNSService) bool {
+			return a.Type == b.Type && a.Instance == b.Instance && a.Port == b.Port && maps.Equal(a.TXT, b.TXT)
+		})
 }
 
 // mergePrinter combines SNMP printer data (may be nil) with an IPP result:

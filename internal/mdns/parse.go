@@ -1,8 +1,11 @@
 package mdns
 
 import (
+	"cmp"
 	"errors"
+	"maps"
 	"net/netip"
+	"slices"
 	"sort"
 	"strings"
 
@@ -220,6 +223,7 @@ type Record struct {
 type instance struct {
 	label, service string
 	target         string // SRV target host, as received
+	port           uint16 // SRV port, set with target
 	txt            map[string]string
 	src            netip.Addr // source of the first packet mentioning it
 }
@@ -264,7 +268,7 @@ func (c *collector) add(a *Answers, src netip.Addr) {
 	}
 	for _, s := range a.SRV {
 		if in := c.instance(s.Instance, src); in != nil && in.target == "" {
-			in.target = s.Target
+			in.target, in.port = s.Target, s.Port
 		}
 	}
 	for _, t := range a.TXT {
@@ -347,6 +351,8 @@ func serviceRank(svc string) int {
 // An instance is attributed to the IPv4 addresses of its SRV target; when
 // those are unknown, to the source address of the packet that announced it.
 // Printer service instances take precedence for Instance/Hostname/TXT.
+// Details lists every instance with its own port and TXT keys, sorted by
+// service type, then instance label.
 func (c *collector) records() []Record {
 	ins := make([]*instance, 0, len(c.inst))
 	for _, in := range c.inst {
@@ -398,6 +404,11 @@ func (c *collector) records() []Record {
 					m.TXT[k] = v
 				}
 			}
+			d := model.MDNSService{Type: in.service, Instance: in.label, Port: int(in.port)}
+			if len(in.txt) > 0 {
+				d.TXT = maps.Clone(in.txt)
+			}
+			m.Details = append(m.Details, d)
 		}
 	}
 	hostKeys := make([]string, 0, len(c.hosts))
@@ -422,9 +433,18 @@ func (c *collector) records() []Record {
 	for _, ip := range keys {
 		m := byIP[ip]
 		sort.Strings(m.Services)
+		SortDetails(m.Details)
 		out = append(out, Record{IP: ip.String(), Info: *m})
 	}
 	return out
+}
+
+// SortDetails sorts service details by type, then instance label: the order
+// model.MDNSInfo.Details promises.
+func SortDetails(ds []model.MDNSService) {
+	slices.SortFunc(ds, func(a, b model.MDNSService) int {
+		return cmp.Or(cmp.Compare(a.Type, b.Type), cmp.Compare(a.Instance, b.Instance))
+	})
 }
 
 func containsStr(list []string, s string) bool {

@@ -141,7 +141,8 @@ func ipNum(s string) int {
 
 func TestFilters(t *testing.T) {
 	r := model.ScanResult{ID: "x", Hosts: []model.Host{
-		{IP: "10.0.0.1", Alive: true, Online: true, DeviceType: "router", Web: []model.WebService{{URL: "http://10.0.0.1", Status: 200}}, MDNS: &model.MDNSInfo{Instance: "Gateway"}},
+		{IP: "10.0.0.1", Alive: true, Online: true, DeviceType: "router", Web: []model.WebService{{URL: "http://10.0.0.1", Status: 200}}, MDNS: &model.MDNSInfo{Instance: "Gateway", Services: []string{"_bubbles._tcp"},
+			Details: []model.MDNSService{{Type: "_bubbles._tcp", Instance: "Team chat", Port: 28225}}}},
 		{IP: "10.0.0.2", Alive: true, Online: true, IsPrinter: true, DeviceType: "printer", Printer: &model.PrinterInfo{State: "idle"}},
 		{IP: "10.0.0.3", Alive: true, Online: true, IsPrinter: true, DeviceType: "printer", Printer: &model.PrinterInfo{Supplies: []model.Supply{{State: "low", Percent: -1}}}},
 		{IP: "10.0.0.4", Alive: true, Online: false},
@@ -178,7 +179,9 @@ func TestFilters(t *testing.T) {
 	if p.Total != 2 {
 		t.Fatalf("deviceType: %d", p.Total)
 	}
-	for q, want := range map[string]string{"newbox": "10.0.0.6", "switchx": "10.0.0.6", "GATEWAY": "10.0.0.1", "0.0.4": "10.0.0.4"} {
+	for q, want := range map[string]string{"newbox": "10.0.0.6", "switchx": "10.0.0.6", "GATEWAY": "10.0.0.1", "0.0.4": "10.0.0.4",
+		// mdns.services and the instance names in mdns.details are searched too.
+		"_bubbles._tcp": "10.0.0.1", "team chat": "10.0.0.1"} {
 		p, _ := ListDevices(r, ListOptions{Query: q})
 		if p.Total != 1 || p.Items[0].IP != want {
 			t.Fatalf("query %q: %+v", q, p)

@@ -34,12 +34,24 @@ const maxQuerySize = 1400
 // qu is the "unicast response" bit in the question class (RFC 6762 5.4).
 const qu = 1 << 15
 
-// DefaultServices are browsed when Browse is given no services.
+// DefaultServices are browsed when Browse is given no services. They cover
+// every service the device type rules key on (devtype.MDNSServices) and
+// _bubbles._tcp, the team chat server.
 var DefaultServices = []string{
 	"_ipp._tcp", "_ipps._tcp", "_printer._tcp", "_pdl-datastream._tcp",
 	"_http._tcp", "_https._tcp", "_device-info._tcp", "_workstation._tcp",
 	"_smb._tcp", "_airplay._tcp", "_raop._tcp", "_googlecast._tcp",
 	"_scanner._tcp", "_uscan._tcp",
+	// Cameras and phones.
+	"_rtsp._tcp", "_onvif._tcp", "_companion-link._tcp", "_apple-mobdev2._tcp",
+	// Smart home.
+	"_hap._tcp", "_homekit._tcp", "_matter._tcp", "_hue._tcp",
+	// TVs and speakers.
+	"_roku._tcp", "_spotify-connect._tcp",
+	// File sharing and storage.
+	"_afpovertcp._tcp", "_afpovertls._tcp", "_nfs._tcp", "_adisk._tcp",
+	// Team chat (bubbles).
+	"_bubbles._tcp",
 }
 
 // Group is the IPv4 mDNS multicast destination.

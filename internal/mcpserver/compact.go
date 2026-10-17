@@ -376,6 +376,10 @@ func matchQuery(q string, h model.Host) bool {
 	fields := []string{h.IP, h.MAC, h.Hostname, h.Vendor}
 	if h.MDNS != nil {
 		fields = append(fields, h.MDNS.Instance, h.MDNS.Hostname)
+		fields = append(fields, h.MDNS.Services...)
+		for _, d := range h.MDNS.Details {
+			fields = append(fields, d.Instance)
+		}
 	}
 	if h.Snmp != nil {
 		fields = append(fields, h.Snmp.SysName)

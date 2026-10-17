@@ -159,6 +159,63 @@ func TestMDNSPrinterServiceClassifies(t *testing.T) {
 	}
 }
 
+// F14: service details merge by type and instance. A later cycle that heard
+// only the PTR answer keeps the port and TXT keys already known.
+func TestMergeMDNSDetails(t *testing.T) {
+	chat := model.MDNSService{Type: "_bubbles._tcp", Instance: "Team chat", Port: 28225, TXT: map[string]string{"fp": "3f9a"}}
+	web := model.MDNSService{Type: "_http._tcp", Instance: "Team chat", Port: 8080, TXT: map[string]string{"v": "2"}}
+	old := mergeMDNS(nil, model.MDNSInfo{Services: []string{"_http._tcp"}, Details: []model.MDNSService{web}})
+	m := mergeMDNS(old, model.MDNSInfo{Services: []string{"_bubbles._tcp"}, Details: []model.MDNSService{chat}})
+	if !slices.Equal(m.Services, []string{"_bubbles._tcp", "_http._tcp"}) || len(m.Details) != 2 ||
+		m.Details[0].Type != "_bubbles._tcp" || m.Details[1].TXT["v"] != "2" || len(old.Details) != 1 {
+		t.Fatalf("merged %+v (old %+v)", m, old)
+	}
+	// PTR only: port and TXT are kept, so nothing changed.
+	ptrOnly := model.MDNSInfo{Details: []model.MDNSService{{Type: "_bubbles._tcp", Instance: "Team chat"}}}
+	if again := mergeMDNS(m, ptrOnly); again.Details[0].Port != 28225 || again.Details[0].TXT["fp"] != "3f9a" {
+		t.Fatalf("ptr-only merge lost data: %+v", again.Details)
+	}
+	if !mdnsEqual(m, ptrOnly) {
+		t.Error("a PTR-only answer counts as a change")
+	}
+	// A new port or new TXT keys replace the old ones and count as a change.
+	moved := model.MDNSInfo{Details: []model.MDNSService{{Type: "_bubbles._tcp", Instance: "Team chat", Port: 28226, TXT: map[string]string{"fp": "77aa"}}}}
+	if mdnsEqual(m, moved) {
+		t.Error("a new port is not a change")
+	}
+	if got := mergeMDNS(m, moved).Details[0]; got.Port != 28226 || got.TXT["fp"] != "77aa" {
+		t.Errorf("moved = %+v", got)
+	}
+	if m.Details[0].Port != 28225 {
+		t.Error("merge changed its input")
+	}
+	// A responder that keeps inventing instances is capped.
+	big := &model.MDNSInfo{}
+	for i := range maxMDNSDetails + 10 {
+		big = mergeMDNS(big, model.MDNSInfo{Details: []model.MDNSService{{Type: "_http._tcp", Instance: fmt.Sprint(i)}}})
+	}
+	if len(big.Details) != maxMDNSDetails {
+		t.Errorf("details = %d, want the cap %d", len(big.Details), maxMDNSDetails)
+	}
+}
+
+// F14: a host found by mDNS with _companion-link._tcp is a phone.
+func TestMDNSCompanionLinkIsPhone(t *testing.T) {
+	d := fakeDeps()
+	d.MDNS = &fakeMDNS{recs: []mdns.Record{{IP: "10.0.0.70", Info: model.MDNSInfo{
+		Instance: "Living room", Hostname: "host-70.local", Services: []string{"_companion-link._tcp"},
+		Details: []model.MDNSService{{Type: "_companion-link._tcp", Instance: "Living room", Port: 49152}},
+	}}}}
+	res, err := New(d).Run(context.Background(), model.ScanRequest{CIDR: "10.0.0.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := hostByIP(t, res, "10.0.0.70")
+	if h.DeviceType != "phone" || h.DeviceTypeReason != "mdns _companion-link" || len(h.MDNS.Details) != 1 || h.MDNS.Details[0].Port != 49152 {
+		t.Fatalf("host = %+v %+v", h, h.MDNS)
+	}
+}
+
 func TestIPPFillsPrinterWithSNMPOff(t *testing.T) {
 	d := fakeDeps()
 	d.Ports = fakePorts{"10.0.0.40": {631}, "10.0.0.10": {631}, "10.0.0.1": {80}}

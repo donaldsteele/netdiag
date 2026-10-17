@@ -18,6 +18,19 @@ var (
 
 var storageServices = []string{"_smb", "_afpovertcp", "_afpovertls", "_nfs", "_adisk"}
 
+// MDNSServices returns every DNS-SD service type the rules key on, as
+// "_name._tcp". The mDNS browser must ask for each of them
+// (mdns.DefaultServices), or the rule can never fire.
+func MDNSServices() []string {
+	var out []string
+	for _, g := range []mdnsGroup{mdnsPrinter, mdnsCamera, mdnsPhone, mdnsTV, mdnsIoT, {services: storageServices}} {
+		for _, s := range g.services {
+			out = append(out, s+"._tcp")
+		}
+	}
+	return out
+}
+
 // nasKeywords are token sequences indicating NAS vendors/models.
 var nasKeywords = []string{
 	"synology", "qnap", "terramaster", "asustor", "wd", "western digital",

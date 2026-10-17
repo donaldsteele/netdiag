@@ -3,17 +3,20 @@ package mdns
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
 
+	"netdiag/internal/devtype"
 	"netdiag/internal/model"
 )
 
@@ -169,13 +172,24 @@ func TestBrowseFixtures(t *testing.T) {
 	}
 	for i := range want {
 		got := recs[i]
-		got.Info.TXT = nil
+		got.Info.TXT, got.Info.Details = nil, nil
 		if !reflect.DeepEqual(got, want[i]) {
 			t.Errorf("record %d:\n got %+v\nwant %+v", i, got, want[i])
 		}
 	}
 	if recs[1].Info.TXT["ty"] != "Brother HL-L2350DW series" || recs[1].Info.TXT["adminurl"] == "" {
 		t.Errorf("printer txt: %v", recs[1].Info.TXT)
+	}
+	// Each service keeps its own SRV port and TXT keys.
+	if d := recs[1].Info.Details; len(d) != 2 ||
+		d[0].Type != "_ipp._tcp" || d[0].Port != 631 || d[0].TXT["rp"] != "ipp/print" ||
+		d[1].Type != "_pdl-datastream._tcp" || d[1].Port != 9100 || d[1].TXT != nil ||
+		d[0].Instance != "Brother HL-L2350DW series" || d[1].Instance != d[0].Instance {
+		t.Errorf("printer details: %+v", d)
+	}
+	// A PTR-only instance has no port yet.
+	if d := recs[2].Info.Details; len(d) != 1 || d[0].Type != "_googlecast._tcp" || d[0].Port != 0 || d[0].Instance != "Living Room TV" {
+		t.Errorf("cast details: %+v", d)
 	}
 	if PrinterService(recs[1].Info.Services) != "_ipp._tcp" || PrinterService(recs[0].Info.Services) != "" {
 		t.Error("PrinterService")
@@ -266,6 +280,116 @@ func TestBrowseDialError(t *testing.T) {
 	b := Browser{Dial: func(string) (Transport, error) { return nil, errors.New("boom") }}
 	if _, err := b.Browse(context.Background(), "", nil, time.Second); err == nil {
 		t.Fatal("want error")
+	}
+}
+
+// browseOnce replays the named fixtures in answer to the first query of a
+// one-round browse.
+func browseOnce(t *testing.T, fixtures map[string]*net.UDPAddr) []Record {
+	t.Helper()
+	f := newFake(func(n int, _ []byte) []pkt {
+		if n != 1 {
+			return nil
+		}
+		var out []pkt
+		for name, from := range fixtures {
+			out = append(out, pkt{readHex(t, name), from})
+		}
+		return out
+	})
+	b := Browser{Dial: func(string) (Transport, error) { return f, nil }, Rounds: 1}
+	recs, err := b.Browse(context.Background(), "", nil, 150*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return recs
+}
+
+// F14: the _bubbles._tcp entry keeps its SRV port and its own TXT keys,
+// apart from the web page the same host announces.
+func TestBrowseBubblesDetails(t *testing.T) {
+	recs := browseOnce(t, map[string]*net.UDPAddr{"bubbles.hex": src(192, 168, 1, 40)})
+	if len(recs) != 1 || recs[0].IP != "192.168.1.40" {
+		t.Fatalf("recs: %+v", recs)
+	}
+	info := recs[0].Info
+	want := []model.MDNSService{
+		{Type: "_bubbles._tcp", Instance: "Team chat", Port: 28225,
+			TXT: map[string]string{"fp": "3f9a1c2e7b4d5a60", "onboard": "1", "v": "0.2.0"}},
+		{Type: "_http._tcp", Instance: "Team chat web", Port: 8080,
+			TXT: map[string]string{"v": "2", "path": "/admin"}},
+	}
+	if !reflect.DeepEqual(info.Details, want) {
+		t.Fatalf("details:\n got %+v\nwant %+v", info.Details, want)
+	}
+	// The merged TXT is kept for compatibility: the first service wins "v".
+	if info.TXT["v"] != "0.2.0" || info.TXT["path"] != "/admin" || info.TXT["fp"] == "" {
+		t.Errorf("merged txt: %v", info.TXT)
+	}
+	if info.Instance != "Team chat" || info.Hostname != "chat.local" ||
+		!reflect.DeepEqual(info.Services, []string{"_bubbles._tcp", "_http._tcp"}) {
+		t.Errorf("info: %+v", info)
+	}
+}
+
+// F14: a host that announces only _companion-link._tcp is a phone.
+func TestCompanionLinkClassifiesAsPhone(t *testing.T) {
+	recs := browseOnce(t, map[string]*net.UDPAddr{"companion_link.hex": src(192, 168, 1, 33)})
+	if len(recs) != 1 || recs[0].IP != "192.168.1.33" {
+		t.Fatalf("recs: %+v", recs)
+	}
+	info := recs[0].Info
+	if d := info.Details; len(d) != 1 || d[0].Type != "_companion-link._tcp" || d[0].Port != 49152 {
+		t.Fatalf("details: %+v", d)
+	}
+	h := model.Host{IP: recs[0].IP, Alive: true, Online: true, MDNS: &info}
+	typ, why := devtype.Classify(h, "192.168.1.1")
+	if typ != devtype.Phone || why != "mdns _companion-link" {
+		t.Fatalf("classified %q (%s), want phone from mdns", typ, why)
+	}
+}
+
+// Every service a device type rule keys on, and team chat, is asked for.
+func TestDefaultServicesCoverDeviceTypes(t *testing.T) {
+	want := append(devtype.MDNSServices(), "_bubbles._tcp")
+	for _, s := range want {
+		if !slices.Contains(DefaultServices, s) {
+			t.Errorf("DefaultServices lacks %s", s)
+		}
+	}
+	if len(DefaultServices) != 29 {
+		t.Errorf("DefaultServices has %d types, want 29", len(DefaultServices))
+	}
+	seen := map[string]bool{}
+	for _, s := range DefaultServices {
+		if seen[s] || ServiceType(s) != s {
+			t.Errorf("duplicate or unnormalised service %q", s)
+		}
+		seen[s] = true
+	}
+}
+
+// The default query fits one datagram in both rounds, and round 2 still
+// has room for every follow-up question of typical instance names.
+func TestDefaultQueryFits(t *testing.T) {
+	fqdn := make([]string, len(DefaultServices))
+	for i, s := range DefaultServices {
+		fqdn[i] = s + ".local."
+	}
+	q1, err := buildQuery(1, fqdn, nil, nil, false)
+	if err != nil || len(q1) > maxQuerySize || len(questions(t, q1)) != len(fqdn) {
+		t.Fatalf("round 1: %d bytes, err %v", len(q1), err)
+	}
+	var srv []string
+	for i := range maxFollowUps {
+		srv = append(srv, fmt.Sprintf("Brother HL-L2350DW series %02d._ipp._tcp.local.", i))
+	}
+	q2, err := buildQuery(1, fqdn, srv, nil, true)
+	if err != nil || len(q2) > maxQuerySize {
+		t.Fatalf("round 2: %d bytes, err %v", len(q2), err)
+	}
+	if n := len(questions(t, q2)); n != 2*len(fqdn)+2*maxFollowUps {
+		t.Errorf("round 2 has %d questions, want %d", n, 2*len(fqdn)+2*maxFollowUps)
 	}
 }
 
