@@ -201,7 +201,7 @@ func registerTools(s *mcp.Server, svc *service.Service, opts Options) {
 		Annotations: readAnn("Get device details")}, t.getDevice)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_events", Title: "Get scan change events",
-		Description: "Poll the change feed of a scan (new/offline/online hosts, printer changes, conflicts, health, notices). Pass the returned nextSeq as sinceSeq next time.",
+		Description: "Poll the change feed of a scan (new/offline/online hosts, printer changes, conflicts, health, alert notices, and fixed entries that close a notice with the same key). Pass the returned nextSeq as sinceSeq next time.",
 		Annotations: readAnn("Get scan change events")}, t.getEvents)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_health", Title: "Get latest health report",

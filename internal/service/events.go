@@ -314,8 +314,16 @@ func (l *EventLog) ingest(ev model.Event) {
 		if !ok {
 			return
 		}
+		if n.OK {
+			// The problem under n.Key is fixed: the notice that reported it
+			// has the same key.
+			l.add("fixed", n.IP, fmt.Sprintf("fixed: %s: %s", n.Title, n.Message), n.Replay, map[string]any{
+				"id": n.ID, "trigger": n.Trigger, "key": n.Key, "openedAt": n.OpenedAt,
+			})
+			return
+		}
 		l.add("notice", n.IP, fmt.Sprintf("[%s] %s: %s", n.Severity, n.Title, n.Message), n.Replay, map[string]any{
-			"id": n.ID, "trigger": n.Trigger, "severity": n.Severity,
+			"id": n.ID, "trigger": n.Trigger, "severity": n.Severity, "key": n.Key,
 		})
 	case model.EventDone:
 		l.isDone = true

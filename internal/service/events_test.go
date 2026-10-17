@@ -137,6 +137,29 @@ func TestConflictHealthNoticeDone(t *testing.T) {
 	}
 }
 
+// An OK notice is a "fixed" event that names the key of the notice it closes.
+func TestNoticeAndFixedEvents(t *testing.T) {
+	l := newEventLog(false)
+	key := "printerOffline|3C:52:82:11:22:33|"
+	l.ingest(model.Event{Type: model.EventNotice, Data: model.NoticeEvent{Notice: model.Notice{
+		ID: "n-1", Trigger: model.TriggerPrinterOffline, Severity: "warn", IP: "10.0.0.5",
+		Title: "Printer offline", Message: "Printer stopped responding.", Key: key, At: "2026-10-17T10:30:00Z"}}})
+	l.ingest(model.Event{Type: model.EventNotice, Data: model.NoticeEvent{Notice: model.Notice{
+		ID: "n-2", Trigger: model.TriggerPrinterOffline, Severity: "info", IP: "10.0.0.5",
+		Title: "Printer back online", Message: "Printer answers again.", Key: key, OK: true,
+		OpenedAt: "2026-10-17T10:30:00Z", At: "2026-10-17T10:42:00Z"}}})
+	evs, _, _ := l.Since(0, 0)
+	if got := types(evs); len(got) != 2 || got[0] != "notice" || got[1] != "fixed" {
+		t.Fatalf("types %v", got)
+	}
+	f := evs[1]
+	data := f.Data.(map[string]any)
+	if f.IP != "10.0.0.5" || f.Summary != "fixed: Printer back online: Printer answers again." ||
+		data["key"] != key || data["openedAt"] != "2026-10-17T10:30:00Z" || evs[0].Data.(map[string]any)["key"] != key {
+		t.Fatalf("%+v / %+v", f, evs[0])
+	}
+}
+
 type aliveSet map[string]bool
 
 func (a aliveSet) Ping(_ context.Context, ip netip.Addr, _ time.Duration) (time.Duration, bool, error) {

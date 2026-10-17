@@ -254,6 +254,17 @@ func (l *liveWriter) notice(n model.NoticeEvent) {
 		}
 		return
 	}
+	if n.OK {
+		line := time.Now().Format("15:04:05") + "  FIXED  " + n.Title
+		if n.IP != "" {
+			line += "  " + n.IP
+		}
+		if d, ok := downFor(n.Notice); ok {
+			line += "  (was down " + d + ")"
+		}
+		fmt.Fprintln(l.stdout, line)
+		return
+	}
 	line := time.Now().Format("15:04:05") + "  ALERT  [" + n.Severity + "]  " + n.Title
 	if n.IP != "" {
 		line += "  " + n.IP
@@ -262,6 +273,25 @@ func (l *liveWriter) notice(n model.NoticeEvent) {
 		line += "  " + n.Message
 	}
 	fmt.Fprintln(l.stdout, line)
+}
+
+// downFor is how long an OK notice's problem was open, such as "12m" or
+// "1h5m" (whole minutes; "<1m" under a minute). It reports false when the
+// times are missing or unreadable.
+func downFor(n model.Notice) (string, bool) {
+	from, err1 := time.Parse(time.RFC3339, n.OpenedAt)
+	to, err2 := time.Parse(time.RFC3339, n.At)
+	if err1 != nil || err2 != nil || to.Before(from) {
+		return "", false
+	}
+	d := to.Sub(from).Truncate(time.Minute)
+	switch {
+	case d < time.Minute:
+		return "<1m", true
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes())), true
+	}
+	return strings.TrimSuffix(d.String(), "0s"), true
 }
 
 // health prints a one-line health summary on stderr, once, when the first
