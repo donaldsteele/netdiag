@@ -210,6 +210,7 @@ select{padding-right:4px}
 .hchead h3{margin:0;font-size:15px}
 .hdetail{margin:var(--s2) 0 0;font-size:13px;overflow-wrap:anywhere}
 .hlat{margin:var(--s1) 0 0;font-size:20px;font-weight:700}.hlat:empty{display:none}
+.hact{margin:var(--s2) 0 0}
 /* history + diff */
 #history table{background:var(--bg-elev);border:1px solid var(--line);border-radius:var(--radius)}
 #history thead th{position:static}
@@ -227,6 +228,7 @@ select{padding-right:4px}
 .sform fieldset{border:1px solid var(--line);border-radius:var(--radius);padding:var(--s2) var(--s3) var(--s3);margin:var(--s3) 0;background:var(--bg-elev)}
 .sform legend{padding:0 var(--s2);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted)}
 .sform label{margin:var(--s2) 0}
+.sform .trusted{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin:var(--s2) 0;overflow-wrap:anywhere}
 .sform .actions{position:sticky;bottom:calc(-1 * var(--s4));display:flex;flex-wrap:wrap;gap:var(--s2);justify-content:flex-end;margin:0;padding:var(--s3) 0;background:var(--bg)}
 /* T8: motion. Every animation and transition is opt-in. Reduced motion keeps the static layout. */
 @media (prefers-reduced-motion:no-preference){

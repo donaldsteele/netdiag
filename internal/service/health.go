@@ -57,8 +57,7 @@ func (s *Service) RunHealth(ctx context.Context, iface string) model.HealthRepor
 	}
 	if s.cfg.Store != nil {
 		if set, err := s.cfg.Store.LoadSettings(); err == nil {
-			in.Config = health.Config{WebURL: set.WebServer.URL, MustContain: set.WebServer.MustContain,
-				ExpectStatus: set.WebServer.ExpectStatus, InternetURL: set.InternetCheckURL}
+			in.Config = health.ConfigFor(set)
 		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, healthRunCap)

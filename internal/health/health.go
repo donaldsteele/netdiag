@@ -4,6 +4,7 @@ package health
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -45,7 +46,21 @@ type Config struct {
 	WebURL       string
 	MustContain  string
 	ExpectStatus int // 0 -> 200
-	InternetURL  string
+	// TrustedCert is the SHA-256 fingerprint of a web server certificate
+	// the user chose to trust (see model.SettingsWebServer).
+	TrustedCert string
+	InternetURL string
+}
+
+// ConfigFor maps settings to the health check config.
+func ConfigFor(s model.Settings) Config {
+	return Config{
+		WebURL:       s.WebServer.URL,
+		MustContain:  s.WebServer.MustContain,
+		ExpectStatus: s.WebServer.ExpectStatus,
+		TrustedCert:  s.WebServer.TrustedCert,
+		InternetURL:  s.InternetCheckURL,
+	}
 }
 
 // Input describes what to check.
@@ -86,6 +101,8 @@ type Runner struct {
 	// ping gets no reply. nil uses portprobe.Dial and portprobe.Refused.
 	dial    func(ctx context.Context, ip string, port int, timeout time.Duration) (net.Conn, error)
 	refused func(error) bool
+	// roots verifies web server certificates; nil uses the system roots.
+	roots *x509.CertPool
 
 	mu       sync.Mutex
 	wifiAt   time.Time

@@ -151,6 +151,27 @@ document.addEventListener('alpine:init', () => {
       if (c.data && typeof c.data.configured === 'boolean') return !c.data.configured;
       return c.status === 'info' && /^no web server configured/.test(c.detail || '');
     },
+    // The web server check failed on a certificate this computer does not
+    // trust, and sent that certificate's fingerprint along.
+    canTrust(c) {
+      return !!(this.settings && c && c.id === 'webserver' && c.status === 'fail' && c.data &&
+        /^[0-9a-f]{64}$/.test(c.data.certSHA256 || ''));
+    },
+    fpPairs(fp) { return (fp || '').toUpperCase().match(/../g) || []; },
+    fpLong(fp) { return this.fpPairs(fp).join(':'); },
+    fpShort(fp) { const p = this.fpPairs(fp); return p.slice(0, 8).join(':') + (p.length > 8 ? '…' : ''); },
+    async trustCert(c) {
+      if (!this.canTrust(c)) return;
+      const d = c.data;
+      const msg = 'Trust this certificate for the web server ' + (d.url || '') + '?\n\n' +
+        'Certificate: ' + (d.certSubject || 'no name') + '\nSHA-256 fingerprint:\n' + this.fpLong(d.certSHA256) + '\n\n' +
+        'Only do this for your own server. If its certificate changes later, the check will tell you.';
+      if (!window.confirm(msg)) return;
+      const doc = JSON.parse(JSON.stringify(this.settings));
+      doc.webServer = Object.assign({}, doc.webServer, {trustedCert: d.certSHA256});
+      if (await this.putSettings(doc, false)) await this.recheck();
+      else this.healthMsg = 'Could not save the trusted certificate.';
+    },
 
     // ---- settings ----
     openSettings() {
@@ -170,6 +191,11 @@ document.addEventListener('alpine:init', () => {
       this.draft.alerts.supplyThresholdPct = n(this.draft.alerts.supplyThresholdPct);
       this.draft.alerts.cooldownSec = n(this.draft.alerts.cooldownSec);
       this.draft.printerStatusPollSec = n(this.draft.printerStatusPollSec);
+      // A certificate trusted for one server means nothing for another.
+      const hostOf = u => { try { return new URL(u).hostname.toLowerCase(); } catch (e) { return ''; } };
+      const was = (this.settings && this.settings.webServer) || {};
+      if (this.draft.webServer.trustedCert && this.draft.webServer.trustedCert === was.trustedCert &&
+          hostOf(this.draft.webServer.url) !== hostOf(was.url)) this.draft.webServer.trustedCert = '';
       const ok = await this.putSettings(this.draft, true);
       if (ok) this.closeSettings();
     },

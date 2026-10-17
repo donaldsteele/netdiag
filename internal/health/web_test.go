@@ -2,12 +2,22 @@ package health
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"fmt"
+	"io"
+	"log"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"netdiag/internal/model"
 )
@@ -117,5 +127,159 @@ func TestInternetDoesNotFollowRedirects(t *testing.T) {
 	c := r.checkInternet(context.Background(), Input{Config: Config{InternetURL: srv.URL + "/"}})
 	if c.Status != model.HealthInfo || !strings.Contains(c.Detail, "captive portal") {
 		t.Fatalf("%+v", c)
+	}
+}
+
+// selfSigned returns a self-signed certificate for 127.0.0.1, valid from
+// notBefore to notAfter.
+func selfSigned(t *testing.T, cn string, notBefore, notAfter time.Time) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: cn},
+		NotBefore: notBefore, NotAfter: notAfter, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+}
+
+// tlsServer starts an https test server with cert (nil: httptest's own).
+func tlsServer(t *testing.T, cert *tls.Certificate) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("<html>Intranet</html>"))
+	}))
+	if cert != nil {
+		srv.TLS = &tls.Config{Certificates: []tls.Certificate{*cert}}
+	}
+	srv.Config.ErrorLog = log.New(io.Discard, "", 0) // refused handshakes are expected
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// colonHex writes a fingerprint the way browsers show it: AB:CD:...
+func colonHex(fp string) string {
+	var b strings.Builder
+	for i := 0; i < len(fp); i += 2 {
+		if i > 0 {
+			b.WriteByte(':')
+		}
+		b.WriteString(strings.ToUpper(fp[i : i+2]))
+	}
+	return b.String()
+}
+
+func TestWebUntrustedCertificate(t *testing.T) {
+	srv := tlsServer(t, nil) // httptest's own certificate: from no known authority
+	fp := Fingerprint(srv.Certificate())
+	r := newTestRunner(fakePinger{}, fakeResolver{}, "")
+	check := func(cfg Config) model.HealthCheck {
+		cfg.WebURL = srv.URL + "/"
+		return r.checkWeb(context.Background(), Input{Config: cfg})
+	}
+
+	// This computer's own trust store (the platform verifier on Windows
+	// and macOS) does not know httptest's authority either.
+	c := check(Config{})
+	if c.Status != model.HealthFail || !strings.HasPrefix(c.Detail, "the certificate is not trusted: ") || c.Data["certSHA256"] != fp {
+		t.Fatalf("system roots: %+v", c)
+	}
+	if c = check(Config{TrustedCert: fp}); c.Status != model.HealthOK {
+		t.Fatalf("system roots, trusted: %+v", c)
+	}
+
+	r.roots = x509.NewCertPool() // trust nothing, like a computer that has never seen the server's CA
+	c = check(Config{MustContain: "Intranet"})
+	if c.Status != model.HealthFail || c.Detail != "the certificate is not trusted: self-signed or from a private authority" ||
+		c.Data["certSHA256"] != fp || c.Data["certSubject"] == "" || c.Data["url"] != srv.URL+"/" ||
+		c.Data["certExpires"] != srv.Certificate().NotAfter.UTC().Format(time.RFC3339) {
+		t.Fatalf("untrusted: %+v", c)
+	}
+
+	for _, pin := range []string{fp, colonHex(fp)} {
+		c = check(Config{MustContain: "Intranet", TrustedCert: pin})
+		if c.Status != model.HealthOK || c.Data["trustedCert"] != true || c.Data["certSHA256"] != nil {
+			t.Fatalf("trusted %q: %+v", pin, c)
+		}
+	}
+
+	// Another certificate than the trusted one, and not valid either.
+	other := strings.Repeat("0", 64)
+	c = check(Config{TrustedCert: other})
+	if c.Status != model.HealthFail || !strings.HasPrefix(c.Detail, "the certificate changed since you trusted it") || c.Data["certSHA256"] != fp {
+		t.Fatalf("changed: %+v", c)
+	}
+
+	// A certificate that is valid in the normal way passes, trusted or not.
+	r.roots.AddCert(srv.Certificate())
+	for _, pin := range []string{"", other} {
+		if c = check(Config{TrustedCert: pin}); c.Status != model.HealthOK || c.Data["trustedCert"] != nil {
+			t.Fatalf("valid, pin %q: %+v", pin, c)
+		}
+	}
+
+	// The right authority but a name the certificate is not for.
+	c = r.checkWeb(context.Background(), Input{Config: Config{WebURL: otherHostURL(srv.URL) + "/"}})
+	if c.Status != model.HealthFail || c.Data["certSHA256"] != fp ||
+		!strings.HasPrefix(c.Detail, "the certificate is not trusted: it is made out to example.com, ") || !strings.HasSuffix(c.Detail, ", not localhost") {
+		t.Fatalf("wrong name: %+v", c)
+	}
+}
+
+func TestWebExpiredCertificate(t *testing.T) {
+	now := time.Now()
+	cert := selfSigned(t, "old-nas", now.Add(-48*time.Hour), now.Add(-24*time.Hour))
+	srv := tlsServer(t, &cert)
+	leaf := srv.Certificate()
+	fp := Fingerprint(leaf)
+	r := newTestRunner(fakePinger{}, fakeResolver{}, "")
+	r.roots = x509.NewCertPool()
+	r.roots.AddCert(leaf)
+	c := r.checkWeb(context.Background(), Input{Config: Config{WebURL: srv.URL}})
+	want := "the certificate is not trusted: it expired on " + certDate(leaf.NotAfter)
+	if c.Status != model.HealthFail || c.Detail != want || c.Data["certSHA256"] != fp || c.Data["certSubject"] != "old-nas" {
+		t.Fatalf("expired: %+v", c)
+	}
+	// Trusting it makes the check work, but it still warns.
+	c = r.checkWeb(context.Background(), Input{Config: Config{WebURL: srv.URL, TrustedCert: fp}})
+	if c.Status != model.HealthWarn || !strings.HasSuffix(c.Detail, "; the certificate you trusted expired on "+certDate(leaf.NotAfter)) {
+		t.Fatalf("trusted expired: %+v", c)
+	}
+}
+
+// An http address that moves to https on the same server is followed, and
+// the trusted certificate is used for the https part.
+func TestWebRedirectToTrustedHTTPS(t *testing.T) {
+	cert := selfSigned(t, "intranet", time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	tsrv := tlsServer(t, &cert)
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, tsrv.URL+"/portal", http.StatusMovedPermanently)
+	}))
+	defer plain.Close()
+	r := newTestRunner(fakePinger{}, fakeResolver{}, "")
+	r.roots = x509.NewCertPool()
+	c := r.checkWeb(context.Background(), Input{Config: Config{WebURL: plain.URL + "/"}})
+	if c.Status != model.HealthFail || c.Data["certSHA256"] != Fingerprint(tsrv.Certificate()) {
+		t.Fatalf("untrusted: %+v", c)
+	}
+	c = r.checkWeb(context.Background(), Input{Config: Config{WebURL: plain.URL + "/", MustContain: "Intranet",
+		TrustedCert: Fingerprint(tsrv.Certificate())}})
+	if c.Status != model.HealthOK || c.Data["finalURL"] != tsrv.URL+"/portal" {
+		t.Fatalf("trusted: %+v", c)
+	}
+}
+
+func TestConfigFor(t *testing.T) {
+	s := model.Settings{InternetCheckURL: "http://i/", WebServer: model.SettingsWebServer{URL: "https://w/",
+		MustContain: "x", ExpectStatus: 204, TrustedCert: strings.Repeat("a", 64)}}
+	want := Config{WebURL: "https://w/", MustContain: "x", ExpectStatus: 204, TrustedCert: strings.Repeat("a", 64), InternetURL: "http://i/"}
+	if got := ConfigFor(s); got != want {
+		t.Fatalf("%+v", got)
 	}
 }

@@ -126,16 +126,6 @@ func notifyConfig(s model.Settings) notify.Config {
 	return cfg
 }
 
-// healthConfig maps settings to the health check config.
-func healthConfig(s model.Settings) health.Config {
-	return health.Config{
-		WebURL:       s.WebServer.URL,
-		MustContain:  s.WebServer.MustContain,
-		ExpectStatus: s.WebServer.ExpectStatus,
-		InternetURL:  s.InternetCheckURL,
-	}
-}
-
 // classify applies the v0.1 printer rules plus IPP data and mDNS printer
 // services.
 func classify(h *model.Host, gateway string) {
@@ -279,7 +269,7 @@ const (
 // current settings.
 func (r *runner) healthInput() health.Input {
 	r.smu.Lock()
-	cfg := healthConfig(r.settings)
+	cfg := health.ConfigFor(r.settings)
 	r.smu.Unlock()
 	return health.Input{Iface: r.self.Interface, IfaceIP: r.self.IP, Gateway: r.gateway, Config: cfg}
 }

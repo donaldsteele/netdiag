@@ -1,5 +1,7 @@
 package model
 
+import "strings"
+
 // SettingsSchemaVersion is the current settings.json schema version.
 const SettingsSchemaVersion = 1
 
@@ -30,6 +32,26 @@ type SettingsWebServer struct {
 	URL          string `json:"url"`
 	MustContain  string `json:"mustContain"`
 	ExpectStatus int    `json:"expectStatus"`
+	// TrustedCert is the SHA-256 fingerprint (64 lowercase hex digits) of
+	// a certificate the user chose to trust for this server, such as a
+	// self-signed one on an intranet server. Empty means normal checking.
+	TrustedCert string `json:"trustedCert"`
+}
+
+// NormalizeFingerprint returns a SHA-256 certificate fingerprint as 64
+// lowercase hex digits. Upper case and colons or spaces between the bytes
+// are accepted; ok is false when s is not a SHA-256 fingerprint.
+func NormalizeFingerprint(s string) (fp string, ok bool) {
+	s = strings.ToLower(strings.NewReplacer(":", "", " ", "").Replace(strings.TrimSpace(s)))
+	if len(s) != 64 {
+		return "", false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return "", false
+		}
+	}
+	return s, true
 }
 
 // SettingsAlerts configures alerting.

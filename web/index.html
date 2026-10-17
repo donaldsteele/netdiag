@@ -145,6 +145,7 @@
                 <span class="hs" :class="'hs-' + c.status"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusShape(c.status)"></use></svg> <span x-text="healthStatusText(c.status)"></span></span></div>
               <p class="hdetail mono"><span x-text="c.detail"></span>
                 <a href="#" class="setweb" x-show="webUnset(c)" @click.prevent="openSettings()">Set the web server URL in Settings</a></p>
+              <p class="hact" x-show="canTrust(c)"><button type="button" class="trustbtn" @click="trustCert(c)">Trust this certificate</button></p>
               <p class="hlat mono" x-text="healthLatency(c)"></p>
             </li>
           </template>
@@ -472,6 +473,10 @@
           <label>Web server URL <input type="text" x-model="draft.webServer.url" placeholder="http://192.168.1.10/" spellcheck="false" autocomplete="off"></label>
           <label>Page must contain <input type="text" x-model="draft.webServer.mustContain" autocomplete="off"></label>
           <label>Expected HTTP status (0 = 200) <input type="number" min="0" max="599" x-model="draft.webServer.expectStatus"></label>
+          <p class="trusted" id="trusted-cert" x-show="draft.webServer.trustedCert">
+            <span>Trusted certificate <span class="mono" x-text="fpShort(draft.webServer.trustedCert)" :title="fpLong(draft.webServer.trustedCert)"></span></span>
+            <button type="button" @click="draft.webServer.trustedCert = ''">Forget<span class="sr"> the trusted certificate</span></button></p>
+          <p class="sub" id="trusted-pending" x-show="settings && settings.webServer && settings.webServer.trustedCert && !draft.webServer.trustedCert">The certificate is forgotten when you click Save.</p>
           <label>Internet check URL <input type="text" x-model="draft.internetCheckURL" spellcheck="false" autocomplete="off"></label>
         </fieldset>
         <fieldset><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-bell"></use></svg>Alerts</legend>

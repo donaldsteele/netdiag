@@ -92,6 +92,9 @@ func TestSettings(t *testing.T) {
 		func(x *model.Settings) { x.PrinterStatusPollSec = 301 },
 		func(x *model.Settings) { x.InternetCheckURL = "nope" },
 		func(x *model.Settings) { x.IgnoredConflictMACs = []string{"zz"} },
+		func(x *model.Settings) { x.WebServer.TrustedCert = "abc" },
+		func(x *model.Settings) { x.WebServer.TrustedCert = strings.Repeat("g", 64) },
+		func(x *model.Settings) { x.WebServer.TrustedCert = strings.Repeat("a", 66) },
 	}
 	for i, f := range bad {
 		c := back
@@ -110,6 +113,30 @@ func TestSettings(t *testing.T) {
 	o, _ := s.SaveSettings(hi)
 	if o.SchemaVersion != 5 {
 		t.Fatal("lowered")
+	}
+}
+
+func TestSettingsTrustedCert(t *testing.T) {
+	s := open(t)
+	d := DefaultSettings()
+	if d.WebServer.TrustedCert != "" {
+		t.Fatal("trusted by default")
+	}
+	fp := strings.Repeat("ab", 32)
+	colons := strings.TrimSuffix(strings.Repeat("AB:", 32), ":")
+	for _, in := range []string{fp, strings.ToUpper(fp), " " + colons + " ", strings.ReplaceAll(colons, ":", " ")} {
+		d.WebServer.TrustedCert = in
+		out, err := s.SaveSettings(d)
+		if err != nil || out.WebServer.TrustedCert != fp {
+			t.Fatalf("%q: %q %v", in, out.WebServer.TrustedCert, err)
+		}
+	}
+	if back, _ := s.LoadSettings(); back.WebServer.TrustedCert != fp {
+		t.Fatalf("not persisted: %q", back.WebServer.TrustedCert)
+	}
+	d.WebServer.TrustedCert = "  "
+	if out, err := s.SaveSettings(d); err != nil || out.WebServer.TrustedCert != "" {
+		t.Fatalf("forget: %q %v", out.WebServer.TrustedCert, err)
 	}
 }
 

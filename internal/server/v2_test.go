@@ -95,6 +95,7 @@ func TestSettingsEndpoints(t *testing.T) {
 		func(s *model.Settings) { s.Alerts.CooldownSec = 10 },
 		func(s *model.Settings) { s.Alerts.CooldownSec = 4000 },
 		func(s *model.Settings) { s.InternetCheckURL = "not a url" },
+		func(s *model.Settings) { s.WebServer.TrustedCert = "not a fingerprint" },
 	}
 	for i, f := range bad {
 		c := set
@@ -112,11 +113,13 @@ func TestSettingsEndpoints(t *testing.T) {
 	}
 	set.Community = "secret"
 	set.Alerts.CooldownSec = 60
+	set.WebServer.TrustedCert = strings.Repeat("AB:", 31) + "AB"
 	body, _ := json.Marshal(set)
 	if r, b := doj(t, "PUT", u+"/api/settings", string(body), "application/json"); r.StatusCode != 200 || !strings.Contains(b, `"secret"`) {
 		t.Fatalf("put: %d %s", r.StatusCode, b)
 	}
-	if _, b := doj(t, "GET", u+"/api/settings", "", ""); !strings.Contains(b, `"cooldownSec":60`) {
+	_, b = doj(t, "GET", u+"/api/settings", "", "")
+	if !strings.Contains(b, `"cooldownSec":60`) || !strings.Contains(b, `"trustedCert":"`+strings.Repeat("ab", 32)+`"`) {
 		t.Fatalf("not persisted: %s", b)
 	}
 }

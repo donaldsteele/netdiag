@@ -81,6 +81,13 @@ Tick only after observing the behaviour on real hardware.
 - [ ] With the router unplugged, the Gateway row is `fail` and says it did not reply to ping or on ports 80 and 443, within about 5 seconds
 - [ ] A Web server URL starting with `http://` on a server that redirects to `https://` on the same name is `ok` and shows "redirected to https://..."
 - [ ] A Web server URL that redirects to a sign-in page on another server is `fail` and the detail names that server
+- [ ] An `https://` Web server URL on a device with a self-signed certificate (a printer, NAS or router admin page) is `fail` with "the certificate is not trusted: self-signed or from a private authority" and a **Trust this certificate** button, on both Windows and macOS
+- [ ] The confirmation shows the server address and a fingerprint that matches the one the browser shows for that page (certificate viewer, SHA-256); **Cancel** changes nothing
+- [ ] After **OK** the row turns `ok` at once, stays `ok` after quitting and starting netdiag again, and Settings shows "Trusted certificate" with the first part of the fingerprint
+- [ ] After the device gets a new certificate (regenerate it in its admin page), the row says "the certificate changed since you trusted it" and offers to trust the new one
+- [ ] **Forget** in Settings, then **Save**, makes the row fail again on the next Recheck
+- [ ] An `https://` Web server with a normal public certificate is `ok` without any trust step
+- [ ] The Web server card's "Set the web server URL in Settings" link shows when no URL is set and opens Settings
 
 ### Health panel
 - [ ] Gateway row shows `ok` with a latency; unplugging the router shows `fail` text, not colour alone

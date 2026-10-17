@@ -140,12 +140,21 @@ export function conflict(resolved = false) {
 // Web server URL used by the web server health fixtures.
 export const WEB_URL = 'https://intranet.local/';
 
-// The web server check in each state: 'unset' (no URL in Settings) or 'ok'.
+// SHA-256 of the self-signed certificate the 'untrusted' web server presents.
+export const CERT_SHA256 = '5d41402abc4b2a76b9719d911017c592' + '7d793fcb0ab1e6b2b4a2d1c0f9e8d7c6';
+
+// The web server check in each state: 'unset' (no URL in Settings), 'ok', or
+// 'untrusted' (self-signed certificate this computer does not trust).
 export function webCheck(state = 'unset') {
   const base = { id: 'webserver', label: 'Web server' };
   if (state === 'ok') {
     return { ...base, status: 'ok', detail: 'HTTP 200 in 12 ms', latencyMs: 12.3,
       data: { configured: true, url: WEB_URL, status: 200 } };
+  }
+  if (state === 'untrusted') {
+    return { ...base, status: 'fail', detail: 'the certificate is not trusted: self-signed or from a private authority', latencyMs: 0,
+      data: { configured: true, url: WEB_URL, certSHA256: CERT_SHA256, certSubject: 'intranet.local',
+        certExpires: '2027-10-01T00:00:00Z' } };
   }
   return { ...base, status: 'info', detail: 'no web server configured (set one in Settings)', latencyMs: 0,
     data: { configured: false } };
@@ -185,7 +194,7 @@ export function interfaces() {
 export function settings() {
   return {
     schemaVersion: 1, community: 'public', printerStatusPollSec: 5,
-    webServer: { url: '', mustContain: '', expectStatus: 200 },
+    webServer: { url: '', mustContain: '', expectStatus: 200, trustedCert: '' },
     internetCheckURL: '',
     alerts: {
       sound: false, desktop: false, cooldownSec: 300, supplyThresholdPct: 15,

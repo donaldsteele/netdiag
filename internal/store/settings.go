@@ -69,6 +69,13 @@ func NormalizeSettings(s model.Settings) (model.Settings, error) {
 	if s.WebServer.ExpectStatus < 100 || s.WebServer.ExpectStatus > 599 {
 		return s, errors.New("webServer.expectStatus must be 100-599")
 	}
+	if s.WebServer.TrustedCert = strings.TrimSpace(s.WebServer.TrustedCert); s.WebServer.TrustedCert != "" {
+		fp, ok := model.NormalizeFingerprint(s.WebServer.TrustedCert)
+		if !ok {
+			return s, errors.New("webServer.trustedCert must be a SHA-256 certificate fingerprint (64 hex digits)")
+		}
+		s.WebServer.TrustedCert = fp
+	}
 	s.InternetCheckURL = strings.TrimSpace(s.InternetCheckURL)
 	if s.InternetCheckURL == "" {
 		s.InternetCheckURL = DefaultSettings().InternetCheckURL
