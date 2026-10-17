@@ -9,7 +9,7 @@ Each release from v0.6 on has its own detailed plan:
 - [v0.9 "Fix it yourself"](v0.9.md). Its section 13 covers the rest of 0.9.x: Microsoft Store readiness, ending in the **v1.0.0** Store release.
 - [Code signing and Microsoft Store](signing-and-store.md): the background, costs and owner steps for Azure Artifact Signing and the Store.
 
-v0.5.7 (released) and v0.5.8 (next) are small, so their lists live here in [section 4](#4-v057-released-and-v058-honest-checks).
+v0.5.7 and v0.5.8 (both released) are small, so their lists live here in [section 4](#4-v057-and-v058-honest-checks-released).
 
 ## 1. Purpose and how to use this roadmap
 
@@ -95,14 +95,14 @@ Sizes are per milestone: S is up to 2 dev-days, M is 3-5 and L is 6-10. A releas
 | Version | Theme | Headline features | Key foundations | Size | Gate to start | Status |
 |---|---|---|---|---|---|---|
 | v0.5.7 | Honest checks (part 1) and Remote access | Refused connections detected on Windows. DNS check asks this computer's DNS servers. "Local network" wording. **Remote access**: RDP, VNC and SSH detected, Remote Desktop opens in one click | F1, the DNS part of F3, remote access (R1) | S (patch) | None | **Released** (2026-10-17, tag `v0.5.7`) |
-| v0.5.8 | Honest checks | Gateway that ignores ping, Web server redirects and **Trust this certificate**, the scanned interface for Recheck. SNMP community hidden everywhere, saved scans exportable. Port cap, **Ignore this MAC** asks first, Apache-2.0 licence and CI | Rest of F3; first slices of F11 (`model.RedactScan`) and F13 (`scan.MaxPorts`, `portprobe.PortWorkers`) | S (patch, 14 small fixes) | v0.5.7 tagged (met) | **Next** (most fixes already on `master`, see [4.2](#42-v058-honest-checks)) |
-| v0.6 | Chat alerts you can trust | Team chat connect by clicks. #1 Problems right now and "Fixed". #2 What this means / What to try. #3 Never lose netdiag | Session token, F2, F6, F7, F9, F10, F11, F14, severity map, runbook registry | L: 14 milestones (2 L, 7 M, 2 S-M, 3 S) | v0.5.8 tagged. Test rig ready before M10. v0.6-D15 answered before M7 | Planned |
+| v0.5.8 | Honest checks | Gateway that ignores ping, Web server redirects and **Trust this certificate**, the scanned interface for Recheck. SNMP community hidden everywhere, saved scans exportable. Port cap, **Ignore this MAC** asks first, Apache-2.0 licence and CI | Rest of F3; first slices of F11 (`model.RedactScan`) and F13 (`scan.MaxPorts`, `portprobe.PortWorkers`) | S (patch, 14 small fixes) | v0.5.7 tagged (met) | **Released** (2026-10-17, tag `v0.5.8`; see [4.2](#42-v058-honest-checks-released-2026-10-17)) |
+| v0.6 | Chat alerts you can trust | Team chat connect by clicks. #1 Problems right now and "Fixed". #2 What this means / What to try. #3 Never lose netdiag | Session token, F2, F6, F7, F9, F10, F11, F14, severity map, runbook registry | L: 14 milestones (2 L, 7 M, 2 S-M, 3 S) | v0.5.8 tagged (met). Test rig ready before M10. v0.6-D15 answered before M7 (met: decided 2026-10-17) | **In progress** |
 | v0.7 | Device toolkit | **Check open ports**. #4 quick actions. #5 names and rooms. #6 **Check my connection**. #8 **Why won't it print?** and **Make it beep**. #10 **Send to chat**. **Wake this computer** | F4, F5, F8 (devices.json v1), F12, F13, `names.Best`, Wake-on-LAN sender (`internal/wol`) | L: 11 milestones (9 M, 1 S-M, 1 S), about 7-8 dev-weeks | v0.6 shipped. V7-D1 to V7-D13 confirmed before M1 | Planned |
 | v0.8 | Always watching | #7 Watch this device. #11 Keep watching this network. #17 Pause alerts and quiet hours. #19 "Still not fixed" reminders. #9 Get help report. #14 What changed | `internal/alertpolicy`, devices.json v2, server-owned settings fields, held items and reminder counts in the ledger | L: 9 milestones (1 L, 6 M, 2 S) | v0.7 shipped. Clean Windows 11 VM ready for the Defender gate | Planned |
 | v0.9 | Fix it yourself | #12 Help home and welcome. #13 This computer's printers. #15 Can I reach it?. #16 Is this ours?. #18 Is it dropping?. #20 Find my new device | New F4 job kinds, netinfo interface kinds, Windows ICMP pinger, devices.json v3 | L: 10 milestones (2 L, 4 M, 2 S-M, 2 S), about 6-7 dev-weeks | v0.8 shipped | Planned |
 | v0.9.1 to v0.9.3, then v1.0.0 | Microsoft Store | A windowless Start-menu app with a quit path, MSIX packaging, Store compliance, then **v1.0.0 in the Microsoft Store** and on GitHub | Windowless launcher and command alias, MSIX manifest and `scripts/package-msix.ps1`; optional Azure Artifact Signing for the zips | 4 milestones (S1-S4); items mostly M | v0.9.0 shipped. Partner Center account and the reserved name | Planned (decided 2026-10-17) |
 
-## 4. v0.5.7 (released) and v0.5.8 "Honest checks"
+## 4. v0.5.7 and v0.5.8 "Honest checks" (released)
 
 ### 4.1 v0.5.7 (released 2026-10-17)
 
@@ -128,11 +128,11 @@ Tag `v0.5.7` is at `d69860a`. It shipped four changes:
 - [ ] v0.6 adds `netdiag/internal/remote` to `TestMCPImportsNoActionPackages`.
 - [ ] v0.7 builds on remote access and doesn't duplicate it: no new remote route, no second remote section, no new default port. Port-check results never go into `Host.OpenPorts`.
 
-### 4.2 v0.5.8 "Honest checks"
+### 4.2 v0.5.8 "Honest checks" (released 2026-10-17)
 
 **Goal.** Remove the false alarms that v0.6 would otherwise send straight to team chat, and fix the small bugs found during planning.
 
-**Status: Next.** Work started on `master` right after the v0.5.7 tag. A box is ticked when its commit is on `master` (checked at `3f19d8f`). Branches `v058-data`, `v058-health` and `v058-mcp` hold the same changes.
+**Status: Released** (2026-10-17, tag `v0.5.8`). Work started on `master` right after the v0.5.7 tag. A box is ticked when its commit is on `master` (checked at `3f19d8f`). Branches `v058-data`, `v058-health` and `v058-mcp` hold the same changes. The boxes still open below shipped open and carry into v0.6: the MCP wording follow-ups with M9 (v0.6 prerequisite 12), the bubbles severity table with v0.6 release step 14, and the field checklist with M13.
 
 - [x] **Web server Settings link.** "Set the web server URL in Settings" shows again when no URL is set; `checkWeb` returns `info` in that case (`internal/health/web.go:38`). Commit `818a105`.
 - [x] **Problems filter threshold.** It uses `settings.alerts.supplyThresholdPct` instead of a hard-coded 15% (`03c275d`). MCP matches: `6ba7ed6`, `812ccaa`.
@@ -158,7 +158,7 @@ Tag `v0.5.7` is at `d69860a`. It shipped four changes:
   - [ ] **README.md:116.** It still says every prompt uses a built-in playbook. Say instead to pick the prompt from Claude's menu, or ask in your own words.
 - [ ] **bubbles repo.** Align the severity table in bubbles `docs/netdiag.md:43-51` with what v0.5.8 sends. Today it lists `ipConflict` and `healthFailed` as critical, and bubbles HEAD `1386223` still has that table. v0.6 release step 14 writes the v0.6 map there.
 - [ ] **Field checklist.** Tick the new sections "Data safety (v0.5.8)", "Health checks (v0.5.8)" and "Windows Defender Firewall alert (v0.5.8)" in `docs/field-checklist.md`, plus the open "Remote access (v0.5.7)" items.
-- [ ] **Release v0.5.8** with the [standard steps](#13-release-process-and-definition-of-done).
+- [x] **Release v0.5.8** with the [standard steps](#13-release-process-and-definition-of-done). Tag `v0.5.8`, 2026-10-17.
 
 **Also in v0.5.8, beyond the brief:**
 - Apache-2.0 `LICENSE`, `NOTICE`, `THIRD_PARTY_LICENSES.txt`, the licence check, and GitHub Actions CI (`3fc9ee0`). This settles v0.6-D1.
@@ -186,7 +186,7 @@ Tag `v0.5.7` is at `d69860a`. It shipped four changes:
 
 ### 5.1 v0.6 "Chat alerts you can trust"
 
-Plan: [v0.6.md](v0.6.md). Status: Planned.
+Plan: [v0.6.md](v0.6.md). Status: In progress (started 2026-10-17, after the v0.5.8 tag). Every v0.6 decision is decided (12.2).
 
 **Gate**
 - v0.5.8 is tagged.
@@ -548,7 +548,7 @@ Plan: [v0.9.md §13][v09-13]. Background, costs and the owner's steps are in [si
 | Foundation | Built in | Plan section | Used by |
 |---|---|---|---|
 | F1 Windows refused-connection fix (`portprobe.Dial`, `Refused`, `fastRefuse`) | v0.5.7 (`d04d794`) | [4.1](#41-v057-released-2026-10-17) | presence, the F3 gateway fallback, port check, wake verification, #8, #13, #15, #18 |
-| F3 Honest health checks (DNS probe; gateway TCP fallback; same-host redirects and certificate trust; RunHealth on the scan interface) | v0.5.7 (DNS) and v0.5.8 (the rest) | [4.1](#41-v057-released-2026-10-17), [4.2](#42-v058-honest-checks) | #1, #2, #6, the chat severity map, v0.9 Help verdict |
+| F3 Honest health checks (DNS probe; gateway TCP fallback; same-host redirects and certificate trust; RunHealth on the scan interface) | v0.5.7 (DNS) and v0.5.8 (the rest) | [4.1](#41-v057-released-2026-10-17), [4.2](#42-v058-honest-checks-released-2026-10-17) | #1, #2, #6, the chat severity map, v0.9 Help verdict |
 | Remote access (`internal/remote`, `model.IsRemotePort`, `presencePort`, three routes) | v0.5.7 (`b54cb26`, R1) | [4.1](#41-v057-released-2026-10-17) | port check (names 22/3389/5900, links to the drawer section), wake verification and connwatch (never dial remote ports), v0.8 `diff.Describe`, #15 **Open remote desktop** |
 | Session token for action routes (`X-Netdiag-Session`) | v0.6 | [v0.6 §4.1][v06-41] | every POST, PUT and DELETE from v0.6 on, including the v0.5.7 remote POST: pairing, OS pages, inventory, wake, shares, checks, watching, pause |
 | F2 Alert lifecycle engine and open-problem ledger | v0.6; v0.8 adds held items and reminders | [v0.6 §4.6][v06-46] | #1, team chat connect, #7, #16, #17, #19 |
@@ -879,13 +879,15 @@ Token: Y means the session token is required (from v0.6). Every route is mocked 
     - `open-problems.json` (`problems.Ledger`)
     - `bubbles.json` (`chat.Manager`)
     - `chat-outbox.json` (the outbox)
+  - **Access.** The owners read and write these files only through `store.ReadFile` and `store.WriteFile` (atomic, 0600 on macOS), plus `store.RemoveFile` and `store.QuarantineFile` (renames an unreadable file to `<name>.bad-<UTC time>`). The allowlist is the `store.File*` constants (v0.6 M1); a new data file joins it there.
 
 ### 8.7 Names, settings and advice
 
 - **`names.Best(h)`** (v0.7) is the only namer. Its order: the inventory name, then the mDNS instance (F14 `Details`), then SNMP sysName, then the hostname, then the printer model, then the IP. It replaces `label()` (`internal/notify/notify.go:120`) and the v0.6 chat-title chain.
 - **Settings.**
   - `settings.json` stays at schemaVersion 1, and new fields take their defaults when the file is read.
-  - **`RepairSettings`** (v0.6 F7) repairs a bad field on load, field by field, and reports it in `repaired`. Every later version adds its load rules here.
+  - **`RepairSettings`** (v0.6 F7) repairs a bad field on load, field by field, and reports it in `repaired`. Every later version adds its load rules here. It shares one rule set with `NormalizeSettings` (`normalize` in `internal/store/settings.go`), so a new rule is written once; give its path a label in app.js `repairedLabels` (`TestSettingsRepairedUI`).
+  - **`settings.chat`** (v0.6): `{enabled, minSeverity}`, with `minSeverity` one of `info`, `warning` (the default, v0.6-D4) or `critical` (`model.ChatSeverity*`).
   - **`NormalizeSettings`** (`internal/store/settings.go`) stays strict for `PUT /api/settings`, and its 400 names the field.
   - v0.8 adds server-owned fields that `PUT /api/settings` never overwrites: `monitor.enabled`, `monitor.cidr`, `monitor.interface`, `monitor.gatewayIP`, `monitor.gatewayMAC` and `alerts.pausedUntil`.
   - v0.5.8 added `webServer.trustedCert`.
@@ -1197,13 +1199,13 @@ The IDs match each plan's own list, with a version prefix: v0.6-D1 is D1 in v0.6
 | PO-6 | Where the remaining "Honest checks" fixes go | Decided | They ship as v0.5.8, before v0.6 starts | v0.5.8 |
 | PO-7 | The Microsoft Store | Decided (2026-10-17) | netdiag goes to the Store as an MSIX package. The work is the rest of 0.9.x (v0.9.1 to v0.9.3), and the first Store release is v1.0.0, with GitHub moving to v1.0.0 at the same time. This moves the windowless app and its quit path (the rest of C29) from "after code signing" to v0.9.1 | v0.9.1 |
 | R1 | Remote access | Decided, shipped in v0.5.7 | Scans probe 22, 3389 and 5900 by default. netdiag starts Remote Desktop Connection itself on Windows (ShellExecute of mstsc.exe), the one accepted child process. On macOS it uses Windows App or Screen Sharing. Local targets only, never this computer. `presencePort` skips remote ports. Follow-ups: v0.6 gates the POST route and bans `internal/remote` from mcpserver; v0.7 adds no remote route, section or port; v0.8 `diff.Describe` names the ports; v0.9 #15 reuses **Open remote desktop** | done |
-| X-1 | Where the ledger is reconciled | Open (confirm the deviation) | Right after the initial `analyze()`, for live and one-shot scans. The brief says "on the first live cycle" | v0.6 M6 |
-| X-2 | Items the plans add beyond the brief | Open (accept) | `netdiag mcp --attach` and the D15 switch (v0.6). The `openPortal` action kind and the **Wake a computer** list (v0.7). The TCP 9 presence nudge for watched devices (v0.8). The Windows IcmpSendEcho2 pinger (v0.9). The licence, CI and the `filter=problems` fix (v0.5.8) | each version's M1 |
+| X-1 | Where the ledger is reconciled | Decided (2026-10-17) | Reconcile right after the initial `analyze()`, for live and one-shot scans. This deviates from the brief's "on the first live cycle" | v0.6 M6 |
+| X-2 | Items the plans add beyond the brief | Decided (2026-10-17) for the v0.6 parts: accepted (`--attach` and the D15 switch). The later versions' parts are confirmed at their own M1 | `netdiag mcp --attach` and the D15 switch (v0.6). The `openPortal` action kind and the **Wake a computer** list (v0.7). The TCP 9 presence nudge for watched devices (v0.8). The Windows IcmpSendEcho2 pinger (v0.9). The licence, CI and the `filter=problems` fix (v0.5.8) | each version's M1 |
 | X-3 | netinfo interface kinds (`netinfo.Iface.Kind`) | Recommended in V7-D10 (confirm with it) | Built once, in v0.9 M1. v0.7 scopes port checks and wake by the interface prefix plus `virtualRe` | v0.7 M1 |
 | X-4 | Routes that create F4 jobs outside `/api/checks/{kind}` | Decided (v0.7 contract) | `POST /api/wake` and `POST /api/finddevice` are the documented exceptions | v0.7 M1, v0.9 M6 |
 | X-5 | Keep watching is never switched on as a side effect | Decided (consistency review) | **Find a new device** and the welcome's **Check my network** start a live scan. **Keep watching this network** stays the person's own switch | v0.9 M6, M7 |
 | X-6 | First reminder | Decided (consistency review) | While reminders are on, every post carries `interval - 60`, the first one included, because bubbles reads the *stored* interval. Test: `TestFirstReminderNotifies` | v0.8 M7 |
-| X-7 | The redaction helper after v0.5.8 | Open | Keep `model.RedactScan` (`internal/model/redact.go`) as the one helper. v0.6 F11 enforces it at the service boundary and extends the grep test to the ledger, outbox and chat. Read `service.RedactScan` in the plans as this | v0.6 M2 |
+| X-7 | The redaction helper after v0.5.8 | Decided (2026-10-17) | Keep `model.RedactScan` (`internal/model/redact.go`) as the one helper. v0.6 F11 enforces it at the service boundary and extends the grep test to the ledger, outbox and chat. Read `service.RedactScan` in the plans as this | v0.6 M2 |
 | X-8 | One confirmation pattern | Open | v0.5.8 uses `window.confirm` for **Ignore this MAC** and **Trust this certificate**. v0.7 needs an inline confirm (`role="group"`, Esc returns focus) for wake and **Print a label to find it**. Recommendation: build the inline pattern in v0.7 and move the two v0.5.8 confirmations to it | v0.7 (wake milestone) |
 | X-9 | Splitting v0.7 if it slips (v0.7 §9 points here) | Open | One release. If it slips, ship v0.7.0 after M1-M5 (foundations, #4, #5, #10, port check) and v0.7.1 with #6, #8 and Wake-on-LAN. v0.8 then waits for v0.7.1 (see 5.2) | v0.7 M5 |
 | MCP-1 | The probe-vs-act line for agent actions (MCP research §11.1) | Open (recommended) | Adopt 8.11. Agents may start `check_internet`, `check_printer`, `test_connection` and a connection watch of up to 10 minutes; everything else is UI-only. v0.9-D11 confirms the v0.9 part | v0.7 M1 |
@@ -1216,24 +1218,25 @@ Plan: [§10][v06-10].
 | ID | Decision | Status | Outcome or recommendation | Needed by |
 |---|---|---|---|---|
 | v0.6-D1 | Licence for netdiag | Decided | Apache-2.0, matching bubbles, with `NOTICE` and `THIRD_PARTY_LICENSES.txt` (`3fc9ee0`, ships in v0.5.8). M10 adds the bubbles attribution to `NOTICE` | done |
-| v0.6-D2 | Scopes requested at the first pairing | Open | `alerts:write`, `channels:read`, `messages:write`, `files:write`; no `messages:read` until C37 | M10 |
-| v0.6-D3 | One severity map for chat and local banners | Open | Yes, the same map for both | M5 |
-| v0.6-D4 | Default "Send:" level | Open | Problems and warnings | M10 |
-| v0.6-D5 | Protecting the chat token | Open | DPAPI on Windows now, a 0600 file on macOS; Keychain after signing | M10 |
-| v0.6-D6 | Address | Open | Prefer 127.0.0.1:8787, fall back to a random port, and remember it | M4 |
-| v0.6-D7 | Conflict alert key | Open (deviates from the brief) | `ipConflict\|<kind>\|<anchor>` instead of `ipConflict\|<id>`, so chat cards don't churn | M5 |
-| v0.6-D8 | Sound for "Fixed" | Open | No sound; a silent desktop notification replaces the fault's | M5 |
-| v0.6-D9 | Who the advice is written for | Open | The person at the desk; raw detail goes under Technical details | M7 |
-| v0.6-D10 | Chat alerts only while watching | Open | Say it plainly; resuming automatically comes with v0.8 Keep watching | M10 |
-| v0.6-D11 | Who closes chat alerts | Open | netdiag only. Claude's `resolve_alert` is a documented fallback that needs a netdiag-app token | M12 |
-| v0.6-D12 | `netdiag mcp --attach` | Open | An explicit flag, falling back to the standalone server | M12 |
+| v0.6-D2 | Scopes requested at the first pairing | Decided (2026-10-17) | `alerts:write`, `channels:read`, `messages:write`, `files:write`; no `messages:read` until C37 | M10 |
+| v0.6-D3 | One severity map for chat and local banners | Decided (2026-10-17) | Yes, the same map for both | M5 |
+| v0.6-D4 | Default "Send:" level | Decided (2026-10-17) | Problems and warnings: `settings.chat.minSeverity` defaults to `warning` (built in M1) | M10 |
+| v0.6-D5 | Protecting the chat token | Decided (2026-10-17) | DPAPI on Windows now, a 0600 file on macOS; Keychain after signing | M10 |
+| v0.6-D6 | Address | Decided (2026-10-17) | Prefer 127.0.0.1:8787, fall back to a random port, and remember it | M4 |
+| v0.6-D7 | Conflict alert key | Decided (2026-10-17) | `ipConflict\|<kind>\|<anchor>` instead of `ipConflict\|<id>`, so chat cards don't churn | M5 |
+| v0.6-D8 | Sound for "Fixed" | Decided (2026-10-17) | No sound; a silent desktop notification replaces the fault's | M5 |
+| v0.6-D9 | Who the advice is written for | Decided (2026-10-17) | The person at the desk; raw detail goes under Technical details | M7 |
+| v0.6-D10 | Chat alerts only while watching | Decided (2026-10-17) | Say it plainly; resuming automatically comes with v0.8 Keep watching | M10 |
+| v0.6-D11 | Who closes chat alerts | Decided (2026-10-17) | netdiag only. Claude's `resolve_alert` is a documented fallback that needs a netdiag-app token | M12 |
+| v0.6-D12 | `netdiag mcp --attach` | Decided (2026-10-17) | An explicit flag, falling back to the standalone server | M12 |
 | v0.6-D13 | Remote access | Resolved by R1 | Shipped in v0.5.7. The method-based guard covers its POST route; `internal/remote` joins the MCP import guard | – |
-| v0.6-D14 | Gate read routes with the session token too? | Open | Actions, plus `GET /api/settings` and `GET /api/bubbles` | M4 |
-| v0.6-D15 | "This network has no internet" switch | Open (needs the product owner) | Add it to v0.6 (S), under Settings > Health checks. It overrides the decided DNS WARN (PO-1) for that network only. v0.7 #6 then ends at "OK: the local network is working" | M7 |
-| v0.6-D16 | Send "netdiag lost the network" to chat? | Open | Local only; ask bubbles for app presence (#7) | M6 |
-| v0.6-D17 | A post that was never delivered, followed by its resolve | Open | Drop both | M11 |
-| v0.6-D18 | Debounce counts | Open | 2 failing and 2 passing cycles for health and presence; 1 for printer alerts | M5 |
-| v0.6-D19 | MCP `cancel_scan` on a live scan started from the window | Open (recommended) | Refuse unless an agent started it; answer "ask the person to click Stop live". It narrows a tool that is already allowed. Test: `TestCancelScanRefusesUILive` | M3 |
+| v0.6-D14 | Gate read routes with the session token too? | Decided (2026-10-17) | Actions, plus `GET /api/settings` and `GET /api/bubbles` | M4 |
+| v0.6-D15 | "This network has no internet" switch | Decided (2026-10-17) | Add it: a Settings > Health checks switch, off by default. With it on, internet shows info, DNS without internet is not a warning, and "Everything looks fine" stays reachable. It overrides the DNS WARN (PO-1) for that network only. v0.7 #6 then ends at "OK: the local network is working" | M7 |
+| v0.6-D16 | Send "netdiag lost the network" to chat? | Decided (2026-10-17) | Local only; ask bubbles for app presence (#7) | M6 |
+| v0.6-D17 | A post that was never delivered, followed by its resolve | Decided (2026-10-17) | Drop both | M11 |
+| v0.6-D18 | Debounce counts | Decided (2026-10-17) | 2 failing and 2 passing cycles for health and presence; 1 for printer alerts | M5 |
+| v0.6-D19 | MCP `cancel_scan` on a live scan started from the window | Decided (2026-10-17) | Refuse unless an agent started it; answer "ask the person to click Stop live". It narrows a tool that is already allowed. Test: `TestCancelScanRefusesUILive` | M3 |
+| v0.6-D20 | Which settings repairs F7 reports | Decided (implementation, 2026-10-17) | `RepairSettings` resets, and lists in `repaired`, only values the strict save would refuse. Blank or zero values that already mean the default (a blank community or chat level, poll interval 0, expected status 0, a blank internet check URL) are filled in silently, as on save. A value of the wrong JSON type is reset too (Go's decoder names only the first one). Unreadable JSON still gives all defaults with no notice. The file keeps the bad value until the next save, and the page shows the notice once per page load | M1 |
 
 ### 12.3 v0.7 "Device toolkit"
 
