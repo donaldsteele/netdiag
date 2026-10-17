@@ -68,6 +68,14 @@ Tick only after observing the behaviour on real hardware.
 - [ ] A Windows PC with only Remote Desktop open (firewall blocking ping) stays online in live mode, and its Remote Desktop log (Event Viewer > RemoteDesktopServices-RdpCoreTS) shows no connection every cycle
 - [ ] The "this computer" row never offers Open remote desktop, even when this PC has Remote Desktop on
 
+### Data safety (v0.5.8)
+- [ ] With a non-default SNMP community in Settings (for example `private` on a printer set to it), a live scan still shows the printer's SNMP details and its status keeps updating
+- [ ] The same scan's JSON export, its file in the `history` folder, and `netdiag scan --json` output show the community as `***`; only `settings.json` and the Settings screen show the real value
+- [ ] A history file saved by v0.5.7 (community in clear) shows `***` in the exported JSON of that scan; the file itself is left as it is until it is saved again
+- [ ] After quitting and starting netdiag again, `/api/scans/<id>/export?format=csv` for a scan in History downloads it
+- [ ] With the supply threshold set above a real printer's lowest toner level (for example 50% for toner at 40%), the printer is listed under **Problems**; at a threshold below the level it is not
+- [ ] A live scan left running overnight on a busy network still alerts again for a device that goes offline after the cooldown has passed
+
 ### Health panel
 - [ ] Gateway row shows `ok` with a latency; unplugging the router shows `fail` text, not colour alone
 - [ ] DHCP row shows `ok` on a DHCP lease and `fail` on a 169.254.x.x (APIPA) address
@@ -86,7 +94,8 @@ Tick only after observing the behaviour on real hardware.
 - [ ] Two devices given the same static IP produce a MAC flap conflict after two alternations within 10 minutes
 - [ ] A single DHCP address change does not produce a conflict
 - [ ] A Wi-Fi range extender or mesh node shows the "same MAC on several IPs" warning with the extender hint
-- [ ] "Ignore this MAC" removes the conflict and the MAC appears in Settings under ignored MACs
+- [ ] "Ignore this MAC" asks for confirmation first (Cancel keeps the conflict), then removes the conflict, and the MAC appears in Settings under Ignored conflict MACs
+- [ ] Remove next to that MAC in Settings, then Save, brings the conflict back on a later check
 - [ ] Gateway and this computer are never reported as multi-IP conflicts
 
 ### mDNS and IPP
