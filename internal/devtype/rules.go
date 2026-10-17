@@ -7,13 +7,20 @@ type mdnsGroup struct {
 }
 
 // mDNS groups are evaluated in a fixed order by Classify:
-// printer > camera > phone > storage (nas/computer) > tv > iot.
+// printer > camera > phone > storage (nas/computer) > tv > companion > iot.
+//
+// _companion-link is a weak phone signal: every Apple device that runs
+// Companion (Macs, Apple TVs and HomePods as well as iPhones and iPads)
+// announces it, so file sharing, the TV group and a computer hostname all
+// win over it. _apple-mobdev2 (iPhone and iPad Wi-Fi sync) stays a strong
+// phone signal.
 var (
-	mdnsPrinter = mdnsGroup{Printer, []string{"_ipp", "_ipps", "_printer", "_pdl-datastream"}}
-	mdnsCamera  = mdnsGroup{Camera, []string{"_rtsp", "_onvif"}}
-	mdnsPhone   = mdnsGroup{Phone, []string{"_companion-link", "_apple-mobdev2"}}
-	mdnsTV      = mdnsGroup{TV, []string{"_airplay", "_googlecast", "_raop", "_roku", "_spotify-connect"}}
-	mdnsIoT     = mdnsGroup{IoT, []string{"_hap", "_homekit", "_matter", "_hue"}}
+	mdnsPrinter   = mdnsGroup{Printer, []string{"_ipp", "_ipps", "_printer", "_pdl-datastream"}}
+	mdnsCamera    = mdnsGroup{Camera, []string{"_rtsp", "_onvif"}}
+	mdnsPhone     = mdnsGroup{Phone, []string{"_apple-mobdev2"}}
+	mdnsTV        = mdnsGroup{TV, []string{"_airplay", "_googlecast", "_raop", "_roku", "_spotify-connect"}}
+	mdnsCompanion = mdnsGroup{Phone, []string{"_companion-link"}}
+	mdnsIoT       = mdnsGroup{IoT, []string{"_hap", "_homekit", "_matter", "_hue"}}
 )
 
 var storageServices = []string{"_smb", "_afpovertcp", "_afpovertls", "_nfs", "_adisk"}
@@ -23,7 +30,7 @@ var storageServices = []string{"_smb", "_afpovertcp", "_afpovertls", "_nfs", "_a
 // (mdns.DefaultServices), or the rule can never fire.
 func MDNSServices() []string {
 	var out []string
-	for _, g := range []mdnsGroup{mdnsPrinter, mdnsCamera, mdnsPhone, mdnsTV, mdnsIoT, {services: storageServices}} {
+	for _, g := range []mdnsGroup{mdnsPrinter, mdnsCamera, mdnsPhone, mdnsTV, mdnsCompanion, mdnsIoT, {services: storageServices}} {
 		for _, s := range g.services {
 			out = append(out, s+"._tcp")
 		}

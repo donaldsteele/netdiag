@@ -148,9 +148,11 @@ func nasSignal(h model.Host) bool {
 //
 // Priority: self, gateway, printer flag, mDNS, SNMP, vendor, hostname, web
 // port, unknown. Within mDNS the group order is
-// printer > camera > phone > storage (nas/computer) > tv > iot; the tv group
-// is skipped when the hostname indicates a phone or computer (e.g. a Mac
-// advertising _airplay).
+// printer > camera > phone > storage (nas/computer) > tv > companion > iot;
+// the tv group is skipped when the hostname indicates a phone or computer
+// (e.g. a Mac advertising _airplay), and the companion group (_companion-link,
+// which Macs, Apple TVs and HomePods announce too) when it indicates a
+// computer.
 func Classify(h model.Host, gateway string) (Type, string) {
 	if h.IsSelf {
 		return Self, "this computer"
@@ -188,6 +190,11 @@ func Classify(h model.Host, gateway string) (Type, string) {
 		if !hostPhone && !hostComputer {
 			if n := mdnsHas(set, mdnsTV.services); n != "" {
 				return TV, "mdns " + n
+			}
+		}
+		if !hostComputer {
+			if n := mdnsHas(set, mdnsCompanion.services); n != "" {
+				return Phone, "mdns " + n
 			}
 		}
 		if n := mdnsHas(set, mdnsIoT.services); n != "" {

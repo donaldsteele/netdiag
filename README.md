@@ -203,7 +203,7 @@ Each device gets a **Type** (shown in the table and the details drawer, and expo
 | `printer` | Printer | printer detection: SNMP Printer-MIB, IPP, port 9100, mDNS `_ipp` |
 | `tv` | TV | mDNS `_airplay`, `_googlecast`, `_raop`, `_roku`, `_spotify-connect`; vendor Roku, Hisense, TCL, Vizio, LG, Sonos; hostname `tv`, `roku`, `chromecast` |
 | `nas` | NAS | mDNS `_smb`, `_afpovertcp`, `_nfs`, `_adisk` with a NAS vendor or model; vendor Synology, QNAP, TerraMaster, ASUSTOR; hostname `nas`, `diskstation` |
-| `phone` | Phone | mDNS `_companion-link`, `_apple-mobdev2`; hostname `iphone`, `ipad`, `android`, `galaxy`, `pixel` |
+| `phone` | Phone | mDNS `_apple-mobdev2`; mDNS `_companion-link` when there is no file-sharing or TV service and the name is not a computer name (Macs, Apple TVs and HomePods announce it too); hostname `iphone`, `ipad`, `android`, `galaxy`, `pixel` |
 | `computer` | Computer | file-sharing mDNS without a NAS signal; hostname `macbook`, `imac`, `DESKTOP-`, `laptop`, `-PC`, `thinkpad`; Remote Desktop (3389) or screen sharing (5900) with no other signal |
 | `camera` | Camera | mDNS `_rtsp`, `_onvif`; vendor Hikvision, Dahua, Axis, Reolink, Amcrest |
 | `network` | Network gear | SNMP sysDescr for a switch, router or access point; Deco, UniFi; vendor Ubiquiti, TP-Link, NETGEAR, Cisco, Aruba, MikroTik, Ruckus, Juniper |
