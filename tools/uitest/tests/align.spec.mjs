@@ -116,3 +116,24 @@ for (const [vpName, vp] of Object.entries(VIEWPORTS)) for (const theme of ['dark
     expect(all).toEqual([]);
   });
 }
+
+// While live (F9a): Stop live and Restart watching in the top bar, the
+// restarted banner with Reload page, and the restart dialog, at every width.
+for (const width of [360, 390, 768, 1100, 1440]) {
+  test(`alignment live ${width}`, async ({ page }) => {
+    await initStorage(page, { theme: 'dark', live: true });
+    await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
+    await page.setViewportSize({ width, height: 800 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+    await expect(page.locator('#restart-btn')).toBeVisible();
+    await expect(page.locator('#hosts tbody tr.host')).toHaveCount(fx.TOTAL_HOSTS);
+    await page.evaluate(() => { document.querySelector('.shell')._x_dataStack[0].backend = 'restarted'; });
+    await expect(page.locator('#backend-restarted')).toBeVisible();
+    const all = [...await measure(page, 'live')];
+    await page.locator('#restart-btn').click();
+    await expect(page.locator('#restart-dialog')).toBeVisible();
+    all.push(...await measure(page, 'restart-dialog'));
+    expect(all).toEqual([]);
+  });
+}
