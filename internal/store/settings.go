@@ -36,6 +36,7 @@ func DefaultSettings() model.Settings {
 				NewDevice: true, IPConflict: true, HealthFailed: true,
 			},
 		},
+		NoInternetNetworks:  []string{},
 		IgnoredConflictMACs: []string{},
 		Chat:                model.SettingsChat{MinSeverity: model.ChatSeverityWarning},
 	}
@@ -130,6 +131,29 @@ func normalize(s model.Settings, repair bool) (model.Settings, []string, error) 
 		if err := bad("internetCheckURL", err, func() { s.InternetCheckURL = def.InternetCheckURL }); err != nil {
 			return s, nil, err
 		}
+	}
+	// The networks without internet on purpose (v0.6-D15): network ids,
+	// each once, the newest MaxNoInternetNetworks kept.
+	nets := []string{}
+	badNet := false
+	for _, id := range s.NoInternetNetworks {
+		id = strings.ToLower(strings.TrimSpace(id))
+		if !model.ValidNetworkID(id) {
+			if !repair {
+				return s, nil, fmt.Errorf("noInternetNetworks: %q is not a network id", id)
+			}
+			badNet = true
+			continue
+		}
+		nets = slices.DeleteFunc(nets, func(x string) bool { return x == id })
+		nets = append(nets, id)
+	}
+	if len(nets) > model.MaxNoInternetNetworks {
+		nets = nets[len(nets)-model.MaxNoInternetNetworks:]
+	}
+	s.NoInternetNetworks = nets
+	if badNet {
+		fixed = append(fixed, "noInternetNetworks")
 	}
 	if s.Alerts.SupplyThresholdPct < 1 || s.Alerts.SupplyThresholdPct > 100 {
 		if err := bad("alerts.supplyThresholdPct", errors.New("alerts.supplyThresholdPct must be 1-100"),

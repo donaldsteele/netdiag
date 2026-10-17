@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -421,9 +422,16 @@ func TestWebRedirectToChangedHTTPSCert(t *testing.T) {
 
 func TestConfigFor(t *testing.T) {
 	s := model.Settings{InternetCheckURL: "http://i/", WebServer: model.SettingsWebServer{URL: "https://w/",
-		MustContain: "x", ExpectStatus: 204, TrustedCert: strings.Repeat("a", 64)}}
-	want := Config{WebURL: "https://w/", MustContain: "x", ExpectStatus: 204, TrustedCert: strings.Repeat("a", 64), InternetURL: "http://i/"}
-	if got := ConfigFor(s); got != want {
+		MustContain: "x", ExpectStatus: 204, TrustedCert: strings.Repeat("a", 64)}, NoInternetNetworks: []string{"n-0123456789ab"}}
+	want := Config{WebURL: "https://w/", MustContain: "x", ExpectStatus: 204, TrustedCert: strings.Repeat("a", 64), InternetURL: "http://i/",
+		NoInternetNetworks: []string{"n-0123456789ab"}}
+	got := ConfigFor(s)
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("%+v", got)
+	}
+	// The config has its own copy of the list.
+	s.NoInternetNetworks[0] = "n-ffffffffffff"
+	if got.NoInternetNetworks[0] != "n-0123456789ab" {
+		t.Fatal("ConfigFor shares the settings' list")
 	}
 }

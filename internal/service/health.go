@@ -87,6 +87,7 @@ func (s *Service) healthTarget(iface string) health.Input {
 	if self, gw, ok := s.latestScanNetwork(); ok && (iface == "" || iface == self.Interface) {
 		f, found := find(self.Interface)
 		if lerr != nil || found && f.IP == self.IP {
+			cidr := self.CIDR
 			if found {
 				switch {
 				case gw == "" && f.IsDefault:
@@ -94,8 +95,9 @@ func (s *Service) healthTarget(iface string) health.Input {
 				case gw != "" && !f.IsDefault && !onNetwork(gw, f):
 					gw = ""
 				}
+				cidr = f.CIDR
 			}
-			return health.Input{Iface: self.Interface, IfaceIP: self.IP, Gateway: gw}
+			return health.Input{Iface: self.Interface, IfaceIP: self.IP, Gateway: gw, CIDR: cidr}
 		}
 	}
 	var in health.Input
@@ -110,7 +112,7 @@ func (s *Service) healthTarget(iface string) health.Input {
 				}
 			}
 		}
-		in.Iface, in.IfaceIP, in.Gateway = f.Name, f.IP, s.gatewayOn(f)
+		in.Iface, in.IfaceIP, in.Gateway, in.CIDR = f.Name, f.IP, s.gatewayOn(f), f.CIDR
 		return in
 	}
 	if gw, err := s.cfg.Gateway(); err == nil {

@@ -62,3 +62,36 @@ func TestV01FieldNamesStable(t *testing.T) {
 		t.Errorf("round trip differs")
 	}
 }
+
+// NetworkID names a network by its address prefix, router and router MAC,
+// the same way however they are written; another router is another
+// network, and ValidNetworkID accepts exactly its form.
+func TestNetworkID(t *testing.T) {
+	id := NetworkID("192.168.1.0/24", "192.168.1.1", "AA:BB:CC:DD:EE:01")
+	if !ValidNetworkID(id) || len(id) != 14 || !strings.HasPrefix(id, "n-") {
+		t.Fatalf("id %q", id)
+	}
+	for _, same := range []string{
+		NetworkID(" 192.168.1.20/24 ", "192.168.1.1", "aa:bb:cc:dd:ee:01"),
+		NetworkID("192.168.1.0/24", "192.168.1.1", "aa-bb-cc-dd-ee-01"),
+	} {
+		if same != id {
+			t.Errorf("%q, want %q", same, id)
+		}
+	}
+	for _, other := range []string{
+		NetworkID("192.168.1.0/24", "192.168.1.1", "AA:BB:CC:DD:EE:02"),
+		NetworkID("192.168.1.0/24", "192.168.1.254", "AA:BB:CC:DD:EE:01"),
+		NetworkID("192.168.0.0/16", "192.168.1.1", "AA:BB:CC:DD:EE:01"),
+		NetworkID("192.168.1.0/24", "", ""),
+	} {
+		if other == id {
+			t.Errorf("another network has the same id %q", id)
+		}
+	}
+	for _, bad := range []string{"", "n-", "n-0123456789a", "n-0123456789abc", "n-0123456789AB", "x-0123456789ab", "n-01234567892g"} {
+		if ValidNetworkID(bad) {
+			t.Errorf("ValidNetworkID(%q)", bad)
+		}
+	}
+}

@@ -12,12 +12,14 @@ import (
 	"net/netip"
 	"net/url"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
 
+	"netdiag/internal/arp"
 	"netdiag/internal/discovery"
 	"netdiag/internal/model"
 	"netdiag/internal/portprobe"
@@ -54,10 +56,12 @@ type Config struct {
 	// the user chose to trust (see model.SettingsWebServer).
 	TrustedCert string
 	InternetURL string
-	// NoInternet is the "This network has no internet" switch (v0.6-D15):
-	// a name server that answers but cannot reach the internet is a note,
-	// not a warning, and both checks say so in Data["noInternet"].
-	NoInternet bool
+	// NoInternetNetworks are the networks (model.NetworkID) where the
+	// "This network has no internet" switch is on (v0.6-D15). On one of
+	// them, a name server that answers but cannot reach the internet is a
+	// note, not a warning, and both checks say so in Data["noInternet"]
+	// (see noInternet).
+	NoInternetNetworks []string
 }
 
 // ConfigFor maps settings to the health check config.
@@ -68,7 +72,8 @@ func ConfigFor(s model.Settings) Config {
 		ExpectStatus: s.WebServer.ExpectStatus,
 		TrustedCert:  s.WebServer.TrustedCert,
 		InternetURL:  s.InternetCheckURL,
-		NoInternet:   s.NoInternet,
+
+		NoInternetNetworks: slices.Clone(s.NoInternetNetworks),
 	}
 }
 
@@ -77,7 +82,10 @@ type Input struct {
 	Iface   string // interface name, e.g. "en0" (may be empty)
 	IfaceIP string // interface IPv4 (used to find the adapter on Windows)
 	Gateway string // the router of Iface's network, IPv4 (may be empty)
-	Config  Config
+	// CIDR is Iface's network, its address prefix (e.g. 192.168.1.0/24).
+	// With Gateway and the router's MAC it names the network (may be empty).
+	CIDR   string
+	Config Config
 }
 
 // Resolver is the DNS lookup surface used by the dns check.
@@ -110,6 +118,9 @@ type Runner struct {
 	// ping gets no reply. nil uses portprobe.Dial and portprobe.Refused.
 	dial    func(ctx context.Context, ip string, port int, timeout time.Duration) (net.Conn, error)
 	refused func(error) bool
+	// gatewayMAC reads the router's MAC from this computer's ARP cache
+	// (the gateway check has just talked to it), or ""; nil uses arp.
+	gatewayMAC func(ctx context.Context, ifaceIP, gateway string) string
 	// roots verifies web server certificates; nil uses the system roots.
 	roots *x509.CertPool
 
@@ -168,6 +179,9 @@ func (r *Runner) defaults() {
 	if r.refused == nil {
 		r.refused = portprobe.Refused
 	}
+	if r.gatewayMAC == nil {
+		r.gatewayMAC = arpGatewayMAC
+	}
 }
 
 var checkMeta = []struct{ id, label string }{
@@ -223,7 +237,68 @@ func (r *Runner) Run(ctx context.Context, in Input) model.HealthReport {
 			out[i] = why(mk(i, model.HealthUnavailable, "timed out", 0), model.ReasonTimeout)
 		}
 	}
-	return model.HealthReport{CheckedAt: r.Now().UTC().Format(time.RFC3339), Checks: out}
+	rep := model.HealthReport{CheckedAt: r.Now().UTC().Format(time.RFC3339), Checks: out}
+	rep.Network = r.network(ctx, in)
+	if rep.Network != "" && slices.Contains(in.Config.NoInternetNetworks, rep.Network) {
+		noInternet(rep.Checks)
+	}
+	return rep
+}
+
+// network returns the id of the network checked (model.NetworkID), or ""
+// when netdiag cannot tell: there is a router but its MAC is unknown, so
+// two networks that use the same addresses could not be told apart.
+// Without a router, the network is named by its address prefix alone.
+func (r *Runner) network(ctx context.Context, in Input) string {
+	if in.Gateway == "" {
+		if in.CIDR == "" {
+			return ""
+		}
+		return model.NetworkID(in.CIDR, "", "")
+	}
+	// The checks may have used up the run's time; the ARP cache is local
+	// and quick, so its read gets a short deadline of its own.
+	actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	mac := r.gatewayMAC(actx, in.IfaceIP, in.Gateway)
+	if mac == "" {
+		return ""
+	}
+	return model.NetworkID(in.CIDR, in.Gateway, mac)
+}
+
+// arpGatewayMAC finds gateway in the ARP cache of the adapter with ifaceIP.
+func arpGatewayMAC(ctx context.Context, ifaceIP, gateway string) string {
+	list, err := arp.TableFor(ctx, ifaceIP)
+	if err != nil {
+		return ""
+	}
+	for _, e := range list {
+		if e.IP == gateway {
+			return e.MAC
+		}
+	}
+	return ""
+}
+
+// noInternet applies the "This network has no internet" switch (v0.6-D15)
+// to the checks of a network it is on for. A name server that answers but
+// cannot reach the internet becomes a note; that result, and an internet
+// result that is not ok, carry Data["noInternet"], so their advice says
+// the network is set up without internet. A name server that does not
+// answer, or says the name does not exist, keeps its status.
+func noInternet(checks []model.HealthCheck) {
+	for i := range checks {
+		c := &checks[i]
+		switch {
+		case c.ID == "dns" && model.HealthReason(*c) == model.ReasonNoInternet:
+			c.Status = model.HealthInfo
+		case c.ID == "internet" && c.Status != model.HealthOK && model.HealthReason(*c) != "":
+		default:
+			continue
+		}
+		c.Data["noInternet"] = true
+	}
 }
 
 func mk(i int, status, detail string, ms float64) model.HealthCheck {
@@ -282,6 +357,10 @@ func (r *Runner) checkGateway(ctx context.Context, in Input) model.HealthCheck {
 		}
 		c := mk(0, model.HealthOK, fmt.Sprintf("the router %s answers on port %d (%s)", in.Gateway, port, why), ms(d))
 		c.Data = map[string]any{"method": "tcp", "port": port, "reason": model.ReasonTCPOnly}
+		if lastErr != nil {
+			// Not the router's doing: ping could not run here at all.
+			c.Data["pingError"] = true
+		}
 		return c
 	}
 	if lastErr != nil {
@@ -379,13 +458,9 @@ func (r *Runner) checkDNS(ctx context.Context, in Input) model.HealthCheck {
 	case reply == dnsNoSuchName:
 		return why(mk(2, model.HealthWarn, fmt.Sprintf("DNS server %s answers, but says %s does not exist: check the internet check address in Settings, or a DNS filter may block it", server, host), 0), model.ReasonNXDomain)
 	case server != "":
-		c := why(mk(2, model.HealthWarn, fmt.Sprintf("could not resolve %s, but DNS server %s answers: no internet connection, or the DNS server cannot reach the internet (%s)", host, server, msg), 0), model.ReasonNoInternet)
-		if in.Config.NoInternet {
-			// This network has no internet on purpose (v0.6-D15).
-			c.Status = model.HealthInfo
-			c.Data["noInternet"] = true
-		}
-		return c
+		// A note instead on a network with no internet on purpose
+		// (v0.6-D15; see noInternet).
+		return why(mk(2, model.HealthWarn, fmt.Sprintf("could not resolve %s, but DNS server %s answers: no internet connection, or the DNS server cannot reach the internet (%s)", host, server, msg), 0), model.ReasonNoInternet)
 	case len(asked) > 0:
 		return why(mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: no reply from DNS server %s (%s)", host, strings.Join(asked, ", "), msg), 0), model.ReasonNoReply)
 	case aerr != nil:
@@ -399,23 +474,16 @@ func (r *Runner) checkInternet(ctx context.Context, in Input) model.HealthCheck 
 	if strings.TrimSpace(u) == "" {
 		u = DefaultInternetURL
 	}
-	// With the "no internet" switch on, a result that is not ok says so,
-	// for the advice (v0.6-D15). The check is never more than a note.
-	note := func(c model.HealthCheck, reason string) model.HealthCheck {
-		c = why(c, reason)
-		if in.Config.NoInternet {
-			c.Data["noInternet"] = true
-		}
-		return c
-	}
+	// The check is never more than a note; on a network with no internet
+	// on purpose its results say so (v0.6-D15; see noInternet).
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return note(mk(4, model.HealthInfo, "invalid internet check URL", 0), model.ReasonInvalid)
+		return why(mk(4, model.HealthInfo, "invalid internet check URL", 0), model.ReasonInvalid)
 	}
 	t0 := time.Now()
 	resp, err := r.HTTP.Do(req)
 	if err != nil {
-		return note(mk(4, model.HealthInfo, "internet check got no response (local checks are unaffected)", 0), model.ReasonNoResponse)
+		return why(mk(4, model.HealthInfo, "internet check got no response (local checks are unaffected)", 0), model.ReasonNoResponse)
 	}
 	resp.Body.Close()
 	d := time.Since(t0)
@@ -423,9 +491,9 @@ func (r *Runner) checkInternet(ctx context.Context, in Input) model.HealthCheck 
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		return mk(4, model.HealthOK, fmt.Sprintf("internet reachable (HTTP %d, %.0f ms)", resp.StatusCode, ms(d)), ms(d))
 	case resp.StatusCode >= 300 && resp.StatusCode < 400:
-		return note(mk(4, model.HealthInfo, fmt.Sprintf("redirected (HTTP %d): possible captive portal", resp.StatusCode), ms(d)), model.ReasonPortal)
+		return why(mk(4, model.HealthInfo, fmt.Sprintf("redirected (HTTP %d): possible captive portal", resp.StatusCode), ms(d)), model.ReasonPortal)
 	default:
-		c := note(mk(4, model.HealthInfo, fmt.Sprintf("internet check returned HTTP %d", resp.StatusCode), ms(d)), model.ReasonStatus)
+		c := why(mk(4, model.HealthInfo, fmt.Sprintf("internet check returned HTTP %d", resp.StatusCode), ms(d)), model.ReasonStatus)
 		c.Data["status"] = resp.StatusCode
 		return c
 	}

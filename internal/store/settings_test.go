@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -38,8 +39,9 @@ func TestLoadV056SettingsRepairsThreshold(t *testing.T) {
 	}
 	want := model.Settings{
 		SchemaVersion: 1, Community: "frontdesk", PrinterStatusPollSec: 12,
-		WebServer:        model.SettingsWebServer{URL: "http://192.168.1.10/status", MustContain: "Welcome", ExpectStatus: 204},
-		InternetCheckURL: "http://example.test/generate_204",
+		WebServer:          model.SettingsWebServer{URL: "http://192.168.1.10/status", MustContain: "Welcome", ExpectStatus: 204},
+		InternetCheckURL:   "http://example.test/generate_204",
+		NoInternetNetworks: []string{},
 		Alerts: model.SettingsAlerts{
 			Sound: false, Desktop: true, CooldownSec: 600, SupplyThresholdPct: 15,
 			Triggers: model.SettingsTriggers{PrinterOffline: true, DeviceOffline: true, SupplyLow: false,
@@ -77,7 +79,8 @@ func validSettings() model.Settings {
 		SchemaVersion: 1, Community: "c0mm", PrinterStatusPollSec: 30,
 		WebServer: model.SettingsWebServer{URL: "https://nas.local/", MustContain: "ok", ExpectStatus: 301,
 			TrustedCert: strings.Repeat("ab", 32)},
-		InternetCheckURL: "https://example.test/ping",
+		InternetCheckURL:   "https://example.test/ping",
+		NoInternetNetworks: []string{"n-0123456789ab"},
 		Alerts: model.SettingsAlerts{Sound: false, Desktop: true, CooldownSec: 90, SupplyThresholdPct: 40,
 			Triggers: model.SettingsTriggers{DeviceOffline: true, HealthFailed: true}},
 		IgnoredConflictMACs: []string{"AA:BB:CC:DD:EE:FF"},
@@ -107,6 +110,8 @@ func TestRepairSettingsPerField(t *testing.T) {
 			func(s *model.Settings) { s.WebServer.TrustedCert = "" }},
 		{"internetCheckURL", func(s *model.Settings) { s.InternetCheckURL = "not a url" },
 			func(s *model.Settings) { s.InternetCheckURL = def.InternetCheckURL }},
+		{"noInternetNetworks", func(s *model.Settings) { s.NoInternetNetworks = []string{"192.168.1.0/24", "n-0123456789ab", "n-xyz"} },
+			func(s *model.Settings) { s.NoInternetNetworks = []string{"n-0123456789ab"} }},
 		{"alerts.supplyThresholdPct", func(s *model.Settings) { s.Alerts.SupplyThresholdPct = 0 },
 			func(s *model.Settings) { s.Alerts.SupplyThresholdPct = 15 }},
 		{"alerts.supplyThresholdPct", func(s *model.Settings) { s.Alerts.SupplyThresholdPct = 101 },
@@ -150,7 +155,7 @@ func TestRepairPaths(t *testing.T) {
 	got := RepairPaths()
 	want := []string{"community", "printerStatusPollSec",
 		"webServer", "webServer.url", "webServer.mustContain", "webServer.expectStatus", "webServer.trustedCert",
-		"internetCheckURL", "noInternet",
+		"internetCheckURL", "noInternetNetworks",
 		"alerts", "alerts.sound", "alerts.desktop", "alerts.cooldownSec", "alerts.supplyThresholdPct",
 		"alerts.triggers", "alerts.triggers.printerOffline", "alerts.triggers.deviceOffline",
 		"alerts.triggers.supplyLow", "alerts.triggers.printerAlert", "alerts.triggers.newDevice",
@@ -229,30 +234,49 @@ func TestSettingsChatDefaults(t *testing.T) {
 	}
 }
 
-// The "This network has no internet" switch (v0.6-D15) is off by default,
-// off for a file written before it existed, kept on save, and a value of
-// the wrong type is reset and reported.
-func TestSettingsNoInternet(t *testing.T) {
-	if DefaultSettings().NoInternet {
-		t.Fatal("on by default")
+// The "This network has no internet" switch (v0.6-D15) is on for no
+// network by default, nor for a file written before it existed. It keeps
+// network ids only, each once, the newest 20; a save with anything else is
+// refused naming the field, and a value of the wrong type is reset and
+// reported on load.
+func TestSettingsNoInternetNetworks(t *testing.T) {
+	if d := DefaultSettings(); d.NoInternetNetworks == nil || len(d.NoInternetNetworks) != 0 {
+		t.Fatalf("default %v", d.NoInternetNetworks)
+	}
+	if b, _ := json.Marshal(DefaultSettings()); !strings.Contains(string(b), `"noInternetNetworks":[]`) {
+		t.Fatalf("json: %s", b)
 	}
 	s := open(t)
 	writeSettings(t, s, `{"schemaVersion":1,"community":"x"}`)
 	got, repaired, err := s.LoadSettingsRepaired()
-	if err != nil || repaired != nil || got.NoInternet {
-		t.Fatalf("old file: %v %v %v", got.NoInternet, repaired, err)
+	if err != nil || repaired != nil || got.NoInternetNetworks == nil || len(got.NoInternetNetworks) != 0 {
+		t.Fatalf("old file: %v %v %v", got.NoInternetNetworks, repaired, err)
 	}
-	got.NoInternet = true
-	if out, err := s.SaveSettings(got); err != nil || !out.NoInternet {
-		t.Fatalf("save: %v %v", out.NoInternet, err)
+	a, b := model.NetworkID("192.168.1.0/24", "192.168.1.1", "aa:bb:cc:dd:ee:01"), model.NetworkID("192.168.1.0/24", "192.168.1.1", "aa:bb:cc:dd:ee:02")
+	got.NoInternetNetworks = []string{" " + strings.ToUpper(a) + " ", b, a}
+	out, err := s.SaveSettings(got)
+	if err != nil || !slices.Equal(out.NoInternetNetworks, []string{b, a}) {
+		t.Fatalf("save: %v %v", out.NoInternetNetworks, err)
 	}
-	if again, err := s.LoadSettings(); err != nil || !again.NoInternet {
-		t.Fatalf("reload: %v %v", again.NoInternet, err)
+	if again, err := s.LoadSettings(); err != nil || !slices.Equal(again.NoInternetNetworks, []string{b, a}) {
+		t.Fatalf("reload: %v %v", again.NoInternetNetworks, err)
 	}
-	writeSettings(t, s, `{"schemaVersion":1,"noInternet":"yes"}`)
+	var many []string
+	for i := range model.MaxNoInternetNetworks + 3 {
+		many = append(many, model.NetworkID("10.0.0.0/24", "10.0.0.1", fmt.Sprintf("aa:bb:cc:dd:ee:%02x", i)))
+	}
+	got.NoInternetNetworks = many
+	if out, err := s.SaveSettings(got); err != nil || !slices.Equal(out.NoInternetNetworks, many[3:]) {
+		t.Fatalf("23 networks: %d %v", len(out.NoInternetNetworks), err)
+	}
+	got.NoInternetNetworks = []string{"192.168.1.0/24"}
+	if _, err := s.SaveSettings(got); err == nil || !strings.Contains(err.Error(), "noInternetNetworks") {
+		t.Fatalf("strict save accepted a bad id: %v", err)
+	}
+	writeSettings(t, s, `{"schemaVersion":1,"noInternetNetworks":true}`)
 	got, repaired, err = s.LoadSettingsRepaired()
-	if err != nil || got.NoInternet || !slices.Equal(repaired, []string{"noInternet"}) {
-		t.Fatalf("wrong type: %v %v %v", got.NoInternet, repaired, err)
+	if err != nil || len(got.NoInternetNetworks) != 0 || !slices.Equal(repaired, []string{"noInternetNetworks"}) {
+		t.Fatalf("wrong type: %v %v %v", got.NoInternetNetworks, repaired, err)
 	}
 }
 

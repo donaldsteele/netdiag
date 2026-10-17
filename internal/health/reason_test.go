@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -54,7 +55,20 @@ func TestReasonOnEveryNonOKResult(t *testing.T) {
 	add("gateway ping broken", r.checkGateway(ctx, Input{Gateway: "192.168.1.1"}), model.ReasonPingError)
 	r = newTestRunner(fakePinger{}, fakeResolver{}, "")
 	r.dial = func(context.Context, string, int, time.Duration) (net.Conn, error) { return nil, errRefused }
-	add("gateway tcp only", r.checkGateway(ctx, Input{Gateway: "192.168.1.1"}), model.ReasonTCPOnly)
+	tcp := r.checkGateway(ctx, Input{Gateway: "192.168.1.1"})
+	add("gateway tcp only", tcp, model.ReasonTCPOnly)
+	if tcp.Data["pingError"] != nil {
+		t.Errorf("a router that ignores ping is marked pingError: %+v", tcp)
+	}
+	// Ping could not run here at all, and the router's web port answers:
+	// still tcp_only, but not the router's doing.
+	r = newTestRunner(fakePinger{err: errors.New("no icmp")}, fakeResolver{}, "")
+	r.dial = func(context.Context, string, int, time.Duration) (net.Conn, error) { return nil, errRefused }
+	noPing := r.checkGateway(ctx, Input{Gateway: "192.168.1.1"})
+	add("gateway tcp only, ping broken", noPing, model.ReasonTCPOnly)
+	if noPing.Data["pingError"] != true || !strings.Contains(noPing.Detail, "ping could not run on this computer") {
+		t.Errorf("ping broken, web port answers: %+v", noPing)
+	}
 	slow := newTestRunner(fakePinger{ok: true}, fakeResolver{}, "")
 	slow.Pinger = slowPinger{}
 	add("gateway slow", slow.checkGateway(ctx, Input{Gateway: "192.168.1.1"}), model.ReasonSlow)
@@ -147,34 +161,69 @@ func (slowPinger) Ping(context.Context, netip.Addr, time.Duration) (time.Duratio
 	return 180 * time.Millisecond, true, nil
 }
 
-// TestNoInternetSwitch: with "This network has no internet" on (v0.6-D15),
-// a name server that answers but cannot reach the internet is a note, and
-// both checks mark it; with it off, the DNS check stays a warning.
+// TestNoInternetSwitch: "This network has no internet" (v0.6-D15) is on
+// for one network only. On it, a name server that answers but cannot reach
+// the internet is a note, and both checks mark it. On another network with
+// the same addresses (another router), on a network whose router MAC is
+// unknown, or with the switch off, the DNS check stays a warning.
 func TestNoInternetSwitch(t *testing.T) {
 	ctx := context.Background()
-	r := newTestRunner(fakePinger{}, fakeResolver{err: errors.New("lookup failed")}, "")
-	r.dnsServers = func(context.Context, string, string) ([]string, error) { return []string{"192.168.1.1"}, nil }
-	r.askDNS = func(context.Context, string, []dnsmessage.Question) dnsResult { return dnsReplied }
-	off := r.checkDNS(ctx, Input{Gateway: "192.168.1.1"})
-	if off.Status != model.HealthWarn || off.Data["noInternet"] != nil {
-		t.Fatalf("switch off: %+v", off)
+	const routerA, routerB = "aa:bb:cc:00:00:01", "AA:BB:CC:00:00:02"
+	here := model.NetworkID("192.168.1.0/24", "192.168.1.1", routerA)
+	run := func(gw, mac string, reply dnsResult, nets ...string) model.HealthReport {
+		t.Helper()
+		r := newTestRunner(fakePinger{ok: true}, fakeResolver{err: errors.New("lookup failed")}, "")
+		r.dnsServers = func(context.Context, string, string) ([]string, error) { return []string{"192.168.1.1"}, nil }
+		r.askDNS = func(context.Context, string, []dnsmessage.Question) dnsResult { return reply }
+		r.gatewayMAC = func(ctx context.Context, ifaceIP, gateway string) string {
+			if ifaceIP != "192.168.1.20" || gateway != "192.168.1.1" || ctx.Err() != nil {
+				t.Errorf("gatewayMAC(%q, %q), ctx %v", ifaceIP, gateway, ctx.Err())
+			}
+			return mac
+		}
+		return r.Run(ctx, Input{Iface: "wlan0", IfaceIP: "192.168.1.20", Gateway: gw, CIDR: "192.168.1.0/24",
+			Config: Config{InternetURL: "http://127.0.0.1:1/", NoInternetNetworks: nets}})
 	}
-	in := Input{Gateway: "192.168.1.1", Config: Config{NoInternet: true, InternetURL: "http://127.0.0.1:1/"}}
-	on := r.checkDNS(ctx, in)
-	if on.Status != model.HealthInfo || on.Data["noInternet"] != true || model.HealthReason(on) != model.ReasonNoInternet ||
-		!strings.Contains(on.Detail, "DNS server 192.168.1.1 answers") {
-		t.Fatalf("switch on: %+v", on)
+	on := run("192.168.1.1", routerA, dnsReplied, "n-000000000000", here)
+	dns, inet := byID(on, "dns"), byID(on, "internet")
+	if on.Network != here || dns.Status != model.HealthInfo || dns.Data["noInternet"] != true ||
+		model.HealthReason(dns) != model.ReasonNoInternet || !strings.Contains(dns.Detail, "DNS server 192.168.1.1 answers") {
+		t.Fatalf("switch on: %s %+v", on.Network, dns)
 	}
-	// A name server that does not answer at all is still a failure.
-	r.askDNS = func(context.Context, string, []dnsmessage.Question) dnsResult { return dnsNoReply }
-	if c := r.checkDNS(ctx, in); c.Status != model.HealthFail {
-		t.Fatalf("no reply with the switch on: %+v", c)
-	}
-	inet := r.checkInternet(ctx, in)
 	if inet.Status != model.HealthInfo || inet.Data["noInternet"] != true || model.HealthReason(inet) != model.ReasonNoResponse {
 		t.Fatalf("internet with the switch on: %+v", inet)
 	}
-	if got := ConfigFor(model.Settings{NoInternet: true}); !got.NoInternet {
-		t.Fatal("ConfigFor drops NoInternet")
+	if gw := byID(on, "gateway"); gw.Status != model.HealthOK || gw.Data["noInternet"] != nil {
+		t.Fatalf("gateway: %+v", gw)
+	}
+	other := model.NetworkID("192.168.1.0/24", "192.168.1.1", routerB)
+	for _, tc := range []struct {
+		name    string
+		rep     model.HealthReport
+		network string
+	}{
+		{"switch off", run("192.168.1.1", routerA, dnsReplied), here},
+		{"another router", run("192.168.1.1", routerB, dnsReplied, here), other},
+		{"router MAC not known", run("192.168.1.1", "", dnsReplied, here), ""},
+		{"switch on for another network", run("192.168.1.1", routerA, dnsReplied, other), here},
+	} {
+		if c := byID(tc.rep, "dns"); c.Status != model.HealthWarn || c.Data["noInternet"] != nil || byID(tc.rep, "internet").Data["noInternet"] != nil {
+			t.Errorf("%s: %+v", tc.name, c)
+		}
+		if tc.rep.Network != tc.network {
+			t.Errorf("%s: network %q, want %q", tc.name, tc.rep.Network, tc.network)
+		}
+	}
+	// A name server that does not answer at all is still a failure.
+	if c := byID(run("192.168.1.1", routerA, dnsNoReply, here), "dns"); c.Status != model.HealthFail || c.Data["noInternet"] != nil {
+		t.Fatalf("no reply with the switch on: %+v", c)
+	}
+	// Without a router, the network is named by its address prefix.
+	alone := model.NetworkID("192.168.1.0/24", "", "")
+	if rep := run("", "", dnsReplied, alone); rep.Network != alone || byID(rep, "dns").Status != model.HealthInfo {
+		t.Fatalf("no router: %s %+v", rep.Network, byID(rep, "dns"))
+	}
+	if got := ConfigFor(model.Settings{NoInternetNetworks: []string{here}}); !slices.Equal(got.NoInternetNetworks, []string{here}) {
+		t.Fatal("ConfigFor drops NoInternetNetworks")
 	}
 }

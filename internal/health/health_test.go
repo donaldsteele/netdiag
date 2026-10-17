@@ -88,7 +88,8 @@ func newTestRunner(p fakePinger, res fakeResolver, execOut string) *Runner {
 		dial: func(ctx context.Context, ip string, port int, to time.Duration) (net.Conn, error) {
 			return nil, errSilent
 		},
-		refused: func(err error) bool { return errors.Is(err, errRefused) }}
+		refused:    func(err error) bool { return errors.Is(err, errRefused) },
+		gatewayMAC: func(context.Context, string, string) string { return "" }}
 	_ = execOut
 	r.defaults()
 	return r

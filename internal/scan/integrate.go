@@ -303,7 +303,7 @@ func (r *runner) healthInput() health.Input {
 	r.smu.Lock()
 	cfg := health.ConfigFor(r.settings)
 	r.smu.Unlock()
-	return health.Input{Iface: r.self.Interface, IfaceIP: r.self.IP, Gateway: r.gateway, Config: cfg}
+	return health.Input{Iface: r.self.Interface, IfaceIP: r.self.IP, Gateway: r.gateway, CIDR: r.self.CIDR, Config: cfg}
 }
 
 // startHealth runs the health checks in the background (if enabled) and

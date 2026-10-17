@@ -17,11 +17,14 @@ type Settings struct {
 	PrinterStatusPollSec int               `json:"printerStatusPollSec"`
 	WebServer            SettingsWebServer `json:"webServer"`
 	InternetCheckURL     string            `json:"internetCheckURL"`
-	// NoInternet says this network has no internet on purpose (Settings >
-	// Health checks, off by default; v0.6-D15). With it on, the DNS check
-	// does not warn when only internet names fail, and the internet check
-	// stays a note, so "Everything looks fine" can be reached.
-	NoInternet          bool           `json:"noInternet"`
+	// NoInternetNetworks are the networks (NetworkID, oldest first, at most
+	// MaxNoInternetNetworks) that have no internet on purpose: the "This
+	// network has no internet" switch (Settings > Health checks, off by
+	// default; v0.6-D15) is on for each of them and for no other network.
+	// On those networks the DNS check does not warn when only internet
+	// names fail, and the internet check stays a note, so "Everything
+	// looks fine" can be reached.
+	NoInternetNetworks  []string       `json:"noInternetNetworks"`
 	Alerts              SettingsAlerts `json:"alerts"`
 	IgnoredConflictMACs []string       `json:"ignoredConflictMACs"`
 	MCP                 SettingsMCP    `json:"mcp"`

@@ -182,6 +182,9 @@ type SelfInfo struct {
 	IP        string `json:"ip"`
 	MAC       string `json:"mac"`
 	Interface string `json:"interface"`
+	// CIDR is the interface's network, its address prefix (such as
+	// 192.168.1.0/24), when known: part of the network's id (NetworkID).
+	CIDR string `json:"cidr,omitempty"`
 }
 
 // Stats are summary counters for a scan.

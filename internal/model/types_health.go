@@ -26,6 +26,10 @@ type HealthCheck struct {
 type HealthReport struct {
 	CheckedAt string        `json:"checkedAt"`
 	Checks    []HealthCheck `json:"checks"`
+	// Network is the id (NetworkID) of the network the checks looked at,
+	// or empty when netdiag could not tell (no router MAC). The "This
+	// network has no internet" switch is set for this network.
+	Network string `json:"network,omitempty"`
 }
 
 // Health check reasons, in Data["reason"]. Every result that is not ok
@@ -38,7 +42,7 @@ const (
 
 	// gateway
 	ReasonNoReply   = "no_reply"   // also dns: no reply at all
-	ReasonTCPOnly   = "tcp_only"   // no ping reply, but its web ports answer (status ok)
+	ReasonTCPOnly   = "tcp_only"   // no ping reply, but its web ports answer (status ok); Data["pingError"] when ping could not run here
 	ReasonSlow      = "slow"       // also dns and webserver
 	ReasonNoGateway = "no_gateway" // no router known for the adapter
 	ReasonPingError = "ping_error" // ping could not run on this computer

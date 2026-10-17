@@ -225,7 +225,7 @@ func (osEnv) Self(name string) (model.SelfInfo, error) {
 			break
 		}
 	}
-	return model.SelfInfo{IP: f.IP, MAC: f.MAC, Interface: f.Name}, nil
+	return model.SelfInfo{IP: f.IP, MAC: f.MAC, Interface: f.Name, CIDR: f.CIDR}, nil
 }
 
 func (osEnv) Gateway() (string, error) {

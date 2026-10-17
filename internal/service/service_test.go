@@ -242,26 +242,29 @@ func TestRunHealthTarget(t *testing.T) {
 	check := func(name, iface string, want health.Input) {
 		t.Helper()
 		s.RunHealth(context.Background(), iface)
-		if got := rec.last(); got.Iface != want.Iface || got.IfaceIP != want.IfaceIP || got.Gateway != want.Gateway {
-			t.Errorf("%s: got %s %s gw %q, want %s %s gw %q", name, got.Iface, got.IfaceIP, got.Gateway, want.Iface, want.IfaceIP, want.Gateway)
+		if got := rec.last(); got.Iface != want.Iface || got.IfaceIP != want.IfaceIP || got.Gateway != want.Gateway || got.CIDR != want.CIDR {
+			t.Errorf("%s: got %s %s %s gw %q, want %s %s %s gw %q", name, got.Iface, got.IfaceIP, got.CIDR, got.Gateway,
+				want.Iface, want.IfaceIP, want.CIDR, want.Gateway)
 		}
 	}
-	def := health.Input{Iface: "wlan0", IfaceIP: "192.168.1.20", Gateway: "192.168.1.1"}
+	def := health.Input{Iface: "wlan0", IfaceIP: "192.168.1.20", Gateway: "192.168.1.1", CIDR: "192.168.1.0/24"}
 	check("no scan: default interface", "", def)
-	check("named interface, router on another network", "eth0", health.Input{Iface: "eth0", IfaceIP: "10.0.0.30"})
-	check("named VPN adapter", "vpn0", health.Input{Iface: "vpn0", IfaceIP: "172.16.0.5"})
+	check("named interface, router on another network", "eth0", health.Input{Iface: "eth0", IfaceIP: "10.0.0.30", CIDR: "10.0.0.0/24"})
+	check("named VPN adapter", "vpn0", health.Input{Iface: "vpn0", IfaceIP: "172.16.0.5", CIDR: "172.16.0.0/16"})
 	check("unknown name: default interface", "nope", def)
 	// The default-route adapter keeps its router even when its first address
 	// is on another subnet (a second static address, or a /32 link).
 	ifaces[1].CIDR = "192.168.50.7/32"
-	check("default adapter, router outside its first prefix", "", def)
+	wide := def
+	wide.CIDR = "192.168.50.7/32"
+	check("default adapter, router outside its first prefix", "", wide)
 	ifaces[1].CIDR = "192.168.1.0/24"
 	ifErr = errors.New("cannot list")
 	check("no scan, interfaces unreadable: default route", "", health.Input{Gateway: "192.168.1.1"})
 	ifErr = nil
 
 	runScan(t, s) // fakeEnv: eth0 10.0.0.30, gateway 10.0.0.1
-	fromScan := health.Input{Iface: "eth0", IfaceIP: "10.0.0.30", Gateway: "10.0.0.1"}
+	fromScan := health.Input{Iface: "eth0", IfaceIP: "10.0.0.30", Gateway: "10.0.0.1", CIDR: "10.0.0.0/24"}
 	check("latest scan", "", fromScan)
 	check("latest scan, named", "eth0", fromScan)
 	check("another interface named", "wlan0", def)
@@ -271,7 +274,7 @@ func TestRunHealthTarget(t *testing.T) {
 
 	// The scan's router is not on its adapter's network (10.0.0.16/28).
 	ifaces[2].CIDR = "10.0.0.16/28"
-	check("scan router off the network", "", health.Input{Iface: "eth0", IfaceIP: "10.0.0.30"})
+	check("scan router off the network", "", health.Input{Iface: "eth0", IfaceIP: "10.0.0.30", CIDR: "10.0.0.16/28"})
 	ifaces[2].CIDR = "10.0.0.0/24"
 
 	// The scan's interface now has another address: another network.
@@ -286,12 +289,13 @@ type tcpOnlyHealth struct{ recordHealth }
 
 func (h *tcpOnlyHealth) Run(ctx context.Context, in health.Input) model.HealthReport {
 	h.recordHealth.Run(ctx, in)
-	return model.HealthReport{CheckedAt: "now", Checks: []model.HealthCheck{{ID: "gateway", Status: model.HealthOK,
+	return model.HealthReport{CheckedAt: "now", Network: "n-0123456789ab", Checks: []model.HealthCheck{{ID: "gateway", Status: model.HealthOK,
 		Detail: "the router answers on port 80", Data: map[string]any{"reason": model.ReasonTCPOnly}}}}
 }
 
 // RunHealth attaches the advice, with the router page of the gateway it
-// checked, and passes the "no internet" switch to the checks (v0.6-D15).
+// checked, and passes the networks the "no internet" switch is on for to
+// the checks, with the network's address prefix (v0.6-D15).
 func TestRunHealthAdvice(t *testing.T) {
 	h := &tcpOnlyHealth{}
 	s, st := newSvc(t, true, h)
@@ -300,7 +304,7 @@ func TestRunHealthAdvice(t *testing.T) {
 	}
 	s.cfg.Gateway = func() (string, error) { return "192.168.1.1", nil }
 	set := store.DefaultSettings()
-	set.NoInternet = true
+	set.NoInternetNetworks = []string{"n-0123456789ab"}
 	if _, err := st.SaveSettings(set); err != nil {
 		t.Fatal(err)
 	}
@@ -309,8 +313,11 @@ func TestRunHealthAdvice(t *testing.T) {
 	if a == nil || len(a.Actions) != 1 || a.Actions[0].Kind != model.ActionOpenRouter || a.Actions[0].Target != "http://192.168.1.1/" {
 		t.Fatalf("advice = %+v", a)
 	}
-	if !h.last().Config.NoInternet {
-		t.Fatal("the no-internet switch did not reach the checks")
+	if rep.Network != "n-0123456789ab" {
+		t.Fatalf("network = %q", rep.Network)
+	}
+	if in := h.last(); !slices.Equal(in.Config.NoInternetNetworks, []string{"n-0123456789ab"}) || in.CIDR != "192.168.1.0/24" {
+		t.Fatalf("the checks got %+v", in)
 	}
 }
 
