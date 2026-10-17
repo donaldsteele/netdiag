@@ -26,6 +26,11 @@ func (e *env) read(t *testing.T, uri string) (string, error) {
 
 func TestListResourcesAndTemplates(t *testing.T) {
 	e := setup(t, "http", true, fakePinger{})
+	var s startScanOut // a finished, saved scan must not be listed
+	e.ok(t, "start_scan", map[string]any{"waitSec": 20}, &s)
+	if s.ScanID == "" || s.StillRunning {
+		t.Fatalf("start_scan = %+v", s)
+	}
 	rl, err := e.cs.ListResources(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -38,6 +43,10 @@ func TestListResourcesAndTemplates(t *testing.T) {
 		if !slices.Contains(got, w) {
 			t.Errorf("resource %s missing from %v", w, got)
 		}
+	}
+	// docs/mcp.md says resources/list shows only the four fixed resources.
+	if len(got) != 4 {
+		t.Errorf("resources/list = %v, want only the four fixed resources", got)
 	}
 	tl, err := e.cs.ListResourceTemplates(context.Background(), nil)
 	if err != nil {

@@ -138,7 +138,7 @@ Resources return JSON (`application/json`). Read them with the client's resource
 | `netdiag://scans/{scanId}/devices` | First 200 device rows of the scan |
 | `netdiag://scans/{scanId}/devices/{ip}` | Full detail for one device |
 
-`resources/list` shows the four fixed resources and the current scan and the last five scans.
+`resources/list` shows only the four fixed resources. Scans are not listed one by one: `resources/templates/list` shows the three `netdiag://scans/...` templates, and the scan ids to fill in come from `netdiag://history` (or the `list_history` tool) and from `start_scan`. A template works for saved scans and for scans running in this netdiag process.
 
 ## Prompts
 
