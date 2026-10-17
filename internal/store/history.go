@@ -1,9 +1,11 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -90,7 +92,14 @@ func (s *Store) readScan(f fileInfo) (model.ScanResult, error) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return r, err
 	}
-	// Files saved before v0.5.8 hold the SNMP community in clear.
+	// Files saved before v0.5.8 hold the SNMP community in clear. The file
+	// is rewritten without it once; if that fails, it is still hidden in
+	// what is handed out, and the next read tries again.
+	if c := r.Request.Community; c != "" && c != model.Redacted {
+		if err := s.redactFile(f, data); err != nil {
+			log.Printf("store: could not hide the SNMP community in history file %s: %v", f.name, err)
+		}
+	}
 	r = model.RedactScan(r)
 	if r.ID == "" {
 		r.ID = f.id
@@ -103,6 +112,64 @@ func (s *Store) readScan(f fileInfo) (model.ScanResult, error) {
 		}
 	}
 	return r, nil
+}
+
+// rewriteFile replaces a history file; tests swap it to make it fail.
+var rewriteFile = writeAtomic
+
+// redactFile rewrites the history file f, whose content is data, with the
+// request's SNMP community replaced by model.Redacted. Only that value
+// changes: the JSON is edited as a tree, so fields this version does not
+// know are kept. The new content is checked before it is written, the file
+// is replaced atomically, and nothing is written when the file changed on
+// disk since it was read (another netdiag sharing the folder). The caller
+// holds s.mu.
+func (s *Store) redactFile(f fileInfo, data []byte) error {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	redacted, _ := json.Marshal(model.Redacted)
+	for k, v := range doc {
+		if !strings.EqualFold(k, "request") {
+			continue
+		}
+		var req map[string]json.RawMessage
+		if err := json.Unmarshal(v, &req); err != nil {
+			return err
+		}
+		for rk := range req {
+			if strings.EqualFold(rk, "community") {
+				delete(req, rk)
+			}
+		}
+		req["community"] = redacted
+		b, err := json.Marshal(req)
+		if err != nil {
+			return err
+		}
+		doc[k] = b
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	var check model.ScanResult
+	if err := json.Unmarshal(out, &check); err != nil {
+		return err
+	}
+	if check.Request.Community != model.Redacted {
+		return errors.New("rewritten file still has the community")
+	}
+	path := filepath.Join(s.histDir, f.name)
+	now, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(now, data) {
+		return errors.New("the file changed while it was read")
+	}
+	return rewriteFile(path, out)
 }
 
 // SaveScan atomically stores r (replacing any prior save of the same id) and

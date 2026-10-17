@@ -1,9 +1,12 @@
 package store
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -378,5 +381,90 @@ func TestHistoryRedactsCommunity(t *testing.T) {
 	got, err := s.LoadScan("old2")
 	if err != nil || got.Request.Community != model.Redacted {
 		t.Fatalf("old file read: %q %v", got.Request.Community, err)
+	}
+}
+
+// A history file saved by v0.5.7 or earlier, with the SNMP community in
+// clear, is rewritten without it the first time it is read. Everything
+// else in the file is kept, fields this version does not know included.
+func TestOldHistoryFileRewritten(t *testing.T) {
+	const secret = "s3cret-community"
+	s := open(t)
+	old := `{"id":"old3","schemaVersion":2,"startedAt":"2026-01-01T09:00:00Z","state":"done",` +
+		`"request":{"cidr":"10.0.0.0/24","community":"` + secret + `","liveIntervalSec":30,"newerOption":[1,2]},` +
+		`"hosts":[{"ip":"10.0.0.7","alive":true,"deviceType":"printer"}],"stats":{"alive":1},"addedLater":{"x":1.25}}`
+	path := filepath.Join(s.Dir(), "history", "20260101T090000Z-old3.json")
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writes := 0
+	rewriteFile = func(p string, b []byte) error { writes++; return writeAtomic(p, b) }
+	t.Cleanup(func() { rewriteFile = writeAtomic })
+
+	l, err := s.ListHistory()
+	if err != nil || len(l) != 1 || l[0].ID != "old3" || l[0].Error != "" {
+		t.Fatalf("list = %+v %v", l, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), secret) || writes != 1 {
+		t.Fatalf("not rewritten (%d writes): %s", writes, data)
+	}
+	var before, after map[string]any
+	json.Unmarshal([]byte(old), &before)
+	if err := json.Unmarshal(data, &after); err != nil {
+		t.Fatalf("rewritten file does not parse: %v\n%s", err, data)
+	}
+	before["request"].(map[string]any)["community"] = model.Redacted
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("rewrite changed more than the community:\nwant %v\ngot  %v", before, after)
+	}
+	got, err := s.LoadScan("old3")
+	if err != nil || got.Request.Community != model.Redacted || len(got.Hosts) != 1 || got.Request.LiveIntervalSec != 30 {
+		t.Fatalf("read back: %+v %v", got, err)
+	}
+	if writes != 1 {
+		t.Fatalf("a redacted file was rewritten again (%d writes)", writes)
+	}
+	left, _ := filepath.Glob(filepath.Join(s.Dir(), "history", ".tmp-*"))
+	if len(left) != 0 {
+		t.Fatalf("temp files left: %v", left)
+	}
+}
+
+// When the rewrite fails, the file is left exactly as it was, the scan
+// still reads with the community hidden, and the next read tries again.
+func TestOldHistoryFileRewriteFails(t *testing.T) {
+	const secret = "s3cret-community"
+	s := open(t)
+	old := `{"id":"old4","schemaVersion":2,"startedAt":"2026-01-01T09:00:00Z","state":"done","request":{"cidr":"10.0.0.0/24","community":"` + secret + `"}}`
+	path := filepath.Join(s.Dir(), "history", "20260101T090000Z-old4.json")
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tries := 0
+	rewriteFile = func(string, []byte) error { tries++; return errors.New("disk full") }
+	t.Cleanup(func() { rewriteFile = writeAtomic })
+	for i := 1; i <= 2; i++ {
+		got, err := s.LoadScan("old4")
+		if err != nil || got.Request.Community != model.Redacted || got.Request.CIDR != "10.0.0.0/24" {
+			t.Fatalf("read %d: %+v %v", i, got, err)
+		}
+		if data, _ := os.ReadFile(path); string(data) != old {
+			t.Fatalf("file changed after a failed rewrite: %s", data)
+		}
+		if tries != i {
+			t.Fatalf("read %d: %d tries", i, tries)
+		}
+	}
+	// A file that changed on disk since it was read is not overwritten.
+	rewriteFile = writeAtomic
+	if err := s.redactFile(fileInfo{name: "20260101T090000Z-old4.json"}, []byte(old+" ")); err == nil {
+		t.Fatal("rewrote a file that changed since it was read")
+	}
+	if data, _ := os.ReadFile(path); string(data) != old {
+		t.Fatalf("file changed: %s", data)
 	}
 }

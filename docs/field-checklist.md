@@ -71,7 +71,7 @@ Tick only after observing the behaviour on real hardware.
 ### Data safety (v0.5.8)
 - [ ] With a non-default SNMP community in Settings (for example `private` on a printer set to it), a live scan still shows the printer's SNMP details and its status keeps updating
 - [ ] The same scan's JSON export, its file in the `history` folder, and `netdiag scan --json` output show the community as `***`; only `settings.json` and the Settings screen show the real value
-- [ ] A history file saved by v0.5.7 (community in clear) shows `***` in the exported JSON of that scan; the file itself is left as it is until it is saved again
+- [ ] A history file saved by v0.5.7 (community in clear) shows `***` in the exported JSON of that scan, and after opening **History** once the file itself shows `"community":"***"`; the scan still opens and compares as before
 - [ ] After quitting and starting netdiag again, `/api/scans/<id>/export?format=csv` for a scan in History downloads it
 - [ ] With the supply threshold set above a real printer's lowest toner level (for example 50% for toner at 40%), the printer is listed under **Problems**; at a threshold below the level it is not
 - [ ] A live scan left running overnight on a busy network still alerts again for a device that goes offline after the cooldown has passed
