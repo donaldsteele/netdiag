@@ -3,6 +3,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -38,6 +40,10 @@ type Config struct {
 	// OpenOSPage opens a page of this computer's settings from the fixed
 	// list (POST /api/os/open); defaults to remote.OpenOSPage.
 	OpenOSPage func(page string) error
+	// InstanceID names this run of netdiag in GET /api/identity, so a page
+	// can tell a restarted netdiag from the one it was opened by. A random
+	// id is made when it is empty.
+	InstanceID string
 }
 
 // Server is the HTTP server. Create with New, then Listen and Serve.
@@ -59,6 +65,9 @@ type Server struct {
 
 	quit     chan struct{}
 	quitOnce sync.Once
+
+	instanceID string // GET /api/identity
+	startedAt  string // RFC 3339
 }
 
 // New returns a server for cfg.
@@ -75,7 +84,11 @@ func New(cfg Config) *Server {
 	if cfg.OpenOSPage == nil {
 		cfg.OpenOSPage = remote.OpenOSPage
 	}
-	s := &Server{cfg: cfg, svc: svc, keepalive: 15 * time.Second, baseCtx: ctx, cancel: cancel, quit: make(chan struct{})}
+	if cfg.InstanceID == "" {
+		cfg.InstanceID = newInstanceID()
+	}
+	s := &Server{cfg: cfg, svc: svc, keepalive: 15 * time.Second, baseCtx: ctx, cancel: cancel, quit: make(chan struct{}),
+		instanceID: cfg.InstanceID, startedAt: time.Now().UTC().Format(time.RFC3339)}
 	s.mcpSrv = mcpserver.New(svc, mcpserver.Options{Transport: "http", Version: cfg.Version})
 	s.mcpHandler = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.mcpSrv },
 		&mcp.StreamableHTTPOptions{MaxRequestBodyBytes: 1 << 20})
@@ -86,6 +99,21 @@ func New(cfg Config) *Server {
 	}
 	svc.OnSettingsSaved(s.settingsSaved)
 	return s
+}
+
+// newInstanceID returns a random id for one run of netdiag.
+func newInstanceID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return "i-" + hex.EncodeToString(b[:])
+}
+
+// version is the netdiag version reported to clients ("dev" when unset).
+func (s *Server) version() string {
+	if s.cfg.Version == "" {
+		return "dev"
+	}
+	return s.cfg.Version
 }
 
 // settingsSaved updates the MCP runtime gate; disabling closes live sessions.
@@ -139,7 +167,9 @@ func (s *Server) URL() string {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/interfaces", s.handleInterfaces)
+	mux.HandleFunc("GET /api/identity", s.handleIdentity)
 	mux.HandleFunc("POST /api/scans", s.handleStart)
+	mux.HandleFunc("GET /api/scans/running", s.handleRunning)
 	mux.HandleFunc("GET /api/scans/{id}", s.handleGet)
 	mux.HandleFunc("GET /api/scans/{id}/events", s.handleEvents)
 	mux.HandleFunc("POST /api/scans/{id}/cancel", s.handleCancel)

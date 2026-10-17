@@ -52,3 +52,36 @@ func (s *Service) ResolveScan(id string) (model.ScanResult, error) {
 	r, err := s.cfg.Store.LoadScan(id)
 	return model.RedactScan(r), err
 }
+
+// RunningScan is the scan that is running now, as GET /api/scans/running
+// reports it so a reloaded page can attach to it again. The request holds
+// only what the page shows, never the SNMP community.
+type RunningScan struct {
+	ID        string         `json:"id"`
+	State     string         `json:"state"`
+	StartedAt string         `json:"startedAt"`
+	LiveSince string         `json:"liveSince,omitempty"`
+	Request   RunningRequest `json:"request"`
+}
+
+// RunningRequest is the part of a running scan's request a page needs.
+type RunningRequest struct {
+	CIDR            string `json:"cidr"`
+	Interface       string `json:"interface"`
+	Live            bool   `json:"live"`
+	LiveIntervalSec int    `json:"liveIntervalSec,omitempty"`
+}
+
+// Running returns the scan that is running now (in its first pass or
+// watching the network), if any.
+func (s *Service) Running() (RunningScan, bool) {
+	sc, ok := s.cfg.Registry.Running()
+	if !ok {
+		return RunningScan{}, false
+	}
+	q := sc.Request()
+	return RunningScan{
+		ID: sc.ID, State: sc.State(), StartedAt: sc.StartedAt(), LiveSince: sc.LiveSince(),
+		Request: RunningRequest{CIDR: q.CIDR, Interface: q.Interface, Live: q.Live, LiveIntervalSec: q.LiveIntervalSec},
+	}, true
+}

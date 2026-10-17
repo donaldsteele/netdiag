@@ -298,10 +298,34 @@ type Scan struct {
 	// is redacted (model.ScanRequest.Redacted), so every snapshot,
 	// checkpoint, saved result and done event hides the SNMP community; only
 	// the runner keeps the real one, for SNMP.
-	mu     sync.Mutex
-	header model.ScanResult
-	result *model.ScanResult
-	apply  func(model.Settings) bool // set while the pipeline runs
+	mu        sync.Mutex
+	header    model.ScanResult
+	result    *model.ScanResult
+	apply     func(model.Settings) bool // set while the pipeline runs
+	liveSince string                    // when the scan went live (RFC 3339); "" before
+}
+
+// Request returns the scan's request with the SNMP community hidden. Its
+// Origin says who started the scan.
+func (s *Scan) Request() model.ScanRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.header.Request.Redacted()
+}
+
+// StartedAt is when the scan started (RFC 3339).
+func (s *Scan) StartedAt() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.header.StartedAt
+}
+
+// LiveSince is when the scan finished its first pass and began watching the
+// network (RFC 3339), or "" if it has not gone live.
+func (s *Scan) LiveSince() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.liveSince
 }
 
 // ApplySettings applies changed settings (alert triggers, threshold,

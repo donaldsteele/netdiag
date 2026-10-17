@@ -45,6 +45,7 @@ func (r *runner) live(ctx context.Context, targets []netip.Addr) {
 	known := knownOf(hosts)
 	r.s.mu.Lock()
 	r.s.header.State = model.StateLive
+	r.s.liveSince = r.d.Now().UTC().Format(time.RFC3339)
 	r.s.mu.Unlock()
 	r.stage(model.StageLive)
 	r.s.bus.Publish(model.Event{Type: model.EventSnapshot, Data: r.s.Snapshot()})

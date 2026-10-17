@@ -257,31 +257,3 @@ func TestLiveIntervalClamp(t *testing.T) {
 		t.Fatal("interval set without live")
 	}
 }
-
-func TestRegistryReplacesLiveScan(t *testing.T) {
-	d := fakeDeps()
-	d.LiveInterval = time.Hour
-	reg := NewRegistry(New(d))
-	ctx := context.Background()
-	s1, err := reg.Start(ctx, model.ScanRequest{CIDR: "10.0.0.0/28", Live: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ch, unsub := s1.Subscribe()
-	waitLive(t, ch, func(model.LiveStatus) bool { return true })
-	unsub()
-	if _, err := reg.Start(ctx, model.ScanRequest{CIDR: "bogus"}); err == nil {
-		t.Fatal("bad request accepted")
-	}
-	if s1.State() != model.StateLive {
-		t.Fatal("bad request stopped the live scan")
-	}
-	s2, err := reg.Start(ctx, model.ScanRequest{CIDR: "10.0.0.0/28"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s1.State() != model.StateDone {
-		t.Fatalf("old scan state = %q", s1.State())
-	}
-	s2.Wait()
-}

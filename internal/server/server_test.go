@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -310,8 +311,26 @@ func TestLiveScanReplacedAndExport(t *testing.T) {
 		t.Fatalf("live stream events: %v", types)
 	}
 
-	// A new scan replaces the live one.
+	// A new scan without replaceLive is refused with the watching scan in
+	// the body (a stale tab, F9), and the live scan goes on.
 	r, b = do(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/30"}`, "")
+	var refused struct {
+		Error    string `json:"error"`
+		Watching struct {
+			ID, CIDR, Since string
+		} `json:"watching"`
+	}
+	if err := json.Unmarshal([]byte(b), &refused); err != nil || r.StatusCode != 409 {
+		t.Fatalf("start while live: %d %q", r.StatusCode, b)
+	}
+	if refused.Error != "netdiag is watching this network." || refused.Watching.ID != id ||
+		refused.Watching.CIDR != "10.0.0.0/28" || refused.Watching.Since == "" {
+		t.Fatalf("409 body = %q", b)
+	}
+	waitState(t, u, id, "live")
+
+	// With replaceLive (Restart watching) the new scan replaces the live one.
+	r, b = do(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/30","replaceLive":true}`, "")
 	if r.StatusCode != 202 {
 		t.Fatalf("replace live: %d %q", r.StatusCode, b)
 	}

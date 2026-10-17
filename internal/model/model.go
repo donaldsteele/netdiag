@@ -30,7 +30,31 @@ type ScanRequest struct {
 	Live bool `json:"live,omitempty"`
 	// LiveIntervalSec is the pause between live checks (default 15, 5..300).
 	LiveIntervalSec int `json:"liveIntervalSec,omitempty"`
+	// ReplaceLive lets this scan stop a scan that is watching the network
+	// (state live). Without it the registry refuses the new scan and the
+	// watching goes on. Only the window's Restart watching sets it; agents
+	// never can (F9, D19).
+	ReplaceLive bool `json:"replaceLive,omitempty"`
+
+	// origin says who asked for the scan (OriginUI, OriginMCP). The caller
+	// sets it with WithOrigin; it never comes from JSON.
+	origin string
 }
+
+// Scan origins, set by the caller with ScanRequest.WithOrigin.
+const (
+	OriginUI  = "ui"  // the netdiag window (and the HTTP API it uses)
+	OriginMCP = "mcp" // an AI agent over MCP
+)
+
+// WithOrigin returns a copy of r that records who asked for the scan.
+func (r ScanRequest) WithOrigin(origin string) ScanRequest {
+	r.origin = origin
+	return r
+}
+
+// Origin is who asked for the scan, or "" when the caller did not say.
+func (r ScanRequest) Origin() string { return r.origin }
 
 // Live mode interval limits, in seconds.
 const (

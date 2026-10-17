@@ -94,8 +94,9 @@ func TestSecretCommunityAppearsNowhere(t *testing.T) {
 	}
 
 	// A second scan, with no community of its own (so the settings one is
-	// used), replaces the live one; both are saved to history.
-	r, b = doj(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/28"}`, "application/json")
+	// used), replaces the live one (Restart watching); both are saved to
+	// history.
+	r, b = doj(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/28","replaceLive":true}`, "application/json")
 	if r.StatusCode != 202 {
 		t.Fatalf("start: %d %s", r.StatusCode, b)
 	}

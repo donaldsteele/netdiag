@@ -15,6 +15,24 @@ const MaxRetained = 10
 // ErrBusy is returned by Registry.Start while another scan is running.
 var ErrBusy = errors.New("a scan is already running")
 
+// ErrWatching is matched (errors.Is) by the *WatchingError Registry.Start
+// returns while a scan is watching the network and the new request does not
+// set ReplaceLive.
+var ErrWatching = errors.New("netdiag is watching this network")
+
+// WatchingError describes the live scan that Registry.Start refused to stop.
+type WatchingError struct {
+	ID        string `json:"id"`
+	CIDR      string `json:"cidr"`
+	Interface string `json:"interface"`
+	Since     string `json:"since"` // when it went live (RFC 3339)
+}
+
+func (e *WatchingError) Error() string { return ErrWatching.Error() }
+
+// Is makes errors.Is(err, ErrWatching) true.
+func (e *WatchingError) Is(target error) bool { return target == ErrWatching }
+
 // Registry allows one running scan at a time and retains the last
 // MaxRetained scans for lookup.
 type Registry struct {
@@ -34,11 +52,12 @@ func NewRegistry(o *Orchestrator) *Registry {
 // liveStopTimeout bounds how long Start waits for a live scan to stop.
 const liveStopTimeout = 10 * time.Second
 
-// Start launches a scan. A running scan in live state (initial scan complete)
-// is cancelled and awaited first. It returns ErrBusy if a scan is still in
-// its initial phase, or an error
-// wrapping ErrInvalidRequest for a bad request. The scan's lifetime is bound
-// to ctx.
+// Start launches a scan. A running scan in live state (initial scan
+// complete) is never stopped silently: without req.ReplaceLive Start returns
+// a *WatchingError and the live scan goes on; with it, the live scan is
+// cancelled and awaited first. Start returns ErrBusy if a scan is still in
+// its initial phase, or an error wrapping ErrInvalidRequest for a bad
+// request. The scan's lifetime is bound to ctx.
 func (r *Registry) Start(ctx context.Context, req model.ScanRequest) (*Scan, error) {
 	if _, _, err := Validate(req); err != nil {
 		return nil, err // never stop a live scan for a bad request
@@ -52,6 +71,9 @@ func (r *Registry) Start(ctx context.Context, req model.ScanRequest) (*Scan, err
 			if r.running.State() != model.StateLive {
 				return nil, ErrBusy
 			}
+			if !req.ReplaceLive {
+				return nil, watching(r.running)
+			}
 			r.running.Cancel()
 			select {
 			case <-r.running.Done():
@@ -60,6 +82,7 @@ func (r *Registry) Start(ctx context.Context, req model.ScanRequest) (*Scan, err
 			}
 		}
 	}
+	req.ReplaceLive = false // done its job; keep it out of the saved request
 	s, err := r.o.Start(ctx, req)
 	if err != nil {
 		return nil, err
@@ -72,6 +95,11 @@ func (r *Registry) Start(ctx context.Context, req model.ScanRequest) (*Scan, err
 		r.order = r.order[1:]
 	}
 	return s, nil
+}
+
+func watching(s *Scan) *WatchingError {
+	q := s.Request()
+	return &WatchingError{ID: s.ID, CIDR: q.CIDR, Interface: q.Interface, Since: s.LiveSince()}
 }
 
 // Get returns the scan with id.

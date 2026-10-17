@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"netdiag/internal/model"
@@ -40,8 +41,13 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	sc, err := s.svc.Start(req)
+	sc, err := s.svc.Start(req.WithOrigin(model.OriginUI))
+	var watching *scan.WatchingError
 	switch {
+	case errors.As(err, &watching):
+		// A scan is watching the network: it goes on, and the page asks the
+		// person before it sends the request again with replaceLive.
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "netdiag is watching this network.", "watching": watching})
 	case errors.Is(err, scan.ErrBusy):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, scan.ErrInvalidRequest):
@@ -51,6 +57,34 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusAccepted, map[string]string{"id": sc.ID})
 	}
+}
+
+// handleRunning reports the scan that is running now, or {"scan":null}, so a
+// reloaded or reopened page can attach to it again.
+func (s *Server) handleRunning(w http.ResponseWriter, r *http.Request) {
+	run, ok := s.svc.Running()
+	if !ok {
+		writeJSON(w, http.StatusOK, map[string]any{"scan": nil})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"scan": run})
+}
+
+// identity is the GET /api/identity answer. The page polls it as a
+// heartbeat: no answer means netdiag has stopped, another instanceId that
+// it was restarted.
+type identity struct {
+	App        string `json:"app"`
+	Version    string `json:"version"`
+	PID        int    `json:"pid"`
+	InstanceID string `json:"instanceId"`
+	StartedAt  string `json:"startedAt"`
+}
+
+func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, identity{App: "netdiag", Version: s.version(), PID: os.Getpid(),
+		InstanceID: s.instanceID, StartedAt: s.startedAt})
 }
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {

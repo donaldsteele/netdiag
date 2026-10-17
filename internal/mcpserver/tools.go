@@ -93,7 +93,10 @@ type startScanIn struct {
 type startScanOut struct {
 	ScanSummary
 	AlreadyRunning bool `json:"alreadyRunning"`
-	StillRunning   bool `json:"stillRunning"`
+	// AlreadyWatching is true when a scan is watching the network: it was
+	// left running and its summary is returned instead.
+	AlreadyWatching bool `json:"alreadyWatching"`
+	StillRunning    bool `json:"stillRunning"`
 }
 
 type scanIDIn struct {
@@ -103,7 +106,12 @@ type scanIDIn struct {
 type cancelOut struct {
 	Cancelled bool   `json:"cancelled"`
 	State     string `json:"state"`
+	Note      string `json:"note,omitempty"`
 }
+
+// noteWatchingFromWindow is cancel_scan's answer for a live-mode scan that
+// was started from the netdiag window (D19).
+const noteWatchingFromWindow = "That scan is watching the network from the netdiag window; ask the person to click Stop live there."
 
 type listDevicesIn struct {
 	ScanID     string `json:"scanId" jsonschema:"scan id"`
@@ -180,7 +188,7 @@ func registerTools(s *mcp.Server, svc *service.Service, opts Options) {
 		Annotations: readAnn("List network interfaces")}, t.listInterfaces)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "start_scan", Title: "Start a network scan",
-		Description: "Start a network scan and wait up to waitSec (default 30) for it to finish. Returns a compact summary; if stillRunning is true, poll get_scan. If a scan is already running its summary is returned with alreadyRunning=true. Sends real network traffic.",
+		Description: "Start a network scan and wait up to waitSec (default 30) for it to finish. Returns a compact summary; if stillRunning is true, poll get_scan. If a scan is already running its summary is returned with alreadyRunning=true. It never replaces a scan that is watching the network: that scan keeps running and its summary is returned with alreadyWatching=true. Sends real network traffic.",
 		Annotations: probeAnn("Start a network scan")}, t.startScan)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_scan", Title: "Get scan summary",
@@ -188,7 +196,7 @@ func registerTools(s *mcp.Server, svc *service.Service, opts Options) {
 		Annotations: readAnn("Get scan summary")}, t.getScan)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "cancel_scan", Title: "Cancel a running scan",
-		Description: "Cancel a running scan started in this netdiag process. Already collected results are kept.",
+		Description: "Cancel a running scan started in this netdiag process. Already collected results are kept. A live scan started from the netdiag window is not cancelled (cancelled=false with a note): ask the person to click Stop live there.",
 		Annotations: &mcp.ToolAnnotations{Title: "Cancel a running scan", DestructiveHint: ptr(false),
 			OpenWorldHint: ptr(false), IdempotentHint: true}}, t.cancelScan)
 
@@ -274,7 +282,16 @@ func (t *tools) startScan(ctx context.Context, req *mcp.CallToolRequest, in star
 	sc, err := t.svc.Start(model.ScanRequest{
 		CIDR: cidr, Interface: in.Interface, Community: in.Community,
 		Live: in.Live, LiveIntervalSec: in.LiveIntervalSec,
-	})
+	}.WithOrigin(model.OriginMCP))
+	if errors.Is(err, scan.ErrWatching) {
+		// Never replaces a scan that is watching the network (F9).
+		if run, ok := t.svc.Registry().Running(); ok {
+			snap := RedactScan(run.Snapshot())
+			return nil, startScanOut{ScanSummary: Summarize(snap, supplyThreshold(t.svc)), AlreadyRunning: true,
+				AlreadyWatching: true, StillRunning: snap.State == model.StateRunning}, nil
+		}
+		return nil, startScanOut{}, errors.New("netdiag is watching this network; call get_scan or try again shortly")
+	}
 	if errors.Is(err, scan.ErrBusy) {
 		if run, ok := t.svc.Registry().Running(); ok {
 			snap := RedactScan(run.Snapshot())
@@ -356,6 +373,10 @@ func (t *tools) cancelScan(_ context.Context, _ *mcp.CallToolRequest, in scanIDI
 	}
 	state := sc.State()
 	cancelled := false
+	if q := sc.Request(); (state == model.StateRunning || state == model.StateLive) && q.Live && q.Origin() != model.OriginMCP {
+		// Watching started from the window stays on (D19).
+		return nil, cancelOut{State: state, Note: noteWatchingFromWindow}, nil
+	}
 	if state == model.StateRunning || state == model.StateLive {
 		cancelled = t.svc.Cancel(in.ScanID)
 		select {
