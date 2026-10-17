@@ -121,3 +121,79 @@ test('a trusted certificate is kept for the same server and dropped for another'
   expect(await save(fx.WEB_URL + 'status')).toBe(fx.CERT_SHA256);
   expect(await save('https://other.local/')).toBe('');
 });
+
+test('the trust button is only offered for the web server address in Settings', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  // A result for an address that is no longer the one in Settings.
+  const rec = await installMocks(page, { scenario: 'scan', web: 'untrusted', webURL: 'https://old-nas.local/' });
+  await page.goto('/');
+  await page.locator('#tab-health').click();
+  const card = webCard(page);
+  await expect(card).toContainText('the certificate is not trusted');
+  await expect(card.getByRole('button', { name: 'Trust this certificate' })).toHaveCount(0);
+  await expect(page.locator('.trustbtn:visible')).toHaveCount(0);
+  expect(rec.unmatched, 'unmatched requests').toEqual([]);
+});
+
+test('the trust button is offered for an address with a password', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const base = fx.settings();
+  const url = 'https://admin:pa55word@intranet.local';
+  const rec = await installMocks(page, { scenario: 'scan', web: 'untrusted',
+    settings: { ...base, webServer: { ...base.webServer, url } } });
+  await page.goto('/');
+  await page.locator('#tab-health').click();
+  const card = webCard(page);
+  // The server reports the address with the password hidden.
+  const trust = card.getByRole('button', { name: 'Trust this certificate' });
+  await expect(trust).toBeVisible();
+  const messages = [];
+  page.once('dialog', (d) => { messages.push(d.message()); d.dismiss(); });
+  await trust.click();
+  await expect.poll(() => messages.length).toBe(1);
+  expect(messages[0]).toContain('https://admin:xxxxx@intranet.local');
+  expect(messages[0]).not.toContain('pa55word');
+  expect(rec.unmatched, 'unmatched requests').toEqual([]);
+});
+
+test('saving a new web server address or certificate runs the checks again', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { scenario: 'scan', web: 'untrusted' });
+  await page.goto('/');
+  await page.locator('#tab-health').click();
+  const card = webCard(page);
+  await expect(card.getByRole('button', { name: 'Trust this certificate' })).toBeVisible();
+  const runs = () => rec.requests.filter((r) => r.method === 'POST' && r.path === '/api/health/run').length;
+  const dialog = page.locator('#settings-dialog');
+  const save = async (edit) => {
+    await page.locator('#nav-settings').click();
+    await expect(dialog).toHaveJSProperty('open', true);
+    await edit();
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dialog).toHaveJSProperty('open', false);
+  };
+
+  // Saved with the same web server settings: no new check.
+  let before = runs();
+  await save(() => dialog.getByLabel('Web server URL').fill(fx.WEB_URL));
+  expect(settingsPuts(rec)).toHaveLength(1);
+  expect(runs()).toBe(before);
+
+  // A new address: the checks run again after the save, for that address.
+  before = runs();
+  await save(() => dialog.getByLabel('Web server URL').fill('https://nas.local/'));
+  await expect.poll(runs).toBe(before + 1);
+  const order = rec.requests.map((r) => r.method + ' ' + r.path);
+  expect(order.lastIndexOf('POST /api/health/run')).toBeGreaterThan(order.lastIndexOf('PUT /api/settings'));
+  await expect(card.getByRole('button', { name: 'Trust this certificate' })).toBeVisible();
+
+  // Trusting, then forgetting the certificate: checked again each time.
+  page.once('dialog', (d) => d.accept());
+  await card.getByRole('button', { name: 'Trust this certificate' }).click();
+  await expect(card).toContainText('HTTP 200');
+  before = runs();
+  await save(() => dialog.locator('#trusted-cert').getByRole('button', { name: 'Forget the trusted certificate' }).click());
+  await expect.poll(runs).toBe(before + 1);
+  await expect(card).toContainText('the certificate is not trusted');
+  expect(rec.unmatched, 'unmatched requests').toEqual([]);
+});

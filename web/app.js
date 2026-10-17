@@ -152,10 +152,21 @@ document.addEventListener('alpine:init', () => {
       return c.status === 'info' && /^no web server configured/.test(c.detail || '');
     },
     // The web server check failed on a certificate this computer does not
-    // trust, and sent that certificate's fingerprint along.
+    // trust, and sent that certificate's fingerprint along, for the web
+    // server address set in Settings now (not an older one).
     canTrust(c) {
       return !!(this.settings && c && c.id === 'webserver' && c.status === 'fail' && c.data &&
-        /^[0-9a-f]{64}$/.test(c.data.certSHA256 || ''));
+        /^[0-9a-f]{64}$/.test(c.data.certSHA256 || '') &&
+        this.sameWebURL(c.data.url, (this.settings.webServer || {}).url));
+    },
+    // The check reports its URL with any password hidden (user:xxxxx@host),
+    // so both are compared without the password, in the browser's form.
+    sameWebURL(a, b) {
+      const norm = u => {
+        u = String(u || '').trim();
+        try { const x = new URL(u); x.password = ''; return x.href; } catch (e) { return u; }
+      };
+      return norm(a) !== '' && norm(a) === norm(b);
     },
     fpPairs(fp) { return (fp || '').toUpperCase().match(/../g) || []; },
     fpLong(fp) { return this.fpPairs(fp).join(':'); },
@@ -196,8 +207,13 @@ document.addEventListener('alpine:init', () => {
       const was = (this.settings && this.settings.webServer) || {};
       if (this.draft.webServer.trustedCert && this.draft.webServer.trustedCert === was.trustedCert &&
           hostOf(this.draft.webServer.url) !== hostOf(was.url)) this.draft.webServer.trustedCert = '';
+      const webBefore = JSON.stringify(was);
       const ok = await this.putSettings(this.draft, true);
-      if (ok) this.closeSettings();
+      if (!ok) return;
+      this.closeSettings();
+      // A new web server address, trusted certificate or expected answer
+      // makes the Web server card out of date: check again.
+      if (JSON.stringify(this.settings.webServer || {}) !== webBefore) await this.recheck();
     },
     async putSettings(doc, showErr) {
       try {

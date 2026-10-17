@@ -33,16 +33,23 @@ const matchId = (re, p) => {
 // scenario: 'scan' (finite scan run ending in done) or 'live' (snapshot + live transitions).
 // settings replaces the fixture settings document; frames replaces the scan's event stream;
 // web: state of the web server health check served by /api/health (see fx.webCheck).
-// Any web state but 'unset' sets the web server URL; once Settings trust a
-// certificate, the check reports 'ok'.
-export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset' } = {}) {
+// Any web state but 'unset' sets the web server URL (unless settings already
+// has one); once Settings trust a certificate, the check reports 'ok'. Like
+// the server, the check reports the URL in Settings with any password
+// hidden; webURL makes it report another one instead (an out-of-date result).
+export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL } = {}) {
   const rec = { requests: [], unmatched: [], external: [], sse: [] };
   const origin = new URL(BASE_URL).origin;
   const MCP_URL = 'http://127.0.0.1:8787/mcp';
   let settings = { ...(initialSettings || fx.settings()), mcpUrl: MCP_URL };
-  if (web !== 'unset') settings.webServer = { ...settings.webServer, url: fx.WEB_URL };
+  if (web !== 'unset' && !(settings.webServer && settings.webServer.url)) settings.webServer = { ...settings.webServer, url: fx.WEB_URL };
   let history = fx.history();
-  const health = () => fx.health({ web: settings.webServer && settings.webServer.trustedCert ? 'ok' : web });
+  // Mirrors model.RedactURL: user:password@ becomes user:xxxxx@.
+  const redact = (u) => String(u || '').replace(/^([a-z][a-z0-9+.-]*:\/\/[^/?#@:]*):[^/?#]*@/i, '$1:xxxxx@');
+  const health = () => {
+    const ws = settings.webServer || {};
+    return fx.health({ web: ws.trustedCert ? 'ok' : web, webURL: webURL || redact(ws.url) });
+  };
 
   const json = (route, status, body) =>
     route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });

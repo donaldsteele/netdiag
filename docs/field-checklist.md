@@ -87,7 +87,8 @@ Tick only after observing the behaviour on real hardware.
 - [ ] After **OK** the row turns `ok` at once, stays `ok` after quitting and starting netdiag again, and Settings shows "Trusted certificate" with the first part of the fingerprint
 - [ ] After the device gets a new certificate (regenerate it in its admin page), the row says "the certificate changed since you trusted it" and offers to trust the new one
 - [ ] On a server whose https address redirects to another https port with a different self-signed certificate (for example a NAS that sends `https://nas/` on to `https://nas:5001/`), after trusting the first certificate the row names the second address and says it uses a different certificate that is not trusted, with no **Trust this certificate** button
-- [ ] **Forget** in Settings, then **Save**, makes the row fail again on the next Recheck
+- [ ] **Forget** in Settings, then **Save**, makes the row fail again without pressing Recheck
+- [ ] After changing the Web server URL in Settings and pressing **Save**, the Web server row describes the new address within about 10 seconds without pressing Recheck, and **Trust this certificate** is never offered for the old address
 - [ ] An `https://` Web server with a normal public certificate is `ok` without any trust step
 - [ ] The Web server card's "Set the web server URL in Settings" link shows when no URL is set and opens Settings
 - [ ] On a computer with a VPN or a second network adapter (wired and Wi-Fi on different networks), after scanning one network, **Recheck** and the MCP `run_health_check` tool check that network: the Gateway row names its router, and the Wi-Fi and DHCP rows describe that adapter

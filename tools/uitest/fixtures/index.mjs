@@ -144,31 +144,32 @@ export const WEB_URL = 'https://intranet.local/';
 export const CERT_SHA256 = '5d41402abc4b2a76b9719d911017c592' + '7d793fcb0ab1e6b2b4a2d1c0f9e8d7c6';
 
 // The web server check in each state: 'unset' (no URL in Settings), 'ok', or
-// 'untrusted' (self-signed certificate this computer does not trust).
-export function webCheck(state = 'unset') {
+// 'untrusted' (self-signed certificate this computer does not trust). url is
+// the address the check reports in data.url (the server hides any password).
+export function webCheck(state = 'unset', url = WEB_URL) {
   const base = { id: 'webserver', label: 'Web server' };
   if (state === 'ok') {
     return { ...base, status: 'ok', detail: 'HTTP 200 in 12 ms', latencyMs: 12.3,
-      data: { configured: true, url: WEB_URL, status: 200 } };
+      data: { configured: true, url, status: 200 } };
   }
   if (state === 'untrusted') {
     return { ...base, status: 'fail', detail: 'the certificate is not trusted: self-signed or from a private authority', latencyMs: 0,
-      data: { configured: true, url: WEB_URL, certSHA256: CERT_SHA256, certSubject: 'intranet.local',
+      data: { configured: true, url, certSHA256: CERT_SHA256, certSubject: 'intranet.local',
         certExpires: '2027-10-01T00:00:00Z' } };
   }
   return { ...base, status: 'info', detail: 'no web server configured (set one in Settings)', latencyMs: 0,
     data: { configured: false } };
 }
 
-// web: the web server check state (see webCheck).
-export function health({ web = 'unset' } = {}) {
+// web: the web server check state and webURL its reported address (see webCheck).
+export function health({ web = 'unset', webURL = WEB_URL } = {}) {
   return {
     checkedAt: T1,
     checks: [
       { id: 'gateway', label: 'Default gateway', status: 'ok', detail: `Reachable at ${GATEWAY}`, latencyMs: 1.4 },
       { id: 'dhcp', label: 'DHCP', status: 'ok', detail: 'Lease active, 23h remaining', latencyMs: 0 },
       { id: 'dns', label: 'DNS', status: 'ok', detail: 'Resolved in 18 ms', latencyMs: 18.2 },
-      webCheck(web),
+      webCheck(web, webURL),
       { id: 'internet', label: 'Internet', status: 'ok', detail: 'Reachable', latencyMs: 42.7 },
       { id: 'wifi', label: 'Wi-Fi', status: 'warn', detail: 'Signal 48% on 5 GHz', latencyMs: 0 },
     ],
