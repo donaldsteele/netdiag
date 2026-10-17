@@ -510,6 +510,24 @@ func TestPrinterAlertNewOnly(t *testing.T) {
 	}
 }
 
+// TestNoticeCodeAndDetail: printer alert and low supply notices carry the
+// alert code and what they are about, which the advice keys on.
+func TestNoticeCodeAndDetail(t *testing.T) {
+	e, _ := newEng()
+	a := model.Alert{Severity: "critical", Code: "hrPrinterDetectedErrorState.doorOpen", Description: "Door or cover open"}
+	n := e.Observe(printer(true, 50), printer(true, 50, a))
+	if len(n) != 1 || n[0].Code != a.Code || n[0].Detail != a.Description {
+		t.Fatalf("printer alert: %+v", n)
+	}
+	n = e.Observe(printer(true, 50, a), printer(true, 10, a))
+	if len(n) != 1 || n[0].Trigger != model.TriggerSupplyLow || n[0].Detail != "Black" || n[0].Code != "" {
+		t.Fatalf("supply low: %+v", n)
+	}
+	if n := e.Observe(printer(true, 10), printer(true, 10)); len(n) != 1 || !n[0].OK || n[0].Code != "" || n[0].Detail != "" {
+		t.Fatalf("OK notice: %+v", n)
+	}
+}
+
 func TestPrinterAlertClearedAndRelapse(t *testing.T) {
 	e, c := newEng()
 	door := model.Alert{Severity: "critical", Code: "hrPrinterDetectedErrorState.doorOpen", Description: "Door or cover open"}

@@ -427,8 +427,10 @@ func (e *Engine) supplies(out []model.Notice, pp *model.PrinterInfo, cur model.H
 		}
 		ps, ok := before[part]
 		if ok && ps.Percent >= 0 && cs.Percent >= 0 && ps.Percent > thr && cs.Percent <= thr {
-			out = e.emit(out, e.hostNotice(model.TriggerSupplyLow, cur, part, sevCtx{}, "Supply low",
-				fmt.Sprintf("%s: %s at %d%% (threshold %d%%).", l, cs.Description, cs.Percent, thr)), cs.Description)
+			n := e.hostNotice(model.TriggerSupplyLow, cur, part, sevCtx{}, "Supply low",
+				fmt.Sprintf("%s: %s at %d%% (threshold %d%%).", l, cs.Description, cs.Percent, thr))
+			n.Detail = cs.Description
+			out = e.emit(out, n, cs.Description)
 		}
 	}
 	if len(cur.Printer.Supplies) == 0 || pp == cur.Printer {
@@ -498,8 +500,10 @@ func (e *Engine) printerAlerts(out []model.Notice, pp *model.PrinterInfo, cur mo
 		if general(a) && (stopped || folded[alertID(a)]) {
 			continue
 		}
-		out = e.emit(out, e.hostNotice(model.TriggerPrinterAlert, cur, part, sevCtx{printer: a.Severity},
-			"Printer alert", fmt.Sprintf("%s: %s", l, a.Description)), a.Description)
+		n := e.hostNotice(model.TriggerPrinterAlert, cur, part, sevCtx{printer: a.Severity},
+			"Printer alert", fmt.Sprintf("%s: %s", l, a.Description))
+		n.Code, n.Detail = a.Code, a.Description
+		out = e.emit(out, n, a.Description)
 	}
 	// The open problem of each specific error the printer reports takes in
 	// the general alerts that have no problem of their own.
