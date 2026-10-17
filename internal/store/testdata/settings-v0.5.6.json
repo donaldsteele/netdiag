@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "community": "frontdesk",
+  "printerStatusPollSec": 12,
+  "webServer": {
+    "url": "http://192.168.1.10/status",
+    "mustContain": "Welcome",
+    "expectStatus": 204
+  },
+  "internetCheckURL": "http://example.test/generate_204",
+  "alerts": {
+    "sound": false,
+    "desktop": true,
+    "cooldownSec": 600,
+    "supplyThresholdPct": 0,
+    "triggers": {
+      "printerOffline": true,
+      "deviceOffline": true,
+      "supplyLow": false,
+      "printerAlert": true,
+      "newDevice": false,
+      "ipConflict": true,
+      "healthFailed": false
+    }
+  },
+  "ignoredConflictMACs": [
+    "AA:BB:CC:DD:EE:01",
+    "AA:BB:CC:DD:EE:02"
+  ],
+  "mcp": {
+    "enabled": true
+  }
+}

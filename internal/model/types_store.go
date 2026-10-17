@@ -20,11 +20,34 @@ type Settings struct {
 	Alerts               SettingsAlerts    `json:"alerts"`
 	IgnoredConflictMACs  []string          `json:"ignoredConflictMACs"`
 	MCP                  SettingsMCP       `json:"mcp"`
+	Chat                 SettingsChat      `json:"chat"`
 }
 
 // SettingsMCP controls the HTTP MCP endpoint (agent access). Off by default.
 type SettingsMCP struct {
 	Enabled bool `json:"enabled"`
+}
+
+// Team chat (bubbles) "Send:" levels, lowest first. A fault goes to chat
+// when its severity (the severity map) is at least MinSeverity.
+const (
+	ChatSeverityInfo     = "info"     // everything, including notes
+	ChatSeverityWarning  = "warning"  // problems and warnings (the default)
+	ChatSeverityCritical = "critical" // only urgent problems
+)
+
+// SettingsChat controls sending alerts to team chat (bubbles). Off by
+// default; the connection itself (server, channel, token) lives in
+// bubbles.json, never in settings.
+type SettingsChat struct {
+	Enabled bool `json:"enabled"`
+	// MinSeverity is the lowest severity sent: info, warning or critical.
+	MinSeverity string `json:"minSeverity"`
+}
+
+// ValidChatSeverity reports whether s is one of the chat Send levels.
+func ValidChatSeverity(s string) bool {
+	return s == ChatSeverityInfo || s == ChatSeverityWarning || s == ChatSeverityCritical
 }
 
 // SettingsWebServer configures the optional web server health check.

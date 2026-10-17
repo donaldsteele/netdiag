@@ -3,6 +3,8 @@ package store
 
 import (
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +20,85 @@ type Store struct {
 	mu      sync.Mutex
 	dir     string
 	histDir string
+	// repaired lists the settings fields the last load reset (F7).
+	repaired []string
+}
+
+// Data files that other packages own and keep in the data directory through
+// ReadFile, WriteFile, RemoveFile and QuarantineFile. Each has one writer
+// (v0.6 plan §4.15). Settings and history have their own methods.
+const (
+	FileInstance       = "instance.json"        // internal/instance
+	FileNetworkProfile = "network-profile.json" // scan, through Deps.Profiles
+	FileOpenProblems   = "open-problems.json"   // problems.Ledger
+	FileBubbles        = "bubbles.json"         // chat.Manager
+	FileChatOutbox     = "chat-outbox.json"     // the chat outbox
+)
+
+var dataFiles = map[string]bool{
+	FileInstance: true, FileNetworkProfile: true, FileOpenProblems: true,
+	FileBubbles: true, FileChatOutbox: true,
+}
+
+// ErrFileName means a data file name is not on the allowlist.
+var ErrFileName = errors.New("store: data file name not allowed")
+
+func dataFile(name string) error {
+	if !dataFiles[name] {
+		return fmt.Errorf("%w: %q", ErrFileName, name)
+	}
+	return nil
+}
+
+// ReadFile returns the contents of the named data file. A missing file is
+// an error that matches fs.ErrNotExist.
+func (s *Store) ReadFile(name string) ([]byte, error) {
+	if err := dataFile(name); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return os.ReadFile(filepath.Join(s.dir, name))
+}
+
+// WriteFile atomically replaces the named data file (temp file and rename).
+// On macOS the file is readable by its owner only (0600).
+func (s *Store) WriteFile(name string, data []byte) error {
+	if err := dataFile(name); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return writeAtomic(filepath.Join(s.dir, name), data)
+}
+
+// RemoveFile deletes the named data file. A missing file is not an error.
+func (s *Store) RemoveFile(name string) error {
+	if err := dataFile(name); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.Remove(filepath.Join(s.dir, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// QuarantineFile renames an unreadable data file to <name>.bad-<UTC time>,
+// so its owner can start again from defaults without losing it. It returns
+// the new name.
+func (s *Store) QuarantineFile(name string) (string, error) {
+	if err := dataFile(name); err != nil {
+		return "", err
+	}
+	bad := name + ".bad-" + time.Now().UTC().Format("20060102T150405Z")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.Rename(filepath.Join(s.dir, name), filepath.Join(s.dir, bad)); err != nil {
+		return "", err
+	}
+	return bad, nil
 }
 
 // ResolveDir returns baseDir, else $NETDIAG_DATA_DIR, else UserConfigDir/netdiag.
