@@ -135,14 +135,14 @@ Use a Windows 11 standard user account with Windows Defender Firewall on and no 
 - [ ] Record what Cancel left in Windows Defender Firewall with Advanced Security > Inbound Rules (block rules for netdiag, or none), and whether the alert comes back at the next scan
 
 ### Live alerts
-- [ ] Unplugging a printer in live mode shows a critical banner and a beep (printerOffline)
+- [ ] Unplugging a printer in live mode shows a warning banner and one beep (printerOffline, v0.6); plugging it back in turns that banner into "Fixed: Printer back online" after two good checks, with no beep
 - [ ] When the page loses its connection for a moment and reconnects (for example after the PC sleeps and wakes), old alerts do not beep or notify again (replay is silent)
 - [ ] Reloading the page during live mode shows an empty page, as README "Live mode" says; pressing Scan then stops the hidden live scan, it appears in History, and the new scan starts
 - [ ] Reloading during the first scan and pressing Scan at once shows "a scan is already running"; pressing Scan after the first scan finishes works
 - [ ] Mute and Unmute change the beep and survive a restart
 - [ ] "Enable desktop alerts" from a click shows the browser permission prompt; denying it still leaves the banner and beep working
-- [ ] The same alert does not repeat within the cooldown (default 300 s)
-- [ ] `netdiag scan --live` prints `ALERT` lines to stdout and the health summary to stderr
+- [ ] An alert is not repeated while its problem lasts (a printer that stays offline gives one banner), and the same new device is not announced twice within the cooldown (default 300 s). A problem that was fixed and comes back is shown again at once (v0.6)
+- [ ] `netdiag scan --live` prints `ALERT` lines, and `FIXED` lines that say what was fixed, to stdout and the health summary to stderr
 
 ### History and compare
 - [ ] A completed scan appears in the History tab without any action
