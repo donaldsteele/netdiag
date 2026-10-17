@@ -224,6 +224,8 @@ Plan: [v0.6.md](v0.6.md). Status: In progress (started 2026-10-17, after the v0.
 - **M2.** Re-scope F11. `model.RedactScan` already covers the API, SSE, exports, history and MCP (`d1969be`). What is left:
   - the service-level guarantee for the new outputs (ledger, outbox, chat);
   - the `s3cr3t-x` grep test (X-7).
+
+  Done in M2: scans redact at the source and the service redacts again. `TestSecretCommunityAppearsNowhere` (`internal/server/redact_test.go`) covers the API, the event stream, exports, history and MCP. It also reads every file in the data folder except `settings.json`, so `open-problems.json` and `chat-outbox.json` are covered once M6 and M11 write them. The chat router (M11) must still build its posts without `Request`.
 - **M4.** The method-based guard covers `POST /api/scans/{id}/remote` automatically. `GET /api/remote` and `GET /api/scans/{id}/remote.rdp` stay readable. Add `netdiag/internal/remote` to `TestMCPImportsNoActionPackages` in M9.
 - **M9.** Most of prerequisite 12 is done (see 4.2). `filter=problems` already matches the Problems tab (`6ba7ed6`), so building it on `HostIssues` starts from there.
 - **D13.** It is resolved by R1. Remote access shipped in v0.5.7.
