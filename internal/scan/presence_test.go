@@ -210,6 +210,40 @@ func TestPresenceOfflineAfterTwoMissesAndBack(t *testing.T) {
 	}
 }
 
+// tickClock is a clock that moves one second on every reading, so each
+// presence check stamps a new LastSeen even when cycles are milliseconds
+// apart.
+func tickClock() func() time.Time {
+	var mu sync.Mutex
+	t := time.Date(2026, 10, 17, 10, 0, 0, 0, time.UTC)
+	return func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		t = t.Add(time.Second)
+		return t
+	}
+}
+
+// A printer that misses two checks is reported offline once; after two
+// good checks in a row it gets one OK under the same key (v0.6-D18).
+func TestPresenceOfflineThenFixed(t *testing.T) {
+	sp := &scriptPinger{
+		sweepAlive: map[string]bool{"10.0.0.10": true},
+		// check: 1 ok, 2-3 miss (offline), 4 ok (back), 5 ok (fixed), then ok.
+		script:   map[string][]bool{"10.0.0.10": {true, false, false, true, true}},
+		presence: map[string]int{},
+	}
+	d := presenceDeps()
+	d.Pinger = sp
+	d.Now = tickClock()
+	_, res := runCycles(t, d, "10.0.0.0/28", 7)
+	n := notices(res, model.TriggerPrinterOffline)
+	if len(n) != 2 || n[0].OK || n[0].Severity != "warn" || n[0].Key != "printerOffline|ip:10.0.0.10|" ||
+		!n[1].OK || n[1].Key != n[0].Key || n[1].OpenedAt != n[0].At || n[1].Title != "Printer back online" {
+		t.Fatalf("notices = %+v", n)
+	}
+}
+
 func TestPresenceTCPFallbackAndARP(t *testing.T) {
 	sp := &scriptPinger{
 		sweepAlive: map[string]bool{"10.0.0.11": true, "10.0.0.13": true},

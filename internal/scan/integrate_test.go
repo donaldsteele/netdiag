@@ -328,6 +328,38 @@ func TestFlapProducesConflictNoticeAndSingleReprobe(t *testing.T) {
 	}
 }
 
+// A one-shot scan runs the health checks once, so a failing check is shown
+// but never reported: one bad run reaches nobody (v0.6-D18).
+func TestOneShotHealthFailNoNotice(t *testing.T) {
+	d := fakeDeps()
+	d.Health = &fakeHealth{reports: []model.HealthReport{healthReport(model.HealthFail)}}
+	s, err := New(d).Start(context.Background(), model.ScanRequest{CIDR: "10.0.0.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := s.Wait()
+	if res.Health == nil || res.Health.Checks[0].Status != model.HealthFail {
+		t.Fatalf("health = %+v", res.Health)
+	}
+	if n := notices(res, model.TriggerHealthFailed); len(n) != 0 {
+		t.Fatalf("notices = %+v", n)
+	}
+}
+
+// Live: the gateway fails two runs in a row (one critical notice), then
+// passes two runs in a row (one OK under the same key).
+func TestLiveHealthFaultAndOK(t *testing.T) {
+	ok, bad := healthReport(model.HealthOK), healthReport(model.HealthFail)
+	d := presenceDeps()
+	d.Health = &fakeHealth{reports: []model.HealthReport{ok, bad, bad, bad, ok}}
+	_, res := runCycles(t, d, "10.0.0.0/28", 7)
+	n := notices(res, model.TriggerHealthFailed)
+	if len(n) != 2 || n[0].OK || n[0].Severity != "critical" || n[0].Key != "healthFailed||gateway" ||
+		!n[1].OK || n[1].Key != n[0].Key || n[1].OpenedAt != n[0].At {
+		t.Fatalf("notices = %+v", n)
+	}
+}
+
 func TestHealthWorseningProducesNotice(t *testing.T) {
 	fh := &fakeHealth{reports: []model.HealthReport{healthReport(model.HealthOK), healthReport(model.HealthFail)}}
 	d := presenceDeps()
@@ -567,7 +599,8 @@ func TestSNMPCommunitySource(t *testing.T) {
 
 func TestReplayedNoticesFlagged(t *testing.T) {
 	d := fakeDeps()
-	d.Health = &fakeHealth{reports: []model.HealthReport{healthReport(model.HealthFail)}}
+	d.Health = &fakeHealth{reports: []model.HealthReport{healthReport(model.HealthOK)}}
+	d.SNMP = &scriptSNMP{ip: "10.0.0.10", faulty: 1} // the door is open
 	s, err := New(d).Start(context.Background(), model.ScanRequest{CIDR: "10.0.0.0/24"})
 	if err != nil {
 		t.Fatal(err)
@@ -576,7 +609,7 @@ func TestReplayedNoticesFlagged(t *testing.T) {
 	defer unsub()
 	live := collect(t, ch, 5*time.Second)
 	res := s.Wait()
-	if len(notices(res, model.TriggerHealthFailed)) != 1 {
+	if len(notices(res, model.TriggerPrinterAlert)) != 1 {
 		t.Fatalf("notices = %+v", res.Notices)
 	}
 
@@ -629,8 +662,15 @@ func TestApplySettingsIgnoresMACAndResolvesConflict(t *testing.T) {
 	if snap := s.Snapshot(); len(snap.Conflicts) != 0 {
 		t.Fatalf("conflicts after ignore = %+v", snap.Conflicts)
 	}
+	// Gone from two analyses in a row (the ignore and the next cycle): the
+	// conflict's problem closes under its anchor key.
+	waitLive(t, ch, func(st model.LiveStatus) bool { return st.Cycle >= 2 })
 	s.Cancel()
-	s.Wait()
+	res := s.Wait()
+	n := notices(res, model.TriggerIPConflict)
+	if len(n) != 2 || n[0].OK || n[0].Key != "ipConflict|mac_multi_ip|"+shared || !n[1].OK || n[1].Key != n[0].Key {
+		t.Fatalf("conflict notices = %+v", n)
+	}
 	if s.ApplySettings(set) {
 		t.Fatal("apply accepted after finish")
 	}
@@ -716,7 +756,7 @@ func TestLivePollClearsPrinterAlert(t *testing.T) {
 	var raised, cleared int
 	for _, n := range res.Notices {
 		if n.IP == "10.0.0.10" && n.Trigger == model.TriggerPrinterAlert {
-			if n.Title == "Printer OK again" {
+			if n.OK {
 				cleared++
 			} else {
 				raised++
@@ -745,7 +785,7 @@ func TestFastStatusPollClearsPrinterAlert(t *testing.T) {
 	}
 	cleared := 0
 	for _, n := range res.Notices {
-		if n.IP == "10.0.0.10" && n.Title == "Printer OK again" {
+		if n.IP == "10.0.0.10" && n.OK && n.Trigger == model.TriggerPrinterAlert {
 			cleared++
 		}
 	}

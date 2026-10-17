@@ -40,21 +40,18 @@ func (s *state) addNotices(ns []model.Notice) {
 	s.mirror()
 }
 
-// setHealth stores a new health report, publishes it and notifies on checks
-// that newly failed.
+// setHealth stores a new health report, publishes it and feeds it to the
+// notify engine (which reports a check after two failed runs in a row and
+// says it is fixed after two good ones).
 func (s *state) setHealth(rep model.HealthReport) {
 	s.ops <- func(map[string]*model.Host) {
-		var prev model.HealthReport
-		if s.health != nil {
-			prev = *s.health
-		}
 		s.health = &rep
 		if s.emit != nil {
 			s.emit(model.Event{Type: model.EventHealth, Data: rep})
 		}
 		s.mirror()
 		if s.notify != nil {
-			s.addNotices(s.notify.ObserveHealth(prev, rep))
+			s.addNotices(s.notify.ObserveHealth(rep))
 		}
 	}
 }
@@ -115,7 +112,7 @@ func (s *state) applySettings(set model.Settings) bool {
 
 // analyzeOp runs the pure conflict analyzer over the current hosts and MAC
 // observations, publishes conflict events for new and resolved conflicts,
-// notifies on new ones and updates Host.Conflicts.
+// feeds the result to the notify engine and updates Host.Conflicts.
 func (s *state) analyzeOp(hosts map[string]*model.Host) {
 	now := s.now()
 	list := analysisHosts(hostList(hosts))
@@ -171,8 +168,8 @@ func (s *state) analyzeOp(hosts map[string]*model.Host) {
 	}
 	s.mirror()
 	if s.notify != nil {
-		for _, c := range added {
-			s.addNotices(s.notify.ObserveConflict(c, true))
-		}
+		// Once per analysis: new conflicts are reported, and a conflict
+		// gone from two analyses in a row gets its OK notice.
+		s.addNotices(s.notify.ObserveConflicts(cur))
 	}
 }
