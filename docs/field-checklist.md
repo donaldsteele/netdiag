@@ -132,7 +132,9 @@ Use a Windows 11 standard user account with Windows Defender Firewall on and no 
 
 ### Live alerts
 - [ ] Unplugging a printer in live mode shows a critical banner and a beep (printerOffline)
-- [ ] Reloading the page with existing alerts does not beep or notify again (replay is silent)
+- [ ] When the page loses its connection for a moment and reconnects (for example after the PC sleeps and wakes), old alerts do not beep or notify again (replay is silent)
+- [ ] Reloading the page during live mode shows an empty page, as README "Live mode" says; pressing Scan then stops the hidden live scan, it appears in History, and the new scan starts
+- [ ] Reloading during the first scan and pressing Scan at once shows "a scan is already running"; pressing Scan after the first scan finishes works
 - [ ] Mute and Unmute change the beep and survive a restart
 - [ ] "Enable desktop alerts" from a click shows the browser permission prompt; denying it still leaves the banner and beep working
 - [ ] The same alert does not repeat within the cooldown (default 300 s)
