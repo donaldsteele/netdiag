@@ -57,6 +57,17 @@ Machines required:
 
 Tick only after observing the behaviour on real hardware.
 
+### Remote access (v0.5.7)
+- [ ] A Windows PC with Remote Desktop on shows port 3389 and a **Remote desktop** link in the Web / remote column
+- [ ] On Windows, clicking the link (or **Open remote desktop** in the drawer) opens Remote Desktop Connection to that address, with no other prompt from netdiag
+- [ ] On macOS with Windows App installed, **Open remote desktop** opens Windows App to that address; without it, the drawer says to install it and **Download connection file** works
+- [ ] A Mac with Screen Sharing on (or a VNC server) shows port 5900; on macOS **Open screen sharing** opens the built-in Screen Sharing app; on Windows without a VNC viewer only **Copy address** is offered
+- [ ] A device with SSH shows **Copy SSH command** (copies `ssh <ip>`) and no open button
+- [ ] In live mode, a Linux machine with SSH open and other ports open logs no SSH connection every cycle (`journalctl -u ssh` / `/var/log/auth.log`)
+- [ ] After a full /24 scan, 30 minutes of live mode and opening Remote Desktop from netdiag, Microsoft Defender Protection history shows nothing for netdiag
+- [ ] A Windows PC with only Remote Desktop open (firewall blocking ping) stays online in live mode, and its Remote Desktop log (Event Viewer > RemoteDesktopServices-RdpCoreTS) shows no connection every cycle
+- [ ] The "this computer" row never offers Open remote desktop, even when this PC has Remote Desktop on
+
 ### Health panel
 - [ ] Gateway row shows `ok` with a latency; unplugging the router shows `fail` text, not colour alone
 - [ ] DHCP row shows `ok` on a DHCP lease and `fail` on a 169.254.x.x (APIPA) address

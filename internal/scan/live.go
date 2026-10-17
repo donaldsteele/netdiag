@@ -336,8 +336,8 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 
 // checkPresence gives each known host (except self and hosts reset this
 // cycle) one cheap check: an ICMP echo for ICMP-found hosts (with a TCP
-// fallback if it has open ports), else a TCP connect to its lowest open port,
-// else an ARP table match on IP and MAC. Results are applied by the state
+// fallback if it has open ports), else a TCP connect to its lowest open port
+// that is not remote access (see presencePort), else an ARP table match on IP and MAC. Results are applied by the state
 // goroutine; nothing is applied if ctx is cancelled (a cancelled check is not
 // a miss).
 func (r *runner) checkPresence(ctx context.Context, hosts []model.Host, skip map[string]bool, arpMAC map[string]string) {
@@ -350,10 +350,7 @@ func (r *runner) checkPresence(ctx context.Context, hosts []model.Host, skip map
 		if !h.Alive || h.IsSelf || skip[h.IP] {
 			continue
 		}
-		port := 0
-		if len(h.OpenPorts) > 0 {
-			port = slices.Min(h.OpenPorts)
-		}
+		port := presencePort(h.OpenPorts)
 		if slices.Contains(h.FoundBy, "icmp") {
 			if a, err := netip.ParseAddr(h.IP); err == nil {
 				pings = append(pings, a)
@@ -616,4 +613,18 @@ func (r *runner) startStatusPoll(ctx context.Context) (wait func()) {
 		}
 	}()
 	return wg.Wait
+}
+
+// presencePort picks the open port the TCP presence check dials: the lowest
+// one that is not remote access, because SSH, Remote Desktop and VNC servers
+// may log every check as a connection attempt. It returns 0 when there is no
+// such port, and the host is then checked by ping or the ARP table only.
+func presencePort(open []int) int {
+	best := 0
+	for _, p := range open {
+		if !model.IsRemotePort(p) && (best == 0 || p < best) {
+			best = p
+		}
+	}
+	return best
 }

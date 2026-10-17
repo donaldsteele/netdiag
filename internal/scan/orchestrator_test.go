@@ -238,7 +238,7 @@ func TestEndToEndFake24(t *testing.T) {
 	if res.Gateway != "10.0.0.1" || res.Self.IP != "10.0.0.30" || res.Self.MAC != "AA:BB:CC:00:00:30" {
 		t.Fatalf("self/gateway = %+v %q", res.Self, res.Gateway)
 	}
-	if res.Request.Community != "public" || len(res.Request.Ports) != 7 {
+	if res.Request.Community != "public" || !slices.Equal(res.Request.Ports, model.DefaultPorts) {
 		t.Fatalf("request defaults not applied: %+v", res.Request)
 	}
 	byIP := map[string]model.Host{}

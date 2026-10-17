@@ -237,5 +237,13 @@ func Classify(h model.Host, gateway string) (Type, string) {
 			}
 		}
 	}
+	for _, op := range h.OpenPorts {
+		switch op {
+		case model.PortRDP:
+			return Computer, "remote desktop port 3389"
+		case model.PortVNC:
+			return Computer, "screen sharing port 5900"
+		}
+	}
 	return Unknown, "no identifying signals"
 }

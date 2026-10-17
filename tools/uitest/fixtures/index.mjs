@@ -110,6 +110,10 @@ export function hosts() {
       h.vendor = 'VMware, Inc.'; h.mac = '00:50:56:AB:CD:EF'; h.openPorts = [8080];
       h.web = [{ port: 8080, scheme: 'http', url: 'http://192.168.2.200:8080/', status: 0, title: '', server: '', tls: null, error: 'connection reset' }];
     }
+    if (n === 4) {
+      // A Windows PC that offers SSH, Remote Desktop and VNC screen sharing.
+      h.foundBy = ['icmp', 'arp', 'tcp']; h.openPorts = [22, 3389, 5900]; h.hostname = 'DESKTOP-FRONT'; h.vendor = 'Dell Inc.';
+    }
     if (n === 123) { h.errors = ['snmp: timeout']; }
     const dt = DEVICE_TYPES[n];
     h.deviceType = dt ? dt[0] : 'unknown';
@@ -117,6 +121,11 @@ export function hosts() {
     out.push(h);
   }
   return out;
+}
+
+// What this computer can open remote sessions with (a Windows PC).
+export function remoteCaps() {
+  return { platform: 'windows', rdp: true, rdpApp: 'Remote Desktop Connection', vnc: false };
 }
 
 export function conflict(resolved = false) {

@@ -2,8 +2,20 @@
 // the HTTP server and exporters.
 package model
 
-// DefaultPorts is the fixed set of TCP ports probed on every host.
-var DefaultPorts = []int{80, 443, 8080, 8443, 9100, 631, 515}
+// DefaultPorts is the fixed set of TCP ports probed on every host: web,
+// printing, then remote access (SSH, Remote Desktop, VNC screen sharing).
+var DefaultPorts = []int{80, 443, 8080, 8443, 9100, 631, 515, 22, 3389, 5900}
+
+// Remote access ports in DefaultPorts. A connection to one of them can show
+// up in that device's own logs, so live presence checks avoid them.
+const (
+	PortSSH = 22
+	PortRDP = 3389
+	PortVNC = 5900
+)
+
+// IsRemotePort reports whether p is one of the remote access ports.
+func IsRemotePort(p int) bool { return p == PortSSH || p == PortRDP || p == PortVNC }
 
 // DefaultCommunity is the SNMP community used when none is supplied.
 const DefaultCommunity = "public"

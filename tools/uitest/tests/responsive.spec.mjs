@@ -36,6 +36,11 @@ for (const width of WIDTHS) {
     expect(await pageOverflow(page), 'drawer open').toBeLessThanOrEqual(0);
     await page.getByRole('button', { name: 'Close details' }).click();
     await expect(page.locator('#drawer')).toBeHidden();
+    await page.locator('#hosts button.rowbtn[data-ip="192.168.2.4"]').click();
+    await expect(page.locator('#drawer-remote')).toBeVisible();
+    expect(await pageOverflow(page), 'remote access drawer').toBeLessThanOrEqual(0);
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expect(page.locator('#drawer')).toBeHidden();
 
     for (const tab of ['#tab-health', '#tab-activity', '#tab-history']) {
       await navTo(page, tab);

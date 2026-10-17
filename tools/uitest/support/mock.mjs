@@ -72,6 +72,11 @@ export async function installMocks(page, { scenario = 'scan' } = {}) {
     }
     if (method === 'POST' && p === '/api/scans') return json(route, 202, { id: fx.SCAN_ID });
     if (method === 'POST' && p === '/api/conflicts/ignore') return empty(route);
+    if (method === 'GET' && p === '/api/remote') return json(route, 200, fx.remoteCaps());
+    if (method === 'POST' && /^\/api\/scans\/[^/]+\/remote$/.test(p)) return empty(route);
+    if (method === 'GET' && /^\/api\/scans\/[^/]+\/remote\.rdp$/.test(p)) {
+      return route.fulfill({ status: 200, contentType: 'application/x-rdp', body: 'full address:s:' + url.searchParams.get('ip') + '\r\n' });
+    }
     if (method === 'POST' && p === '/api/quit') return empty(route);
     if (method === 'POST' && /^\/api\/scans\/[^/]+\/cancel$/.test(p)) return empty(route);
 

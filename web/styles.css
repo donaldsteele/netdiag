@@ -60,6 +60,9 @@ thead th{vertical-align:bottom}
 .panel{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;padding:8px;background:var(--panel);border-radius:4px}
 .panel h3{margin:0 0 4px;font-size:14px}.panel h4{margin:8px 0 2px;font-size:13px}
 .panel ul{margin:0;padding-left:18px}
+.panel ul.remote{list-style:none;padding-left:0;display:grid;gap:var(--s3)}
+.panel ul.remote p{margin:2px 0}
+.ractions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin-top:var(--s1)}
 dl{margin:0}dl div{display:flex;gap:8px}dt{min-width:110px;color:var(--muted)}dd{margin:0;word-break:break-word}
 .mono{font-family:var(--font-mono)}
 .themebtn[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}

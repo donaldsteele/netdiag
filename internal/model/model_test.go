@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -20,8 +21,14 @@ func TestHostJSONKeys(t *testing.T) {
 }
 
 func TestDefaults(t *testing.T) {
-	if len(DefaultPorts) != 7 || DefaultCommunity != "public" {
-		t.Fatal("bad defaults")
+	want := []int{80, 443, 8080, 8443, 9100, 631, 515, PortSSH, PortRDP, PortVNC}
+	if !slices.Equal(DefaultPorts, want) || DefaultCommunity != "public" {
+		t.Fatalf("bad defaults: %v", DefaultPorts)
+	}
+	for p, remote := range map[int]bool{22: true, 3389: true, 5900: true, 80: false, 9100: false} {
+		if IsRemotePort(p) != remote {
+			t.Errorf("IsRemotePort(%d) = %v", p, !remote)
+		}
 	}
 }
 

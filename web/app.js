@@ -14,6 +14,7 @@ document.addEventListener('alpine:init', () => {
     settings: null, draft: null, settingsError: '', storeDown: false, desktopNote: '', audio: null,
     history: [], historyError: '', baseId: '', currentId: '', diff: null, diffError: '', diffBusy: false,
     shown: {},
+    remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
     log: [], logSeq: 0, logHidden: {}, logStick: true, logSeen: {},
     logKinds: [{id: 'scan', label: 'Scan'}, {id: 'host', label: 'New host'}, {id: 'offline', label: 'Offline'}, {id: 'online', label: 'Online'},
                {id: 'conflict', label: 'Conflict'}, {id: 'health', label: 'Health'}, {id: 'notice', label: 'Notice'}, {id: 'error', label: 'Error'}],
@@ -107,6 +108,7 @@ document.addEventListener('alpine:init', () => {
       } catch (e) { this.error = 'Could not list network interfaces: ' + e.message; }
       this.loadSettings();
       this.loadHealth();
+      this.loadRemoteCaps();
     },
     async loadSettings() {
       try {
@@ -351,7 +353,7 @@ document.addEventListener('alpine:init', () => {
       this.error = ''; this.hosts = []; this.warnings = []; this.drawerIP = '';
       this.stage = ''; this.done = 0; this.total = 0; this.state = ''; this.gateway = '';
       this.liveStatus = null; this.announce = ''; this.announced = {}; this.conflicts = [];
-      this.seenNotices = {}; this.logSeen = {};
+      this.seenNotices = {}; this.logSeen = {}; this.remoteMsg = {}; this.remoteShort = {}; this.remoteBusy = {};
       try {
         const r = await this.post('/api/scans', {cidr: this.cidr.trim(), interface: this.ifaceName, community: this.community, live: !!this.live});
         const j = await r.json();
@@ -621,6 +623,67 @@ document.addEventListener('alpine:init', () => {
     webNote(w) {
       if (w.error) return 'unreachable (' + w.error + ')';
       return [w.status ? 'HTTP ' + w.status : '', w.title, w.server].filter(Boolean).join(' - ');
+    },
+    async loadRemoteCaps() {
+      try { const r = await fetch('/api/remote'); if (r.ok) this.remoteCaps = await r.json(); }
+      catch (e) { /* remote access stays copy-only */ }
+    },
+    // Remote access services on a device, from its open ports, with what
+    // this computer can open them with.
+    remoteServices(h) {
+      const c = this.remoteCaps, ports = h.openPorts || [], out = [], self = !!h.isSelf, local = this.localIP(h.ip);
+      const selfNote = 'This is this computer, so there is nothing to connect to.';
+      const farNote = 'This address is not on a local network, so netdiag does not open sessions to it.';
+      if (ports.includes(3389)) out.push({kind: 'rdp', port: 3389, label: 'Remote desktop', canOpen: !!c.rdp && !self && local, local,
+        openLabel: 'Open remote desktop', copy: h.ip, copyWhat: 'address', copyLabel: 'Copy address',
+        help: self ? selfNote : !local ? farNote : c.rdp ? 'Opens ' + c.rdpApp + '. You will need a user name and password for that computer.'
+          : c.platform === 'darwin' ? "Install Microsoft's free Windows App from the App Store to open it here, or download the connection file."
+          : 'Download the connection file and open it with a Remote Desktop app.'});
+      if (ports.includes(5900)) out.push({kind: 'vnc', port: 5900, label: 'Screen sharing (VNC)', canOpen: !!c.vnc && !self && local, local,
+        openLabel: 'Open screen sharing', copy: h.ip, copyWhat: 'address', copyLabel: 'Copy address',
+        help: self ? selfNote : !local ? farNote : c.vnc ? 'Opens ' + c.vncApp + '. You will need a user name and password for that computer, or its screen sharing password.'
+          : "netdiag can't open screen sharing on this computer. Copy the address into your VNC viewer."});
+      if (ports.includes(22)) out.push({kind: 'ssh', port: 22, label: 'SSH', canOpen: false,
+        copy: 'ssh ' + h.ip, copyWhat: 'SSH command', copyLabel: 'Copy SSH command',
+        help: 'A command-line login for your IT helper. netdiag does not open it.'});
+      return out;
+    },
+    // Mirrors remote.Local: sessions open only to private, link-local and
+    // 100.64.0.0/10 addresses.
+    localIP(ip) {
+      const p = String(ip).split('.').map(Number);
+      if (p.length !== 4 || p.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+      return p[0] === 10 || (p[0] === 172 && p[1] >= 16 && p[1] <= 31) || (p[0] === 192 && p[1] === 168) ||
+        (p[0] === 169 && p[1] === 254) || (p[0] === 100 && p[1] >= 64 && p[1] <= 127);
+    },
+    remoteLinks(h) { return this.remoteServices(h).filter(r => r.canOpen); },
+    rdpFileURL(h) { return '/api/scans/' + encodeURIComponent(this.scanId) + '/remote.rdp?ip=' + encodeURIComponent(h.ip); },
+    async openRemote(h, r) {
+      const key = h.ip + ':' + r.kind, what = r.kind === 'rdp' ? 'Remote desktop' : 'Screen sharing';
+      // One session per click: ignore repeat clicks while it starts.
+      if (this.remoteBusy[key]) return;
+      this.remoteBusy[key] = true;
+      this.remoteMsg[key] = what + ' is starting...';
+      this.remoteShort[key] = 'Starting...';
+      let msg, ok = false;
+      try {
+        const res = await fetch('/api/scans/' + encodeURIComponent(this.scanId) + '/remote', {method: 'POST',
+          headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ip: h.ip, kind: r.kind})});
+        ok = res.ok;
+        if (ok) msg = what + ' to ' + h.ip + ' is opening. If no window appears, look for it ' +
+          (this.remoteCaps.platform === 'darwin' ? 'in the Dock.' : 'on the taskbar.');
+        else {
+          const b = await res.json().catch(() => ({}));
+          msg = b.noApp ? 'This computer has no app that opens it.' + (r.kind === 'rdp' ? ' Download the connection file instead.' : '')
+            : 'Could not open it: ' + (b.error || 'HTTP ' + res.status);
+        }
+      } catch (e) { msg = 'Could not open it: ' + e.message; }
+      this.remoteMsg[key] = msg;
+      this.remoteShort[key] = ok ? 'Opening: look for its window' + (this.remoteCaps.platform === 'darwin' ? ' in the Dock' : ' on the taskbar') : '';
+      // The drawer has its own status line; elsewhere use the page's live region.
+      if (this.drawerIP !== h.ip) this.announce = msg;
+      setTimeout(() => { this.remoteBusy[key] = false; }, ok ? 5000 : 0);
+      if (!ok && this.drawerIP !== h.ip) this.openDrawer(h.ip);
     },
     supplyText(s) {
       const st = s.state && s.state !== 'ok' ? ' (' + s.state + ')' : '';

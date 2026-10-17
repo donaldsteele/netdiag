@@ -63,6 +63,11 @@ for (const [vpName, vp] of Object.entries(VIEWPORTS)) for (const theme of ['dark
     await expect(page.locator('#drawer .supplies li').first()).toBeVisible();
     all.push(...await measure(page, 'drawer-printer'));
     await page.keyboard.press('Escape');
+    await page.locator('#tile-alive').click();
+    await page.locator('#hosts button.rowbtn[data-ip="192.168.2.4"]').click();
+    await expect(page.locator('#drawer-remote')).toBeVisible();
+    all.push(...await measure(page, 'drawer-remote'));
+    await page.keyboard.press('Escape');
     for (const tab of ['health', 'activity', 'history']) {
       const t = page.locator('#tab-' + tab);
       if (await t.isVisible()) { await t.click(); } else { await page.evaluate((tab) => document.querySelector('#tab-' + tab)?.click(), tab); }

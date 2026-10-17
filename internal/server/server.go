@@ -18,6 +18,7 @@ import (
 	"netdiag/internal/mcpserver"
 	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
+	"netdiag/internal/remote"
 	"netdiag/internal/scan"
 	"netdiag/internal/service"
 	"netdiag/internal/store"
@@ -33,6 +34,7 @@ type Config struct {
 	Gateway    func() (string, error)          // defaults to the OS default route
 	Service    *service.Service                // optional; built from the fields above when nil
 	Version    string                          // reported to MCP clients; default "dev"
+	Remote     remote.Opener                   // opens remote desktop and screen sharing; defaults to remote.System
 }
 
 // Server is the HTTP server. Create with New, then Listen and Serve.
@@ -63,6 +65,9 @@ func New(cfg Config) *Server {
 	if svc == nil {
 		svc = service.New(service.Config{Registry: cfg.Registry, Store: cfg.Store, Health: cfg.Health,
 			Interfaces: cfg.Interfaces, Gateway: cfg.Gateway, BaseCtx: ctx})
+	}
+	if cfg.Remote == nil {
+		cfg.Remote = remote.System{}
 	}
 	s := &Server{cfg: cfg, svc: svc, keepalive: 15 * time.Second, baseCtx: ctx, cancel: cancel, quit: make(chan struct{})}
 	s.mcpSrv = mcpserver.New(svc, mcpserver.Options{Transport: "http", Version: cfg.Version})
@@ -141,6 +146,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/compare", s.handleCompare)
 	mux.HandleFunc("GET /api/compare/export", s.handleCompareExport)
 	mux.HandleFunc("POST /api/conflicts/ignore", s.handleIgnore)
+	mux.HandleFunc("GET /api/remote", s.handleRemoteCaps)
+	mux.HandleFunc("POST /api/scans/{id}/remote", s.handleRemoteOpen)
+	mux.HandleFunc("GET /api/scans/{id}/remote.rdp", s.handleRemoteRDPFile)
 	for _, m := range []string{"GET", "POST", "DELETE"} {
 		mux.Handle(m+" /mcp", s.mcpGate(s.mcpHandler))
 	}

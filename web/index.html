@@ -179,7 +179,7 @@
           <th scope="col" :aria-sort="ariaSort('vendor')"><button type="button" class="sort" @click="sortBy('vendor')">MAC / vendor<span aria-hidden="true" x-text="arrow('vendor')"></span></button></th>
           <th scope="col">Type</th>
           <th scope="col">Open ports</th>
-          <th scope="col">Web</th>
+          <th scope="col">Web / remote</th>
           <th scope="col" :aria-sort="ariaSort('status')"><button type="button" class="sort" @click="sortBy('status')">Status<span aria-hidden="true" x-text="arrow('status')"></span></button></th>
         </tr>
       </thead>
@@ -219,7 +219,11 @@
                   <span class="sub" x-text="webNote(w)"></span>
                 </div>
               </template>
-              <span x-show="!(h.web || []).length">-</span>
+              <template x-for="r in remoteLinks(h)" :key="r.kind">
+                <div><a href="#" class="rlink" @click.prevent="openRemote(h, r)" x-text="r.label"></a> <span class="sub" x-text="'port ' + r.port"></span>
+                  <div class="sub" x-show="remoteShort[h.ip + ':' + r.kind]" x-text="remoteShort[h.ip + ':' + r.kind]"></div></div>
+              </template>
+              <span x-show="!(h.web || []).length && !remoteLinks(h).length">-</span>
             </td>
             <td class="stcell">
               <div class="stline"><span x-text="statusWord(h)"></span>
@@ -337,6 +341,22 @@
                     <span x-show="w.tls && w.tls.selfSigned">(self-signed)</span>
                     <span x-show="w.tls && w.tls.expired">(EXPIRED)</span>
                   </span>
+                </li>
+              </template>
+            </ul>
+          </section>
+          <section x-show="remoteServices(h).length" id="drawer-remote"><h3>Remote access</h3>
+            <ul class="remote">
+              <template x-for="r in remoteServices(h)" :key="r.kind">
+                <li>
+                  <div><strong x-text="r.label"></strong> <span class="sub" x-text="'port ' + r.port"></span></div>
+                  <p class="sub" x-text="r.help"></p>
+                  <div class="ractions">
+                    <button type="button" x-show="r.canOpen" @click="openRemote(h, r)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-monitor"></use></svg><span x-text="r.openLabel"></span></button>
+                    <button type="button" @click="copy(r.copy, r.copyWhat)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-copy"></use></svg><span x-text="r.copyLabel"></span></button>
+                    <a x-show="r.kind === 'rdp' && r.local && !h.isSelf" :href="rdpFileURL(h)" download>Download connection file</a>
+                  </div>
+                  <p class="sub" role="status" x-show="remoteMsg[h.ip + ':' + r.kind]" x-text="remoteMsg[h.ip + ':' + r.kind]"></p>
                 </li>
               </template>
             </ul>

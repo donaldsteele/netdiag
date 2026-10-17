@@ -104,7 +104,7 @@ All tools return compact JSON. List tools return pages (use `cursor` and `nextCu
 | `get_scan` | Summary of a scan: counts, health, conflicts and printer alerts. Checks the running scans first, then saved history. | `scanId` | Yes |
 | `cancel_scan` | Cancels a scan started in this netdiag process. Results collected so far are kept. | `scanId` | No (stops a scan) |
 | `list_devices` | Paged device rows for a scan. | `scanId`, `filter` (all, printers, web, offline, conflicts, new, mdns, problems), `deviceType`, `query` (IP, MAC, name or vendor text), `limit` (default 50, max 200), `cursor` | Yes |
-| `get_device` | Full detail for one device: ports, web services, SNMP, printer supplies and alerts, and conflicts involving it. | `scanId`, and `ip` or `mac` | Yes |
+| `get_device` | Full detail for one device: ports (including the remote access ports 22, 3389 and 5900), web services, SNMP, printer supplies and alerts, and conflicts involving it. Agents cannot start remote sessions; that is a button in the netdiag window. | `scanId`, and `ip` or `mac` | Yes |
 | `get_events` | Change feed of a scan started in this process: new, offline and back-online devices, printer changes, conflicts, health changes. | `scanId`, `sinceSeq` (pass the last `nextSeq`), `limit` (default 100, max 500) | Yes |
 | `get_health` | Latest health report (gateway, DHCP, DNS, internet, Wi-Fi, web server). Says `none` if there is none yet. | none | Yes |
 | `run_health_check` | Runs the health checks now (about 10 seconds). | none | No (sends network traffic) |

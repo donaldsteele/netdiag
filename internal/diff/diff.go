@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"netdiag/internal/devtype"
 	"netdiag/internal/model"
 )
 
@@ -78,8 +79,22 @@ func Compare(base, cur model.ScanResult) model.Diff {
 			d.Added = append(d.Added, h)
 		}
 	}
+	probed := commonPorts(base.Request.Ports, cur.Request.Ports)
 	for _, p := range pairs {
 		b, c := base.Hosts[p.b], cur.Hosts[p.c]
+		if probed != nil {
+			bp, cp := onlyPorts(b.OpenPorts, probed), onlyPorts(c.OpenPorts, probed)
+			// A type worked out from a port only one scan checked is not a
+			// change either: classify both again from the common ports.
+			if len(bp) != len(b.OpenPorts) || len(cp) != len(c.OpenPorts) {
+				b.OpenPorts, c.OpenPorts = bp, cp
+				if b.DeviceType != "" && c.DeviceType != "" {
+					bt, _ := devtype.Classify(b, base.Gateway)
+					ct, _ := devtype.Classify(c, cur.Gateway)
+					b.DeviceType, c.DeviceType = string(bt), string(ct)
+				}
+			}
+		}
 		if ch := hostChanges(b, c); len(ch) > 0 {
 			d.Changed = append(d.Changed, model.DiffHostChange{IP: c.IP, MAC: c.MAC, Vendor: c.Vendor, Changes: ch})
 		}
@@ -228,6 +243,36 @@ func webChanges(b, c model.Host) []model.DiffFieldChange {
 			continue
 		}
 		out = append(out, model.DiffFieldChange{Field: "web:" + strconv.Itoa(p), From: str(bs, bok), To: str(cs, cok)})
+	}
+	return out
+}
+
+// commonPorts returns the ports both scans probed, or nil when either scan
+// does not record its ports. An older scan that did not probe a port then
+// never shows that port as newly opened.
+func commonPorts(a, b []int) map[int]bool {
+	if len(a) == 0 || len(b) == 0 {
+		return nil
+	}
+	in := map[int]bool{}
+	for _, p := range a {
+		in[p] = true
+	}
+	out := map[int]bool{}
+	for _, p := range b {
+		if in[p] {
+			out[p] = true
+		}
+	}
+	return out
+}
+
+func onlyPorts(open []int, keep map[int]bool) []int {
+	var out []int
+	for _, p := range open {
+		if keep[p] {
+			out = append(out, p)
+		}
 	}
 	return out
 }

@@ -371,3 +371,21 @@ func TestPresenceUpdateTransitionsOnly(t *testing.T) {
 		t.Fatalf("host = %+v", h)
 	}
 }
+
+func TestPresencePortAvoidsRemoteAccess(t *testing.T) {
+	for _, tc := range []struct {
+		open []int
+		want int
+	}{
+		{nil, 0},
+		{[]int{80, 443}, 80},
+		{[]int{22, 80}, 80},
+		{[]int{22, 3389, 9100}, 9100},
+		{[]int{3389, 22}, 0},
+		{[]int{5900}, 0},
+	} {
+		if got := presencePort(tc.open); got != tc.want {
+			t.Errorf("presencePort(%v) = %d, want %d", tc.open, got, tc.want)
+		}
+	}
+}

@@ -19,7 +19,7 @@ First time? Read **HOW-TO-OPEN.txt** (included in your zip). It explains the Sma
    - **Health** (sidebar, or click a health pill): one card per check, with its status, detail and response time (see **Health panel** below).
    - **Activity**: the live activity log of the scan and of live-mode events (see below).
    - **History**: earlier scans, and a **Compare** view that shows what changed between two of them.
-   - Click the IP address of a device (or anywhere on its row) to open its **details drawer**: printer model, supplies, SNMP, web links, conflicts and mDNS, with copy buttons for the IP and MAC.
+   - Click the IP address of a device (or anywhere on its row) to open its **details drawer**: printer model, supplies, SNMP, web links, remote access, conflicts and mDNS, with copy buttons for the IP and MAC.
 6. Export with **JSON** or **CSV** (the **Export** menu) if you need to send the results to someone.
 7. Click **Quit** when finished (or press Ctrl+C in the Terminal or console window).
 8. Want Claude to help you read the results? See **Connect Claude** below.
@@ -149,7 +149,7 @@ For the full list of tools, resources and prompts, and the settings details, see
 
 - **Ping sweep (ICMP)** of every address in the range, in parallel.
 - **ARP table**, which finds devices that block ping (Windows firewall often does this).
-- **Port probes** on 80, 443, 8080, 8443 (web), 9100, 631 and 515 (printing). For web ports it reads the page title, server name and status. For HTTPS it reads the certificate. Self-signed or expired certificates are normal on device pages and are reported, not treated as errors.
+- **Port probes** on 80, 443, 8080, 8443 (web), 9100, 631 and 515 (printing), and 22, 3389 and 5900 (remote access: SSH, Remote Desktop and VNC screen sharing; see **Remote access**). For web ports it reads the page title, server name and status. For HTTPS it reads the certificate. Self-signed or expired certificates are normal on device pages and are reported, not treated as errors.
 - **SNMP v2c** (falling back to v1) read-only queries using the community string (default `public`): system name and description, printer model, serial, page count, supplies, trays, covers, alerts. netdiag never changes device settings.
 - **mDNS (Bonjour)** browse on the chosen network: names such as "Brother HL-L2350DW" and the services a device advertises (printing, web, AirPlay and so on). This also finds devices that block ping. See **Printer discovery** below.
 - **IPP** (port 631): for printers that answer, the printer's state and supply levels are read when SNMP is off or incomplete. Read-only.
@@ -204,14 +204,35 @@ Each device gets a **Type** (shown in the table and the details drawer, and expo
 | `tv` | TV | mDNS `_airplay`, `_googlecast`, `_raop`, `_roku`, `_spotify-connect`; vendor Roku, Hisense, TCL, Vizio, LG, Sonos; hostname `tv`, `roku`, `chromecast` |
 | `nas` | NAS | mDNS `_smb`, `_afpovertcp`, `_nfs`, `_adisk` with a NAS vendor or model; vendor Synology, QNAP, TerraMaster, ASUSTOR; hostname `nas`, `diskstation` |
 | `phone` | Phone | mDNS `_companion-link`, `_apple-mobdev2`; hostname `iphone`, `ipad`, `android`, `galaxy`, `pixel` |
-| `computer` | Computer | file-sharing mDNS without a NAS signal; hostname `macbook`, `imac`, `DESKTOP-`, `laptop`, `-PC`, `thinkpad` |
+| `computer` | Computer | file-sharing mDNS without a NAS signal; hostname `macbook`, `imac`, `DESKTOP-`, `laptop`, `-PC`, `thinkpad`; Remote Desktop (3389) or screen sharing (5900) with no other signal |
 | `camera` | Camera | mDNS `_rtsp`, `_onvif`; vendor Hikvision, Dahua, Axis, Reolink, Amcrest |
 | `network` | Network gear | SNMP sysDescr for a switch, router or access point; Deco, UniFi; vendor Ubiquiti, TP-Link, NETGEAR, Cisco, Aruba, MikroTik, Ruckus, Juniper |
 | `iot` | Smart home | mDNS `_hap`, `_homekit`, `_matter`, `_hue`; vendor Espressif, Tuya, Shelly, Philips Lighting/Signify, Nest, Ring, ecobee |
 | `server` | Server | open web ports 80, 443, 8080 or 8443 with no other signal |
 | `unknown` | Unknown | no identifying signals |
 
-Rules are applied in this order and the first match wins: self, gateway, printer, mDNS, SNMP, vendor, hostname, web ports. The details drawer shows the reason for the type (for example "mdns _airplay"). Older saved scans are classified when they are loaded. Compare reports a `deviceType` change only when both scans have a type.
+Rules are applied in this order and the first match wins: self, gateway, printer, mDNS, SNMP, vendor, hostname, web ports, remote access ports. The details drawer shows the reason for the type (for example "mdns _airplay"). Older saved scans are classified when they are loaded. Compare reports a `deviceType` change only when both scans have a type.
+
+## Remote access
+
+When a device offers Remote Desktop (port 3389), VNC screen sharing (port 5900) or SSH (port 22), netdiag shows it:
+
+- In the hosts table, the **Web / remote** column has a **Remote desktop** or **Screen sharing (VNC)** link when this computer can open it (see the table below). One click starts the session; a short note under the link says where its window appears. When this computer can't open it, use the details drawer instead.
+- In the details drawer, **Remote access** lists each service with its port, what will happen, and buttons:
+  - **Remote desktop**: **Open remote desktop** (when this computer can open it, see the table below), **Copy address** and **Download connection file** (an `.rdp` file you can keep or send to someone).
+  - **Screen sharing (VNC)**: **Open screen sharing** (when this computer can open it) and **Copy address**.
+  - **SSH**: **Copy SSH command**, for your IT helper. netdiag does not open SSH sessions.
+
+What opens the session:
+
+| | Windows | macOS |
+|---|---|---|
+| Remote desktop | Remote Desktop Connection (built into Windows) | Microsoft's free **Windows App** (formerly Microsoft Remote Desktop) from the App Store. Without it, use **Download connection file**. |
+| Screen sharing | Only if a VNC viewer that handles `vnc:` links is installed (many don't). Otherwise copy the address into your VNC viewer. | The built-in **Screen Sharing** app |
+
+netdiag only starts the app with the device's address, and only when you click. You sign in with that computer's own user name and password; netdiag never sees or stores them. The device itself must allow remote connections (for Windows: Settings > System > Remote Desktop, available on Pro and higher editions). Sessions are only opened to addresses on a local network (private, link-local or 100.64.x.x addresses), and the row for this computer offers no session to itself.
+
+Live mode never uses these ports to check whether a device is still there, because remote access servers can record every check as a connection attempt. A device that only answers on them is checked by ping or the address table instead. Compare only reports changes in open ports, and device types based on them, that both scans checked, so comparing with a scan from an older netdiag does not show these ports as newly opened.
 
 ## Alerts (live mode)
 
@@ -331,7 +352,7 @@ netdiag scans at most 1024 addresses (a /22). A bigger range is refused. The aut
 Another copy of netdiag may be open, or the port you asked for is taken. Close the other window, or start without `--port` so a free port is chosen.
 
 **Windows says "Windows protected your PC" or antivirus quarantines the file.**
-netdiag is not code-signed. In SmartScreen choose "More info", then "Run anyway". If antivirus removes it, restore it and add the folder as an exception, or ask IT staff to allow it.
+netdiag is not code-signed. In SmartScreen choose "More info", then "Run anyway". If antivirus removes it, restore it and add the folder as an exception, or ask IT staff to allow it. For IT staff: a scan connects to ten ports on each device it finds, including the remote access ports 22, 3389 and 5900 (to show **Remote access**), so network security tools may report it as remote-access probing from this computer.
 
 **Mac says the app cannot be opened.**
 Run `xattr -d com.apple.quarantine netdiag` in the folder where you unzipped it, then `./netdiag`. See HOW-TO-OPEN.txt.
@@ -358,7 +379,7 @@ Keep the black window open. Closing it stops netdiag. If the browser did not ope
 
 - IPv4 only. No IPv6 scanning.
 - SNMP v2c and v1 only. No SNMPv3, no writes or configuration changes.
-- Only the seven fixed ports above are probed. netdiag is not a port scanner or vulnerability tool.
+- Only the ten fixed ports above are probed. netdiag is not a port scanner or vulnerability tool.
 - The last 20 scans are saved on this computer (see **History and compare**). Export anything you need to send to someone; the saved files are only on this computer.
 - Apart from name lookups sent to this computer's own DNS servers (which may be on the internet), the only request netdiag makes to the internet is the optional internet check (a single request, server-side, configurable in Settings). The web page makes no external requests.
 - Built and tested for Windows and macOS. Linux is not supported.

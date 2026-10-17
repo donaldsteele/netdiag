@@ -2,6 +2,7 @@
 import { test, expect } from '@playwright/test';
 import { installMocks, initStorage } from '../support/mock.mjs';
 import { scanToFinish } from '../support/steps.mjs';
+import { runAxe } from '../support/axe.mjs';
 
 async function setup(page) {
   await initStorage(page, { theme: 'dark', live: false });
@@ -88,4 +89,48 @@ test('254 hosts plus 100 live updates produce no long task over 200 ms', async (
   await page.waitForTimeout(300);
   const long = await page.evaluate(() => window.__long);
   expect(Math.max(0, ...long), `long tasks: ${long}`).toBeLessThan(200);
+});
+
+const RDP_HOST = '192.168.2.4';
+const remotePosts = (rec) => rec.requests.filter((r) => r.path.endsWith('/remote'));
+
+test('remote access: one click on the table link opens remote desktop, repeat clicks are ignored', async ({ page }) => {
+  const rec = await setup(page);
+  const row = page.locator(`#hosts tr.host:has(button.rowbtn[data-ip="${RDP_HOST}"])`);
+  // This computer can open Remote Desktop but has no VNC viewer: only RDP is a link.
+  const link = row.getByRole('link', { name: 'Remote desktop' });
+  await expect(link).toBeVisible();
+  await expect(row.getByRole('link', { name: 'Screen sharing (VNC)' })).toHaveCount(0);
+  await link.click();
+  await expect(row.getByText('Opening: look for its window on the taskbar')).toBeVisible();
+  await link.click(); // a second click while it starts must not open a second session
+  await page.waitForTimeout(300);
+  expect(remotePosts(rec).map((r) => JSON.parse(r.body))).toEqual([{ ip: RDP_HOST, kind: 'rdp' }]);
+  await expect(page.locator('#drawer')).toBeHidden(); // success does not open the drawer
+  // With no drawer showing, screen readers hear the result through the page live region.
+  await expect(page.locator('div.sr[role="status"]')).toContainText('Remote desktop to 192.168.2.4 is opening');
+  // A device without remote access ports gets no link.
+  await expect(page.locator('#hosts tr.host:has(button.rowbtn[data-ip="192.168.2.1"])').getByRole('link', { name: 'Remote desktop' })).toHaveCount(0);
+  expect(rec.unmatched).toEqual([]);
+});
+
+test('remote access: drawer lists remote desktop, screen sharing and SSH with the right buttons', async ({ page }, testInfo) => {
+  const rec = await setup(page);
+  await page.locator(`#hosts button.rowbtn[data-ip="${RDP_HOST}"]`).click();
+  const sec = page.locator('#drawer-remote');
+  await expect(sec.getByRole('heading', { name: 'Remote access' })).toBeVisible();
+  await expect(sec.getByText('Opens Remote Desktop Connection.', { exact: false })).toBeVisible();
+  await expect(sec.getByRole('status')).toHaveCount(0);
+  await sec.getByRole('button', { name: 'Open remote desktop' }).click();
+  await expect.poll(() => remotePosts(rec).length).toBe(1);
+  expect(JSON.parse(remotePosts(rec)[0].body)).toEqual({ ip: RDP_HOST, kind: 'rdp' });
+  await expect(sec.getByRole('status')).toContainText('Remote desktop to 192.168.2.4 is opening');
+  // The drawer's own status line says it; the page live region does not repeat it.
+  await expect(page.locator('div.sr[role="status"]')).not.toContainText('Remote desktop to');
+  await expect(sec.getByRole('button', { name: 'Open screen sharing' })).toBeHidden();
+  await expect(sec.getByText("netdiag can't open screen sharing on this computer.", { exact: false })).toBeVisible();
+  await expect(sec.getByRole('button', { name: 'Copy SSH command' })).toBeVisible();
+  await expect(sec.getByRole('link', { name: 'Download connection file' })).toHaveAttribute('href', /\/remote\.rdp\?ip=192\.168\.2\.4$/);
+  await runAxe(page, 'drawer-remote', testInfo);
+  expect(rec.unmatched).toEqual([]);
 });
