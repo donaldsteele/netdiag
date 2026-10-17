@@ -199,8 +199,10 @@ func TestFixedBanners(t *testing.T) {
 // the printer-without-status block, and Settings has the "This network has
 // no internet" switch, kept per network. Links come only from server data
 // (no URL literal in app.js, TestNoExternalReferences). Only a mac_flap can
-// read "Conflict". The Health panel's line speaks for the health checks
-// only; M8's Problems card says "Everything looks fine" for the network.
+// read "Conflict". Once the health checks are fine, the Health panel's line
+// says "Everything looks fine" only when nothing the page lists is a problem
+// by the Problems card's rules (v0.6-D27); otherwise it speaks for the
+// health checks alone.
 func TestAdviceUI(t *testing.T) {
 	js, _ := readAsset("app.js")
 	html, _ := readAsset("index.html")
@@ -208,7 +210,7 @@ func TestAdviceUI(t *testing.T) {
 		"<strong>What this means:</strong>", "<summary>Technical details</summary>", "What to try<span",
 		"Show device<span", `class="plain cpair"`, `id="printer-nostatus"`, `id="set-nointernet"`,
 		"This network has no internet</label>", `x-model="noInternetHere" :disabled="!healthNetwork()"`,
-		`id="health-fine"`, "All health checks look fine (checked ",
+		`id="health-fine"`, `<span x-text="healthFineText()"></span>`,
 		"conflictSeen(c) ? 'Conflict' : 'Possible conflict'", `:href="linkAction(a) ? a.target : null"`,
 		`rel="noopener noreferrer"`,
 	} {
@@ -221,6 +223,8 @@ func TestAdviceUI(t *testing.T) {
 		"/^https?:/i.test(a.target || '')", "noInternetNetworks: 'This network has no internet'",
 		"return this.alternations(hist) >= 2;", "if (c.kind !== 'mac_flap') return false;",
 		"noInternet: 'set-nointernet'", "vendors[mac] ||", "this.health && this.health.network",
+		"'Everything looks fine' : 'All health checks look fine'", "if (!this.healthFine()) return false;",
+		"on('deviceOffline', false)",
 	} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("app.js missing %q", want)

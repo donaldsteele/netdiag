@@ -150,14 +150,39 @@ document.addEventListener('alpine:init', () => {
     // Every health check came back fine: none failed or warned, and none
     // could not finish (a timeout, or the router or the name and web
     // checks could not run). Wi-Fi and DHCP details this computer doesn't
-    // share don't count. The Health panel says so for its checks only; the
-    // Problems card (M8) says it for the whole network. A network without
-    // internet on purpose gets here too once Settings says so (v0.6-D15).
+    // share don't count. A network without internet on purpose gets here
+    // too once Settings says so (v0.6-D15).
     healthFine() {
       const c = (this.health && this.health.checks) || [];
       const done = x => x.status !== 'unavailable' ||
         (x.id === 'wifi' || x.id === 'dhcp') && (x.data || {}).reason !== 'timeout';
       return c.length > 0 && c.every(x => x.status !== 'fail' && x.status !== 'warn' && done(x));
+    },
+    // The health checks are fine and nothing this page lists is a problem
+    // by the Problems card's rules (4.11), each kept only while its alert
+    // type is on in Settings: a conflict, an offline printer, any offline
+    // device (off by default), a printer alert, a supply at or below the
+    // threshold (v0.6-D27). M8's GET /api/problems takes this over.
+    everythingFine() {
+      if (!this.healthFine()) return false;
+      const t = (this.settings && this.settings.alerts && this.settings.alerts.triggers) || {};
+      const on = (k, d) => typeof t[k] === 'boolean' ? t[k] : d;
+      if (on('ipConflict', true) && this.conflicts.length) return false;
+      const thr = this.supplyThreshold();
+      return !this.hosts.some(h => {
+        if (this.isOffline(h) && (on('deviceOffline', false) || h.isPrinter && on('printerOffline', true))) return true;
+        const p = h.isPrinter && h.printer;
+        if (!p) return false;
+        if (on('printerAlert', true) && (p.alerts || []).length) return true;
+        return on('supplyLow', true) &&
+          (p.supplies || []).some(s => s.state === 'empty' || s.state === 'low' || (s.percent >= 0 && s.percent <= thr));
+      });
+    },
+    // The Health panel's line once the checks are fine: "Everything looks
+    // fine" only when nothing else is wrong either, else it speaks for the
+    // health checks alone.
+    healthFineText() {
+      return (this.everythingFine() ? 'Everything looks fine' : 'All health checks look fine') + ' (checked ' + this.healthTime() + ')';
     },
     healthTime() { return this.clock(this.health && this.health.checkedAt) || 'just now'; },
     // "10:42" in local time for an RFC 3339 time, or ''.

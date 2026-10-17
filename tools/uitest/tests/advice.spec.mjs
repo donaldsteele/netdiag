@@ -79,7 +79,7 @@ for (const theme of THEMES) {
 const OTHER_NETWORK = 'n-0123456789ab';
 const settingsPuts = (rec) => rec.requests.filter((r) => r.method === 'PUT' && r.path === '/api/settings');
 
-test('"This network has no internet" makes All health checks look fine reachable, for this network only', async ({ page }) => {
+test('"This network has no internet" makes Everything looks fine reachable, for this network only', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { health: 'offline', settings: { ...fx.settings(), noInternetNetworks: [OTHER_NETWORK] } });
   await page.goto('/');
@@ -111,7 +111,7 @@ test('"This network has no internet" makes All health checks look fine reachable
   const fine = page.locator('#health-fine');
   await expect(fine).toBeVisible();
   await expect(fine).toContainText('OK');
-  await expect(fine).toContainText(/All health checks look fine \(checked \d\d:\d\d\)/);
+  await expect(fine).toContainText(/Everything looks fine \(checked \d\d:\d\d\)/);
   await expect(fine.locator('use')).toHaveAttribute('href', 'icons.svg#i-circle-check');
   await expect(dns.locator('.hs')).toContainText('Info');
   await expect(dns).toContainText('This network is set up without internet');
@@ -130,14 +130,63 @@ test('"This network has no internet" makes All health checks look fine reachable
   expect(rec.unmatched).toEqual([]);
 });
 
-test('a no-internet network with the switch on renders All health checks look fine', async ({ page }) => {
+test('a no-internet network with the switch on renders Everything looks fine', async ({ page }) => {
   await initStorage(page, { theme: 'light', live: false });
   await installMocks(page, { health: 'offline', settings: { ...fx.settings(), noInternetNetworks: [fx.NETWORK] } });
   await page.goto('/');
   await page.locator('#tab-health').click();
-  await expect(page.locator('#health-fine')).toContainText(/OK All health checks look fine \(checked \d\d:\d\d\)/);
+  await expect(page.locator('#health-fine')).toContainText(/OK Everything looks fine \(checked \d\d:\d\d\)/);
   await expect(page.locator('.hcard .hs', { hasText: /Warning|Failed/ })).toHaveCount(0);
 });
+
+// A finished scan of list with these conflicts, on the no-internet network
+// with the switch on (its health checks are all fine).
+function quietScan(list, conflicts = []) {
+  const fine = fx.health({ state: 'offline', noInternet: true });
+  return framesWith(list, conflicts).map((f) => (f.type === 'done' ? { ...f, data: { ...f.data, health: fine } } : f));
+}
+const switchOn = (triggers = {}) => {
+  const s = fx.settings();
+  return { ...s, noInternetNetworks: [fx.NETWORK], alerts: { ...s.alerts, triggers: { ...s.alerts.triggers, ...triggers } } };
+};
+const fineLine = /OK Everything looks fine \(checked \d\d:\d\d\)/;
+const healthOnlyLine = /OK All health checks look fine \(checked \d\d:\d\d\)/;
+
+test('Everything looks fine waits for printer alerts, low supplies and conflicts', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { settings: switchOn(), health: 'offline', frames: quietScan(fx.hosts(), [fx.conflict()]) });
+  await page.goto('/');
+  await scanToFinish(page);
+  await page.locator('#tab-health').click();
+  // The health checks are fine, but a printer has an alert and a low
+  // supply, and two addresses share a MAC: the line speaks for the checks.
+  const line = page.locator('#health-fine');
+  await expect(line).toContainText(healthOnlyLine);
+  await expect(line).not.toContainText('Everything');
+  expect(rec.unmatched).toEqual([]);
+});
+
+// Printers with nothing wrong and no conflict; one device (not a printer)
+// has gone offline.
+function quietHosts() {
+  return fx.hosts().map((h) => {
+    if (h.isPrinter) h.printer = { ...h.printer, alerts: [], supplies: [] };
+    if (h.ip === '192.168.2.100') Object.assign(h, { online: false, offlineSince: new Date().toISOString(), missedChecks: 2 });
+    return h;
+  });
+}
+
+for (const deviceOffline of [false, true]) {
+  test(`an offline device ${deviceOffline ? 'counts' : 'does not count'} with "Any device goes offline" ${deviceOffline ? 'on' : 'off'}`, async ({ page }) => {
+    await initStorage(page, { theme: 'light', live: false });
+    const rec = await installMocks(page, { settings: switchOn({ deviceOffline }), health: 'offline', frames: quietScan(quietHosts()) });
+    await page.goto('/');
+    await scanToFinish(page);
+    await page.locator('#tab-health').click();
+    await expect(page.locator('#health-fine')).toContainText(deviceOffline ? healthOnlyLine : fineLine);
+    expect(rec.unmatched).toEqual([]);
+  });
+}
 
 // Serve GET /api/health with edit(report) applied to the 'offline' report.
 async function healthReport(page, noInternet, edit) {

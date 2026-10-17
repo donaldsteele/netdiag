@@ -152,7 +152,7 @@
         <span class="sub" x-text="healthSummary()"></span>
       </h2>
       <div id="health-body" x-show="healthOpen">
-        <p class="hfine" id="health-fine" role="status" x-show="healthFine()"><svg class="ico s-ok" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg> <strong>OK</strong> <span x-text="'All health checks look fine (checked ' + healthTime() + ')'"></span></p>
+        <p class="hfine" id="health-fine" role="status" x-show="healthFine()"><svg class="ico s-ok" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg> <strong>OK</strong> <span x-text="healthFineText()"></span></p>
         <ul class="plain hcards" x-show="health && (health.checks || []).length" aria-label="Network health checks">
           <template x-for="c in (health ? health.checks || [] : [])" :key="c.id">
             <li class="hcard" :class="'hc-' + c.status">
