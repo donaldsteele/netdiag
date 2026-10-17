@@ -533,6 +533,38 @@ func TestScanOutputsRedactedAtSource(t *testing.T) {
 	}
 }
 
+// SNMP gets the request's community, else the settings' one, else
+// model.DefaultCommunity. Every output shows only the redacted form.
+func TestSNMPCommunitySource(t *testing.T) {
+	cases := []struct{ name, req, set, want string }{
+		{"request wins", "mine", "private", "mine"},
+		{"settings", "", "private", "private"},
+		{"default when both are empty", "", "", model.DefaultCommunity},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d := fakeDeps()
+			sn := &recordSNMP{fakeSNMP: d.SNMP.(fakeSNMP)}
+			d.SNMP = sn
+			fs := &fakeStore{set: store.DefaultSettings()}
+			fs.set.Community = c.set
+			d.Settings = fs
+			res, err := New(d).Run(context.Background(), model.ScanRequest{CIDR: "10.0.0.10", Community: c.req})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Request.Community != model.Redacted {
+				t.Errorf("result community = %q", res.Request.Community)
+			}
+			sn.mu.Lock()
+			defer sn.mu.Unlock()
+			if len(sn.seen) == 0 || slices.ContainsFunc(sn.seen, func(s string) bool { return s != c.want }) {
+				t.Fatalf("SNMP got communities %q, want only %q", sn.seen, c.want)
+			}
+		})
+	}
+}
+
 func TestReplayedNoticesFlagged(t *testing.T) {
 	d := fakeDeps()
 	d.Health = &fakeHealth{reports: []model.HealthReport{healthReport(model.HealthFail)}}

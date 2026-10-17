@@ -189,7 +189,10 @@ func collect(t *testing.T, ch <-chan model.Event, within time.Duration) []model.
 }
 
 func TestEndToEndFake24(t *testing.T) {
-	o := New(fakeDeps())
+	d := fakeDeps()
+	sn := &recordSNMP{fakeSNMP: d.SNMP.(fakeSNMP)}
+	d.SNMP = sn
+	o := New(d)
 	start := time.Now()
 	s, err := o.Start(context.Background(), model.ScanRequest{CIDR: "10.0.0.0/24"})
 	if err != nil {
@@ -240,6 +243,18 @@ func TestEndToEndFake24(t *testing.T) {
 	}
 	if res.Request.Community != model.Redacted || !slices.Equal(res.Request.Ports, model.DefaultPorts) {
 		t.Fatalf("request defaults not applied: %+v", res.Request)
+	}
+	// The result hides the community, so check what SNMP was given.
+	sn.mu.Lock()
+	seen := slices.Clone(sn.seen)
+	sn.mu.Unlock()
+	if len(seen) == 0 {
+		t.Fatal("SNMP never probed")
+	}
+	for _, c := range seen {
+		if c != model.DefaultCommunity {
+			t.Fatalf("SNMP probed with community %q, want the default %q", c, model.DefaultCommunity)
+		}
 	}
 	byIP := map[string]model.Host{}
 	var ips []string
