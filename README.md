@@ -286,6 +286,8 @@ The folder holds `settings.json` (your settings) and a `history` folder with one
 
 **How to clear it.** To remove one scan, use **Delete** in the History view. To reset your settings to the defaults, quit netdiag and delete `settings.json`. To clear everything, quit netdiag and delete the whole folder above (or the `NETDIAG_DATA_DIR` folder you chose). netdiag creates the folder again the next time it starts.
 
+**A setting netdiag can't use.** If `settings.json` holds a value netdiag can't use (for example a supply threshold of 0 after editing the file by hand), netdiag uses the default for that one setting and keeps all the others. The next time you open Settings it says which ones were reset; click **Save** to keep the corrected values.
+
 ## Live mode
 
 Leave **Live mode** ticked (next to **Scan**; your choice is remembered) to keep watching the network after the first scan. Every 15 seconds netdiag checks the addresses where nothing has been found yet. Devices it already knows are not fully probed again (no port scan, web page or name lookup); they get one quick "are you still there?" check. Printers found through SNMP also get a small status check (see **Printer status monitoring**), so live mode stays light on the network.
@@ -401,6 +403,8 @@ pwsh scripts/build.ps1     # same, from PowerShell on Windows
 ```
 
 Set `VERSION=1.2.0` to stamp a version; otherwise `git describe` is used. Each zip contains the binary, this README and HOW-TO-OPEN.txt.
+
+Licence: netdiag is Apache-2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE)). Both build scripts run `go run ./tools/licenses -check` and refuse to build when THIRD_PARTY_LICENSES.txt is out of date; after changing a Go dependency, regenerate it with `go run ./tools/licenses`.
 
 Dev note: the icons are a vendored subset of [Lucide](https://lucide.dev) (ISC licence, `web/vendor/LICENSE-lucide.txt`), packed into the sprite `web/icons.svg`. The sprite is regenerated only by the dev-only tool in `tools/icons` (`npm ci && node build-sprite.mjs`). You do not need it to build or run netdiag.
 
