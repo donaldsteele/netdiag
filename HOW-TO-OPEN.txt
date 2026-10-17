@@ -23,13 +23,24 @@ WINDOWS
    while you use it. Click Quit in the page (or press Ctrl+C in the
    black window) to stop.
 
-No administrator password is needed.
+You do not need an administrator password to run netdiag or to scan.
 
-Windows Defender Firewall may show a "Windows Security Alert" asking
-whether netdiag may communicate on private networks. Click "Allow access"
-(or leave the private-network box ticked). This lets netdiag find printers
-and devices that announce themselves (Bonjour / mDNS). If you click Cancel
-or "Don't allow", the scan still works, but those devices may not appear.
+The first time you scan, Windows Defender Firewall may show a "Windows
+Security Alert" about netdiag. It appears because a scan waits for
+answers from devices on the network, such as Bonjour (mDNS) names. The
+netdiag page itself can only be reached from this computer.
+
+  - No administrator password? Click Cancel. "Allow access" would ask
+    for an administrator password, and you do not need it.
+  - If you have an administrator password, you can click "Allow access"
+    instead.
+
+After Cancel, netdiag still works: it finds devices by ping and by this
+computer's list of nearby devices, reads printers, opens device web
+pages and runs the health checks. Only Bonjour (mDNS) names may be
+missing, and a device that answers nothing but Bonjour may not appear.
+Some work computers block these answers without showing the alert; then
+netdiag works the same way as after Cancel.
 
 
 MAC

@@ -354,6 +354,9 @@ Another copy of netdiag may be open, or the port you asked for is taken. Close t
 **Windows says "Windows protected your PC" or antivirus quarantines the file.**
 netdiag is not code-signed. In SmartScreen choose "More info", then "Run anyway". If antivirus removes it, restore it and add the folder as an exception, or ask IT staff to allow it. For IT staff: a scan connects to ten ports on each device it finds, including the remote access ports 22, 3389 and 5900 (to show **Remote access**), so network security tools may report it as remote-access probing from this computer.
 
+**Windows shows a "Windows Security Alert" about netdiag.**
+Windows Defender Firewall can ask about netdiag the first time you scan, because a scan waits for answers from devices on the network, such as Bonjour (mDNS) names. The netdiag page itself listens only on `127.0.0.1`, so nothing else on the network can reach it. On an account without administrator rights, **Allow access** asks for an administrator password: click **Cancel** instead. After Cancel, netdiag still finds devices by ping and the address table, reads printers (SNMP and IPP), checks web pages and runs the health checks, because these are answers to requests netdiag sends. Bonjour names may be missing, and a device that answers only Bonjour may not appear. If someone with an administrator password is there, they can click **Allow access** so Bonjour answers get through too. Some work computers block these answers without asking; netdiag then works the same way as after Cancel.
+
 **Mac says the app cannot be opened.**
 Run `xattr -d com.apple.quarantine netdiag` in the folder where you unzipped it, then `./netdiag`. See HOW-TO-OPEN.txt.
 
@@ -370,7 +373,7 @@ Your web server uses a certificate this computer does not trust: usually a self-
 This computer did not get an address from the router. Check the cable or Wi-Fi connection, and restart the network connection or the computer. If it keeps happening, ask whoever looks after the network to check the DHCP server (usually the router).
 
 **"mdns: no responses" in the scan notes.**
-No device answered the Bonjour (mDNS) query. Devices may still be found through ping, ARP and ports. Check that the firewall is not blocking netdiag, and that you picked the adapter connected to the network you want to check.
+No device answered the Bonjour (mDNS) query. Devices may still be found through ping, ARP and ports. Check that you picked the adapter connected to the network you want to check. On Windows, the firewall may be blocking the answers, for example after **Cancel** on the Windows Security Alert (see above); someone with an administrator password can allow netdiag in Windows Security > Firewall & network protection > Allow an app through firewall. On a Mac, check that netdiag is allowed in System Settings > Network > Firewall.
 
 **A "CONFLICT" appears on a device that is fine (for example a Wi-Fi extender).**
 Click **Ignore this MAC** in the detail panel and confirm. The MAC is saved in Settings under **Ignored conflict MACs**, where **Remove** (then **Save**) undoes it.

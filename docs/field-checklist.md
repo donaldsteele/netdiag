@@ -119,7 +119,16 @@ Tick only after observing the behaviour on real hardware.
 - [ ] With no mDNS responders the scan shows "mdns: no responses" and completes
 - [ ] Printer with port 631 open shows state and supplies "via IPP" when SNMP is off
 - [ ] Printer with SNMP and IPP both working shows "via SNMP + IPP" with SNMP values preferred
-- [ ] Windows Firewall prompt (private networks) and macOS incoming-connection prompt are answered as described in HOW-TO-OPEN.txt, and the scan still works after Deny
+- [ ] macOS incoming-connection prompt is answered as described in HOW-TO-OPEN.txt, and the scan still works after Deny
+
+### Windows Defender Firewall alert (v0.5.8)
+Use a Windows 11 standard user account with Windows Defender Firewall on and no rule for netdiag yet (a new folder for netdiag.exe counts as a new program). Note whether the network is Private or Public.
+- [ ] Record whether a "Windows Security Alert" appears, and when: at start, at the first scan, or not at all
+- [ ] On the standard account, "Allow access" asks for an administrator password, and Cancel closes the alert, as HOW-TO-OPEN.txt says
+- [ ] After Cancel: ping, ARP, port probes, SNMP printer details, IPP, web links and all health checks still work (compare with the same scan with the firewall allowing netdiag)
+- [ ] After Cancel: record whether Bonjour (mDNS) names still appear, or the scan shows "mdns: no responses"
+- [ ] After an administrator clicks "Allow access" (or allows netdiag in Windows Security > Firewall & network protection > Allow an app through firewall), Bonjour names appear
+- [ ] Record what Cancel left in Windows Defender Firewall with Advanced Security > Inbound Rules (block rules for netdiag, or none), and whether the alert comes back at the next scan
 
 ### Live alerts
 - [ ] Unplugging a printer in live mode shows a critical banner and a beep (printerOffline)
