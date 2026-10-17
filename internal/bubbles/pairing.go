@@ -5,8 +5,9 @@
 // pkg/bubblesclient/pairing.go, plus sleepCtx from
 // pkg/bubblesclient/events.go.
 // Modified for netdiag: the package name and the protocol import path,
-// FetchCA's client uses a transport without a proxy, and SetPollInterval
-// lets callers' tests poll quickly.
+// FetchCA's client uses a transport without a proxy, SetPollInterval lets
+// callers' tests poll quickly, and a Pairing prints without its poll
+// secret (String and Format).
 
 package bubbles
 
@@ -102,6 +103,15 @@ func RequestPairing(ctx context.Context, serverURL, caFingerprint string, req pr
 	}
 	return p, nil
 }
+
+// String describes the request without its poll secret.
+func (p *Pairing) String() string {
+	return "bubbles pairing request " + p.id + " (code " + p.code + ")"
+}
+
+// Format prints String for every verb, so a Pairing in a log line or an
+// error never shows the poll secret.
+func (p *Pairing) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, p.String()) }
 
 // Code is the short code to show the user; the admin compares it.
 func (p *Pairing) Code() string { return p.code }

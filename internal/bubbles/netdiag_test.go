@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -52,7 +53,7 @@ func pair(t *testing.T, f *bubblestest.Server) (Config, *Pairing) {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(cfg.Token, protocol.AppTokenPrefix) || cfg.Token != f.Token() || cfg.CAFingerprint != fp || cfg.BaseURL != f.API.URL {
-		t.Fatalf("paired config %v (token %q)", cfg, cfg.Token)
+		t.Fatalf("paired config %v, token from the fake %v", cfg, cfg.Token == f.Token())
 	}
 	return cfg, p
 }
@@ -402,5 +403,27 @@ func TestBubblesStdlibOnly(t *testing.T) {
 		if len(f) > 0 && slices.Contains(f[1:], "netdiag/internal/bubbles/bubblestest") {
 			t.Errorf("%s imports bubblestest; only tests may", f[0])
 		}
+	}
+}
+
+// A pairing request, a client and its configuration print without the
+// poll secret or the token, whatever the verb (v0.6-D23).
+func TestNothingPrintsSecrets(t *testing.T) {
+	f := bubblestest.New(t)
+	cfg, p := pair(t, f)
+	c, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []any{p, cfg, &cfg, c, c.Config()} {
+		for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%d", "%x", "%q"} {
+			s := fmt.Sprintf(verb, v)
+			if strings.Contains(s, "sec-") || strings.Contains(s, cfg.Token) || strings.Contains(s, fmt.Sprintf("%x", cfg.Token)[:16]) {
+				t.Fatalf("%s of %T shows a secret: %s", verb, v, s)
+			}
+		}
+	}
+	if s := fmt.Sprint(p); !strings.Contains(s, "123456") {
+		t.Fatalf("pairing printed as %q", s)
 	}
 }
