@@ -126,7 +126,7 @@ Each prompt below uses one of netdiag's built-in playbooks, so Claude knows whic
 - Claude can only reach netdiag on this computer (`127.0.0.1`). Nothing else on the network can connect to it.
 - The HTTP option is off until you turn on **Agent access (MCP)**. Claude cannot turn it on itself.
 - Claude cannot change settings, delete history, ignore MAC addresses or quit netdiag.
-- The SNMP community string is never shown to Claude, nor a password written in the Web server URL.
+- The SNMP community string is never shown to Claude, nor a password written in the Web server URL. (Health results saved by netdiag 0.5.7 or earlier may still contain such a password; they age out of History, or delete them there.)
 - A scan that Claude starts sends network traffic, just like a click on **Scan**. Only ask Claude to scan networks you are allowed to scan.
 
 ### Troubleshooting
