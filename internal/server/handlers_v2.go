@@ -47,12 +47,12 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	set, err := s.svc.LoadSettings()
+	set, repaired, err := s.svc.LoadSettingsRepaired()
 	if err != nil {
 		s.svcErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.settingsView(set))
+	writeJSON(w, http.StatusOK, s.settingsView(set, repaired))
 }
 
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +68,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		s.svcErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.settingsView(out))
+	writeJSON(w, http.StatusOK, s.settingsView(out, nil))
 }
 
 func (s *Server) handleIgnore(w http.ResponseWriter, r *http.Request) {

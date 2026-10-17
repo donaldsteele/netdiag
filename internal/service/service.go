@@ -35,13 +35,15 @@ type Config struct {
 	Interfaces func() ([]netinfo.Iface, error)
 	Gateway    func() (string, error)
 	BaseCtx    context.Context
-	// OnSettingsSaved, if set, is called after every successful SaveSettings.
-	OnSettingsSaved func(model.Settings)
 }
 
 // Service implements the application operations.
 type Service struct {
 	cfg Config
+
+	// hooksMu guards onSaved, the OnSettingsSaved hooks in call order.
+	hooksMu sync.Mutex
+	onSaved []func(model.Settings)
 
 	logsMu   sync.Mutex
 	logs     map[string]*EventLog

@@ -124,6 +124,57 @@ func TestSettingsEndpoints(t *testing.T) {
 	}
 }
 
+// A settings file with a field that is not valid loads with that field reset
+// and lists it in repaired; PUT stays strict, and a good save clears the list.
+func TestSettingsRepairedView(t *testing.T) {
+	_, u, st := startStore(t)
+	r, b := doj(t, "GET", u+"/api/settings", "", "")
+	if r.StatusCode != 200 || strings.Contains(b, `"repaired"`) ||
+		!strings.Contains(b, `"chat":{"enabled":false,"minSeverity":"warning"}`) {
+		t.Fatalf("defaults: %d %s", r.StatusCode, b)
+	}
+	doc := `{"schemaVersion":1,"community":"keep","alerts":{"sound":true,"cooldownSec":120,"supplyThresholdPct":0},"chat":{"enabled":true,"minSeverity":"loud"}}`
+	if err := os.WriteFile(filepath.Join(st.Dir(), "settings.json"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, b = doj(t, "GET", u+"/api/settings", "", "")
+	var view struct {
+		model.Settings
+		Repaired []string `json:"repaired"`
+	}
+	if err := json.Unmarshal([]byte(b), &view); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(view.Repaired, ",") != "alerts.supplyThresholdPct,chat.minSeverity" ||
+		view.Alerts.SupplyThresholdPct != 15 || view.Alerts.CooldownSec != 120 || view.Community != "keep" ||
+		!view.Chat.Enabled || view.Chat.MinSeverity != "warning" {
+		t.Fatalf("repaired view: %s", b)
+	}
+	bad := view.Settings
+	bad.Chat.MinSeverity = "loud"
+	body, _ := json.Marshal(bad)
+	if r, b := doj(t, "PUT", u+"/api/settings", string(body), "application/json"); r.StatusCode != 400 || !strings.Contains(b, "chat.minSeverity") {
+		t.Fatalf("strict put: %d %s", r.StatusCode, b)
+	}
+	// The page sends the view back as it got it, repaired list included.
+	r, b = doj(t, "PUT", u+"/api/settings", `{"repaired":["x"],`+strings.TrimPrefix(mustJSON(t, view.Settings), "{"), "application/json")
+	if r.StatusCode != 200 || strings.Contains(b, `"repaired"`) {
+		t.Fatalf("put: %d %s", r.StatusCode, b)
+	}
+	if _, b = doj(t, "GET", u+"/api/settings", "", ""); strings.Contains(b, `"repaired"`) || !strings.Contains(b, `"supplyThresholdPct":15`) {
+		t.Fatalf("after save: %s", b)
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
 func TestIgnoreMAC(t *testing.T) {
 	_, u, _ := startStore(t)
 	if r, _ := doj(t, "POST", u+"/api/conflicts/ignore", `{"mac":"zz"}`, "application/json"); r.StatusCode != 400 {

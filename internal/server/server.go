@@ -78,7 +78,7 @@ func New(cfg Config) *Server {
 			s.mcpOn.Store(set.MCP.Enabled)
 		}
 	}
-	svc.SetOnSettingsSaved(s.settingsSaved)
+	svc.OnSettingsSaved(s.settingsSaved)
 	return s
 }
 
@@ -98,12 +98,15 @@ func (s *Server) MCPEnabled() bool { return s.mcpOn.Load() }
 // MCPURL returns the MCP endpoint URL; valid after Listen.
 func (s *Server) MCPURL() string { return s.URL() + "/mcp" }
 
-// settingsView is the settings JSON plus the read-only mcpUrl.
-func (s *Server) settingsView(set model.Settings) any {
+// settingsView is the settings JSON plus the read-only mcpUrl and, when the
+// file had fields that were not valid and were reset on load, their JSON
+// paths in repaired (F7). The page shows a one-time notice for them.
+func (s *Server) settingsView(set model.Settings, repaired []string) any {
 	return struct {
 		model.Settings
-		MCPURL string `json:"mcpUrl"`
-	}{set, s.MCPURL()}
+		MCPURL   string   `json:"mcpUrl"`
+		Repaired []string `json:"repaired,omitempty"`
+	}{set, s.MCPURL(), repaired}
 }
 
 // Listen binds 127.0.0.1:port (0 picks a random free port).

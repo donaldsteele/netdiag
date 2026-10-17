@@ -5,6 +5,9 @@ import (
 	"errors"
 	"io"
 	"net/netip"
+	"os"
+	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -285,6 +288,48 @@ func TestSettings(t *testing.T) {
 	}
 	ns, _ := newSvc(t, false, nil)
 	if _, err := ns.RedactedSettings(); !errors.Is(err, ErrNoStore) {
+		t.Fatalf("want ErrNoStore, got %v", err)
+	}
+}
+
+// Every OnSettingsSaved hook runs, in the order added, after each successful
+// save (IgnoreMAC included), and none runs when the save is refused.
+func TestOnSettingsSavedList(t *testing.T) {
+	s, _ := newSvc(t, true, nil)
+	var calls []string
+	s.OnSettingsSaved(func(set model.Settings) { calls = append(calls, "mcp:"+set.Community) })
+	s.OnSettingsSaved(func(set model.Settings) { calls = append(calls, "chat:"+set.Chat.MinSeverity) })
+	set, _ := s.LoadSettings()
+	set.Community = "c1"
+	if _, err := s.SaveSettings(set); err != nil {
+		t.Fatal(err)
+	}
+	set.Alerts.CooldownSec = 1
+	if _, err := s.SaveSettings(set); err == nil {
+		t.Fatal("bad settings saved")
+	}
+	if err := s.IgnoreMAC("aa:bb:cc:dd:ee:ff"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"mcp:c1", "chat:warning", "mcp:c1", "chat:warning"}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+}
+
+func TestLoadSettingsRepaired(t *testing.T) {
+	s, st := newSvc(t, true, nil)
+	doc := `{"community":"keep","alerts":{"supplyThresholdPct":0,"cooldownSec":120}}`
+	if err := os.WriteFile(filepath.Join(st.Dir(), "settings.json"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	set, repaired, err := s.LoadSettingsRepaired()
+	if err != nil || !slices.Equal(repaired, []string{"alerts.supplyThresholdPct"}) ||
+		set.Alerts.SupplyThresholdPct != 15 || set.Alerts.CooldownSec != 120 || set.Community != "keep" {
+		t.Fatalf("%+v %v %v", set.Alerts, repaired, err)
+	}
+	ns, _ := newSvc(t, false, nil)
+	if _, _, err := ns.LoadSettingsRepaired(); !errors.Is(err, ErrNoStore) {
 		t.Fatalf("want ErrNoStore, got %v", err)
 	}
 }

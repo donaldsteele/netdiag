@@ -2,6 +2,7 @@ package service
 
 import (
 	"net"
+	"slices"
 	"strings"
 
 	"netdiag/internal/model"
@@ -53,14 +54,32 @@ func (s *Service) SaveSettings(in model.Settings) (model.Settings, error) {
 	if sc, ok := s.cfg.Registry.Running(); ok {
 		sc.ApplySettings(out)
 	}
-	if s.cfg.OnSettingsSaved != nil {
-		s.cfg.OnSettingsSaved(out)
+	s.hooksMu.Lock()
+	hooks := slices.Clone(s.onSaved)
+	s.hooksMu.Unlock()
+	for _, f := range hooks {
+		f(out)
 	}
 	return out, nil
 }
 
-// SetOnSettingsSaved installs the post-save hook. Call before serving.
-func (s *Service) SetOnSettingsSaved(f func(model.Settings)) { s.cfg.OnSettingsSaved = f }
+// OnSettingsSaved adds a hook that is called, in the order added, after
+// every successful SaveSettings (the server's MCP gate; later the team chat
+// manager). Hooks run on the saving goroutine and must not save settings.
+func (s *Service) OnSettingsSaved(f func(model.Settings)) {
+	s.hooksMu.Lock()
+	defer s.hooksMu.Unlock()
+	s.onSaved = append(s.onSaved, f)
+}
+
+// LoadSettingsRepaired returns persisted settings and the JSON paths of the
+// fields that were not valid and were reset when they were read (F7).
+func (s *Service) LoadSettingsRepaired() (model.Settings, []string, error) {
+	if err := s.needStore(); err != nil {
+		return model.Settings{}, nil, err
+	}
+	return s.cfg.Store.LoadSettingsRepaired()
+}
 
 // IgnoreMAC adds a MAC to the ignored-conflict list.
 func (s *Service) IgnoreMAC(mac string) error {
