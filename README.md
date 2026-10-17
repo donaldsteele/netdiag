@@ -40,7 +40,7 @@ First time? Read **HOW-TO-OPEN.txt** (included in your zip). It explains the Sma
 
 ![netdiag details drawer in the light theme](docs/img/drawer-light.png)
 
-Nothing is installed. No administrator rights are needed. The tool only listens on `127.0.0.1` (this computer), with no login. The web page itself makes no requests to the internet. The only outside request netdiag makes is the optional **internet check** (one quick request to a test address, described under Health panel), which runs from this computer.
+Nothing is installed. No administrator rights are needed. The tool only listens on `127.0.0.1` (this computer), with no login. The web page itself makes no requests to the internet. Apart from name lookups sent to this computer's own DNS servers (the DNS check, and device names during a scan), the only outside request netdiag makes is the optional **internet check** (one quick request to a test address, described under Health panel), which runs from this computer.
 
 ## Connect Claude (AI agent access via MCP)
 
@@ -166,7 +166,7 @@ The health panel sits above the hosts table. Each row shows an icon, a text stat
 |---|---|
 | **Gateway reachable** | The router answers a ping. A fail means this computer cannot reach the router at all. |
 | **DHCP lease** | Whether this computer got its address from DHCP (normal) or is using a static address. An address in the 169.254.x.x range (APIPA) means DHCP failed, and the check reports `fail`. |
-| **DNS resolving** | Whether names such as your web server can be looked up. |
+| **DNS resolving** | Whether names can be looked up. netdiag looks up the host of the internet check URL in Settings (`connectivitycheck.gstatic.com` when that URL is the default or uses an IP address). If that fails, it asks this computer's DNS servers directly whether they answer at all. If one does, the check shows `warn` and names that server: either the network has no internet, which is normal for many local setups, or the DNS server cannot reach the internet. If the server finds the name when asked again, the check says DNS is slow; if it says the name does not exist, check the internet check address in Settings. `fail` means none of this computer's DNS servers answered, or none is set. |
 | **Web server** | A web page you rely on, such as your own site or an intranet page (set the address in **Settings**, "Web server URL"). netdiag reports the HTTP status, the response time and, if you set one, whether the page contains your "must contain" text. If you have not set a URL the check shows "not configured" (info, not a fault). |
 | **Internet reachability** | Information only. It asks a test address (`http://connectivitycheck.gstatic.com/generate_204` by default, changeable in Settings) whether the internet is reachable. It never shows `fail`, because a network without internet access is normal for many local setups. |
 | **Wi-Fi** | SSID (network name), signal strength, channel, band and link speed, when the computer is on Wi-Fi. A wired computer shows "not on Wi-Fi" (info). When the details cannot be read, it shows "unavailable". On a Mac, macOS can hide the network name unless the app has Location permission; netdiag then shows "hidden by macOS". |
@@ -360,7 +360,7 @@ Keep the black window open. Closing it stops netdiag. If the browser did not ope
 - SNMP v2c and v1 only. No SNMPv3, no writes or configuration changes.
 - Only the seven fixed ports above are probed. netdiag is not a port scanner or vulnerability tool.
 - The last 20 scans are saved on this computer (see **History and compare**). Export anything you need to send to someone; the saved files are only on this computer.
-- The only request netdiag makes to the internet is the optional internet check (a single request, server-side, configurable in Settings). The web page makes no external requests.
+- Apart from name lookups sent to this computer's own DNS servers (which may be on the internet), the only request netdiag makes to the internet is the optional internet check (a single request, server-side, configurable in Settings). The web page makes no external requests.
 - Built and tested for Windows and macOS. Linux is not supported.
 
 ## Building from source

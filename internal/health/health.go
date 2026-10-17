@@ -4,6 +4,7 @@ package health
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/net/dns/dnsmessage"
 
 	"netdiag/internal/discovery"
 	"netdiag/internal/model"
@@ -64,6 +67,12 @@ type Runner struct {
 	// the platform readers.
 	WiFi func(ctx context.Context, iface string) (WiFiInfo, error)
 	DHCP func(ctx context.Context, iface, ip string) (DHCPInfo, error)
+	// dnsServers lists the DNS servers of the adapter with ip; askDNS
+	// reports how one of them replies to the questions. Both are used only
+	// after a name fails to resolve; nil uses the platform reader and a
+	// direct UDP query.
+	dnsServers func(ctx context.Context, iface, ip string) ([]string, error)
+	askDNS     func(ctx context.Context, server string, qs []dnsmessage.Question) dnsResult
 
 	mu       sync.Mutex
 	wifiAt   time.Time
@@ -107,6 +116,12 @@ func (r *Runner) defaults() {
 	}
 	if r.DHCP == nil {
 		r.DHCP = func(ctx context.Context, iface, ip string) (DHCPInfo, error) { return readDHCP(ctx, r, iface, ip) }
+	}
+	if r.dnsServers == nil {
+		r.dnsServers = readDNSServers
+	}
+	if r.askDNS == nil {
+		r.askDNS = dnsReplies
 	}
 }
 
@@ -245,14 +260,38 @@ func (r *Runner) checkDNS(ctx context.Context, in Input) model.HealthCheck {
 	t0 := time.Now()
 	addrs, err := r.Resolver.LookupHost(lctx, host)
 	d := time.Since(t0)
-	if err != nil || len(addrs) == 0 {
-		msg := "no answer"
-		if err != nil {
-			msg = err.Error()
-		}
+	if err == nil && len(addrs) > 0 {
+		return mk(2, model.HealthOK, fmt.Sprintf("%s resolved to %s in %.0f ms", host, addrs[0], ms(d)), ms(d))
+	}
+	msg := "no answer"
+	if err != nil {
+		msg = err.Error()
+	}
+	if ctx.Err() != nil {
 		return mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: %s", host, msg), 0)
 	}
-	return mk(2, model.HealthOK, fmt.Sprintf("%s resolved to %s in %.0f ms", host, addrs[0], ms(d)), ms(d))
+	var de *net.DNSError
+	timedOut := lctx.Err() == context.DeadlineExceeded || errors.As(err, &de) && de.IsTimeout
+	// Without internet an internet name cannot resolve, so ask this
+	// computer's DNS servers directly whether they answer at all. That is
+	// a warning, not a failure: either there is no internet, or the DNS
+	// server cannot reach it, and only the second is a DNS fault.
+	server, reply, asked, aerr := r.localDNSAnswer(ctx, in, host)
+	switch {
+	case reply == dnsResolved && timedOut:
+		return mk(2, model.HealthWarn, fmt.Sprintf("DNS is slow: %s did not resolve within 3 s, but DNS server %s resolved it when asked again", host, server), 0)
+	case reply == dnsResolved:
+		return mk(2, model.HealthWarn, fmt.Sprintf("this computer could not resolve %s (%s), but DNS server %s resolved it when asked directly: another DNS setting, such as a VPN, may be in the way", host, msg, server), 0)
+	case reply == dnsNoSuchName:
+		return mk(2, model.HealthWarn, fmt.Sprintf("DNS server %s answers, but says %s does not exist: check the internet check address in Settings, or a DNS filter may block it", server, host), 0)
+	case server != "":
+		return mk(2, model.HealthWarn, fmt.Sprintf("could not resolve %s, but DNS server %s answers: no internet connection, or the DNS server cannot reach the internet (%s)", host, server, msg), 0)
+	case len(asked) > 0:
+		return mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: no reply from DNS server %s (%s)", host, strings.Join(asked, ", "), msg), 0)
+	case aerr != nil:
+		return mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: %s", host, msg), 0)
+	}
+	return mk(2, model.HealthFail, fmt.Sprintf("could not resolve %s: no DNS server is set on this network adapter (%s)", host, msg), 0)
 }
 
 func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {

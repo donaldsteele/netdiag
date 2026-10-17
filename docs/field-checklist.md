@@ -60,7 +60,8 @@ Tick only after observing the behaviour on real hardware.
 ### Health panel
 - [ ] Gateway row shows `ok` with a latency; unplugging the router shows `fail` text, not colour alone
 - [ ] DHCP row shows `ok` on a DHCP lease and `fail` on a 169.254.x.x (APIPA) address
-- [ ] DNS row resolves the web server name
+- [ ] DNS row resolves the internet test name (connectivitycheck.gstatic.com, or the internet check host) and shows a latency
+- [ ] On a local network without internet, the DNS row is `warn` (not `fail`) and names the DNS server that answers, while the router's DNS server is reachable; it is `fail` when no DNS server answers
 - [ ] Web server row shows HTTP status, latency and the must-contain result, once a URL is set in Settings
 - [ ] Web server row shows "not configured" (info) when no URL is set
 - [ ] Internet row is `info` (never `fail`) on an offline local network

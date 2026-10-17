@@ -75,6 +75,9 @@ func newTestRunner(p fakePinger, res fakeResolver, execOut string) *Runner {
 		},
 		DHCP: func(ctx context.Context, iface, ip string) (DHCPInfo, error) {
 			return DHCPInfo{}, errors.New("dhcp disabled in test")
+		},
+		dnsServers: func(ctx context.Context, iface, ip string) ([]string, error) {
+			return nil, errors.New("dns servers disabled in test")
 		}}
 	_ = execOut
 	r.defaults()
