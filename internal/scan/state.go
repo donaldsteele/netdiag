@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"netdiag/internal/advice"
 	"netdiag/internal/model"
 	"netdiag/internal/notify"
 )
@@ -97,6 +98,7 @@ func (s *state) mutate(ip string, fn func(h *model.Host) *model.Event) {
 		if o := s.obs[ip]; s.keepHist && len(o) > 0 && !slices.Equal(h.MACHistory, o) {
 			h.MACHistory = slices.Clone(o)
 		}
+		h.Advice = advice.PrinterNoStatus(*h)
 		h.UpdatedAt = s.now().UTC().Format(time.RFC3339)
 		cur := copyHost(*h)
 		s.publish(cur)
@@ -107,7 +109,7 @@ func (s *state) mutate(ip string, fn func(h *model.Host) *model.Event) {
 			if s.fresh {
 				prev = model.Host{}
 			}
-			s.addNotices(s.notify.Observe(prev, cur))
+			s.addNotices(hosts, s.notify.Observe(prev, cur))
 		}
 		s.fresh = false
 	}

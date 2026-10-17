@@ -150,7 +150,7 @@ func TestRepairPaths(t *testing.T) {
 	got := RepairPaths()
 	want := []string{"community", "printerStatusPollSec",
 		"webServer", "webServer.url", "webServer.mustContain", "webServer.expectStatus", "webServer.trustedCert",
-		"internetCheckURL",
+		"internetCheckURL", "noInternet",
 		"alerts", "alerts.sound", "alerts.desktop", "alerts.cooldownSec", "alerts.supplyThresholdPct",
 		"alerts.triggers", "alerts.triggers.printerOffline", "alerts.triggers.deviceOffline",
 		"alerts.triggers.supplyLow", "alerts.triggers.printerAlert", "alerts.triggers.newDevice",
@@ -226,6 +226,33 @@ func TestSettingsChatDefaults(t *testing.T) {
 	b, _ := json.Marshal(d)
 	if !strings.Contains(string(b), `"chat":{"enabled":false,"minSeverity":"warning"}`) {
 		t.Fatalf("json: %s", b)
+	}
+}
+
+// The "This network has no internet" switch (v0.6-D15) is off by default,
+// off for a file written before it existed, kept on save, and a value of
+// the wrong type is reset and reported.
+func TestSettingsNoInternet(t *testing.T) {
+	if DefaultSettings().NoInternet {
+		t.Fatal("on by default")
+	}
+	s := open(t)
+	writeSettings(t, s, `{"schemaVersion":1,"community":"x"}`)
+	got, repaired, err := s.LoadSettingsRepaired()
+	if err != nil || repaired != nil || got.NoInternet {
+		t.Fatalf("old file: %v %v %v", got.NoInternet, repaired, err)
+	}
+	got.NoInternet = true
+	if out, err := s.SaveSettings(got); err != nil || !out.NoInternet {
+		t.Fatalf("save: %v %v", out.NoInternet, err)
+	}
+	if again, err := s.LoadSettings(); err != nil || !again.NoInternet {
+		t.Fatalf("reload: %v %v", again.NoInternet, err)
+	}
+	writeSettings(t, s, `{"schemaVersion":1,"noInternet":"yes"}`)
+	got, repaired, err = s.LoadSettingsRepaired()
+	if err != nil || got.NoInternet || !slices.Equal(repaired, []string{"noInternet"}) {
+		t.Fatalf("wrong type: %v %v %v", got.NoInternet, repaired, err)
 	}
 }
 

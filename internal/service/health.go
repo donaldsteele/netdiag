@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"net/netip"
+	"runtime"
 	"time"
 
+	"netdiag/internal/advice"
 	"netdiag/internal/health"
 	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
@@ -53,7 +55,9 @@ func (s *Service) RunHealth(ctx context.Context, iface string) model.HealthRepor
 	}
 	ctx, cancel := context.WithTimeout(ctx, healthRunCap)
 	defer cancel()
-	return s.cfg.Health.Run(ctx, in)
+	rep := s.cfg.Health.Run(ctx, in)
+	advice.Report(&rep, advice.Ctx{GOOS: runtime.GOOS, Gateway: in.Gateway})
+	return rep
 }
 
 // healthTarget picks the interface and gateway an on-demand health check

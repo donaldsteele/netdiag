@@ -1,12 +1,15 @@
 package scan
 
 import (
+	"runtime"
 	"slices"
 	"sort"
 	"time"
 
+	"netdiag/internal/advice"
 	"netdiag/internal/conflict"
 	"netdiag/internal/model"
+	"netdiag/internal/notify"
 )
 
 // The methods in this file run on the state goroutine. The exported-to-runner
@@ -21,10 +24,12 @@ func (s *state) mirror() {
 }
 
 // addNotices records and publishes notices, keeping the last MaxNotices.
-func (s *state) addNotices(ns []model.Notice) {
+// Each fault gets its advice first (see advise).
+func (s *state) addNotices(hosts map[string]*model.Host, ns []model.Notice) {
 	if len(ns) == 0 {
 		return
 	}
+	s.advise(hosts, ns)
 	all := make([]model.Notice, 0, len(s.notices)+len(ns))
 	all = append(all, s.notices...)
 	all = append(all, ns...)
@@ -40,18 +45,46 @@ func (s *state) addNotices(ns []model.Notice) {
 	s.mirror()
 }
 
+// advise sets the advice on each fault notice in ns, in place: a conflict
+// or a health check's own advice when the notice is about one the scan
+// has, else the catalogue's answer for the notice and its device.
+func (s *state) advise(hosts map[string]*model.Host, ns []model.Notice) {
+	x := advice.Ctx{GOOS: runtime.GOOS, Gateway: s.gateway}
+	for i := range ns {
+		n := &ns[i]
+		if n.OK || n.Advice != nil {
+			continue
+		}
+		switch n.Trigger {
+		case model.TriggerIPConflict:
+			if j := slices.IndexFunc(s.conflicts, func(c model.Conflict) bool { return notify.ConflictKey(c) == n.Key }); j >= 0 {
+				n.Advice = s.conflicts[j].Advice
+			}
+		case model.TriggerHealthFailed:
+			if s.health != nil {
+				if j := slices.IndexFunc(s.health.Checks, func(c model.HealthCheck) bool { return notify.HealthKey(c.ID) == n.Key }); j >= 0 {
+					n.Advice = s.health.Checks[j].Advice
+				}
+			}
+		}
+		if n.Advice == nil {
+			n.Advice = advice.Notice(*n, hosts[n.IP], x)
+		}
+	}
+}
+
 // setHealth stores a new health report, publishes it and feeds it to the
 // notify engine (which reports a check after two failed runs in a row and
 // says it is fixed after two good ones).
 func (s *state) setHealth(rep model.HealthReport) {
-	s.ops <- func(map[string]*model.Host) {
+	s.ops <- func(hosts map[string]*model.Host) {
 		s.health = &rep
 		if s.emit != nil {
 			s.emit(model.Event{Type: model.EventHealth, Data: rep})
 		}
 		s.mirror()
 		if s.notify != nil {
-			s.addNotices(s.notify.ObserveHealth(rep))
+			s.addNotices(hosts, s.notify.ObserveHealth(rep))
 		}
 	}
 }
@@ -119,6 +152,14 @@ func (s *state) analyzeOp(hosts map[string]*model.Host, cycle bool) {
 	now := s.now()
 	list := analysisHosts(hostList(hosts))
 	cur := conflict.Analyze(list, s.obs, s.gateway, s.self.IP, s.ignored, now)
+	x := advice.Ctx{GOOS: runtime.GOOS, Gateway: s.gateway, Hosts: map[string]model.Host{}}
+	for _, c := range cur {
+		for _, ip := range c.IPs {
+			if h, ok := hosts[ip]; ok {
+				x.Hosts[ip] = *h
+			}
+		}
+	}
 
 	old := make(map[string]model.Conflict, len(s.conflicts))
 	for _, c := range s.conflicts {
@@ -128,6 +169,7 @@ func (s *state) analyzeOp(hosts map[string]*model.Host, cycle bool) {
 	var added []model.Conflict
 	for i := range cur {
 		keep[cur[i].ID] = true
+		cur[i].Advice = advice.Conflict(cur[i], x)
 		if o, ok := old[cur[i].ID]; ok {
 			if o.FirstSeen != "" && o.FirstSeen < cur[i].FirstSeen {
 				cur[i].FirstSeen = o.FirstSeen
@@ -172,6 +214,6 @@ func (s *state) analyzeOp(hosts map[string]*model.Host, cycle bool) {
 	if s.notify != nil {
 		// Once per analysis: new conflicts are reported, and a conflict
 		// gone from two cycle analyses in a row gets its OK notice.
-		s.addNotices(s.notify.ObserveConflicts(cur, cycle))
+		s.addNotices(hosts, s.notify.ObserveConflicts(cur, cycle))
 	}
 }

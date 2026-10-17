@@ -117,6 +117,18 @@ func Health(c model.HealthCheck, x Ctx) *model.Advice {
 	return a
 }
 
+// Report sets the advice on every check of rep. The checks are copied
+// first, so a report that shares its slice with another is left alone.
+func Report(rep *model.HealthReport, x Ctx) {
+	if rep == nil {
+		return
+	}
+	rep.Checks = slices.Clone(rep.Checks)
+	for i := range rep.Checks {
+		rep.Checks[i].Advice = Health(rep.Checks[i], x)
+	}
+}
+
 func health(c model.HealthCheck, reason string, x Ctx) *model.Advice {
 	noInternet, _ := c.Data["noInternet"].(bool)
 	switch reason {

@@ -3,11 +3,13 @@ package scan
 import (
 	"context"
 	"maps"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"netdiag/internal/advice"
 	"netdiag/internal/devtype"
 	"netdiag/internal/health"
 	"netdiag/internal/ipp"
@@ -316,6 +318,7 @@ func (r *runner) startHealth(ctx context.Context, bg *sync.WaitGroup) {
 	go func() {
 		defer bg.Done()
 		rep := r.d.Health.Run(ctx, in)
+		advice.Report(&rep, advice.Ctx{GOOS: runtime.GOOS, Gateway: in.Gateway})
 		if ctx.Err() == nil {
 			r.st.setHealth(rep)
 		}

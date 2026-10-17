@@ -281,6 +281,39 @@ func TestRunHealthTarget(t *testing.T) {
 	check("scan interface gone", "", def)
 }
 
+// tcpOnlyHealth reports a router that answers only on its web port.
+type tcpOnlyHealth struct{ recordHealth }
+
+func (h *tcpOnlyHealth) Run(ctx context.Context, in health.Input) model.HealthReport {
+	h.recordHealth.Run(ctx, in)
+	return model.HealthReport{CheckedAt: "now", Checks: []model.HealthCheck{{ID: "gateway", Status: model.HealthOK,
+		Detail: "the router answers on port 80", Data: map[string]any{"reason": model.ReasonTCPOnly}}}}
+}
+
+// RunHealth attaches the advice, with the router page of the gateway it
+// checked, and passes the "no internet" switch to the checks (v0.6-D15).
+func TestRunHealthAdvice(t *testing.T) {
+	h := &tcpOnlyHealth{}
+	s, st := newSvc(t, true, h)
+	s.cfg.Interfaces = func() ([]netinfo.Iface, error) {
+		return []netinfo.Iface{{Name: "wlan0", IP: "192.168.1.20", CIDR: "192.168.1.0/24", IsDefault: true}}, nil
+	}
+	s.cfg.Gateway = func() (string, error) { return "192.168.1.1", nil }
+	set := store.DefaultSettings()
+	set.NoInternet = true
+	if _, err := st.SaveSettings(set); err != nil {
+		t.Fatal(err)
+	}
+	rep := s.RunHealth(context.Background(), "")
+	a := rep.Checks[0].Advice
+	if a == nil || len(a.Actions) != 1 || a.Actions[0].Kind != model.ActionOpenRouter || a.Actions[0].Target != "http://192.168.1.1/" {
+		t.Fatalf("advice = %+v", a)
+	}
+	if !h.last().Config.NoInternet {
+		t.Fatal("the no-internet switch did not reach the checks")
+	}
+}
+
 func TestSettings(t *testing.T) {
 	s, _ := newSvc(t, true, nil)
 	var bad *BadRequestError
