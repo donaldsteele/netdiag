@@ -2,10 +2,13 @@ package mcpserver
 
 import (
 	"context"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -59,6 +62,43 @@ func TestNoMutatingCallsInMCPLayer(t *testing.T) {
 		for _, f := range forbidden {
 			if strings.Contains(string(b), f) {
 				t.Errorf("%s contains forbidden call %q", n, f)
+			}
+		}
+	}
+}
+
+// actionPackages act on the world (team chat, the chat token, the
+// single-instance file, remote sessions). mcpserver must not import them,
+// so agents can only read their state through the service (v0.6 plan
+// §4.14, master roadmap §8.11).
+var actionPackages = []string{
+	"netdiag/internal/bubbles",
+	"netdiag/internal/chat",
+	"netdiag/internal/secret",
+	"netdiag/internal/instance",
+	"netdiag/internal/remote",
+}
+
+func TestMCPImportsNoActionPackages(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	for _, n := range files {
+		if strings.HasSuffix(n, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, n, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, im := range f.Imports {
+			p, _ := strconv.Unquote(im.Path.Value)
+			for _, banned := range actionPackages {
+				if p == banned || strings.HasPrefix(p, banned+"/") {
+					t.Errorf("%s imports %s; agents may only read its state through the service", n, p)
+				}
 			}
 		}
 	}
