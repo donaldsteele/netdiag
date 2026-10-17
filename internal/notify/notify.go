@@ -43,6 +43,12 @@ const (
 // does not open and close the problem on every poll.
 const SupplyHysteresisPct = 5
 
+// SupplyGoneReadings is how many printer readings in a row must list
+// supplies but not a low one before its problem counts as fixed (the
+// cartridge was swapped for another kind). One reading is not enough: a
+// partial SNMP read can fall back to the IPP supply names for a moment.
+const SupplyGoneReadings = 2
+
 // Config holds the alert settings the engine needs.
 type Config struct {
 	// Triggers maps trigger name (model.Trigger*) to enabled. Missing = disabled.
@@ -389,9 +395,10 @@ func (e *Engine) presence(out []model.Notice, prev, cur model.Host, l string) []
 // supplies reports a supply crossing down to the threshold and closes that
 // problem once the supply is more than SupplyHysteresisPct above it (or at
 // 100%, for a threshold that leaves no room), once it reports some left
-// without a level (a new cartridge that only says "ok"), or once a printer
-// that still lists its supplies no longer lists it (a cartridge swapped for
-// another kind). A poll that lists no supplies says nothing about them.
+// without a level (a new cartridge that only says "ok"), or once
+// SupplyGoneReadings printer readings in a row list supplies but not it (a
+// cartridge swapped for another kind). A reading that lists no supplies says
+// nothing about them, and neither does an update that kept the reading.
 func (e *Engine) supplies(out []model.Notice, pp *model.PrinterInfo, cur model.Host, l string) []model.Notice {
 	thr := e.cfg.SupplyThresholdPct
 	okAt := min(thr+SupplyHysteresisPct+1, 100)
@@ -424,11 +431,15 @@ func (e *Engine) supplies(out []model.Notice, pp *model.PrinterInfo, cur model.H
 				fmt.Sprintf("%s: %s at %d%% (threshold %d%%).", l, cs.Description, cs.Percent, thr)), cs.Description)
 		}
 	}
-	if len(cur.Printer.Supplies) == 0 {
+	if len(cur.Printer.Supplies) == 0 || pp == cur.Printer {
 		return out
 	}
 	for _, f := range e.hostOpen(model.TriggerSupplyLow, cur) {
 		if listed[f.Key] {
+			f.good = 0
+			continue
+		}
+		if f.good++; f.good < SupplyGoneReadings {
 			continue
 		}
 		msg := fmt.Sprintf("%s no longer reports the low supply.", l)

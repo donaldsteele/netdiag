@@ -351,8 +351,19 @@ func TestSupplyOtherWaysOut(t *testing.T) {
 		if n := e.Observe(supplied(black(10, "low")), supplied()); len(n) != 0 {
 			t.Fatalf("no supplies listed: %v", n)
 		}
+		// One reading with other names (a partial read that fell back to
+		// IPP's names) is not enough, and the same reading seen again by
+		// another update does not count.
 		xl := model.Supply{Description: "Black XL", Percent: 100, State: "ok"}
-		n := e.Observe(supplied(black(10, "low")), supplied(xl))
+		other := supplied(xl)
+		if n := append(e.Observe(supplied(black(10, "low")), other), e.Observe(other, other)...); len(n) != 0 {
+			t.Fatalf("one reading: %v", n)
+		}
+		if n := e.Observe(other, supplied(black(10, "low"))); len(n) != 0 || len(e.Open()) != 1 {
+			t.Fatalf("back again: %v open %v", n, e.Open())
+		}
+		e.Observe(supplied(black(10, "low")), other)
+		n := e.Observe(other, supplied(xl))
 		if len(n) != 1 || !n[0].OK || n[0].Message != "10.0.0.5 no longer reports Black." {
 			t.Fatalf("swapped: %v", n)
 		}
