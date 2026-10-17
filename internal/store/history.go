@@ -138,6 +138,9 @@ func (s *Store) redactFile(f fileInfo, data []byte) error {
 		if err := json.Unmarshal(v, &req); err != nil {
 			return err
 		}
+		if req == nil { // "request": null, e.g. a case-variant duplicate key
+			continue
+		}
 		for rk := range req {
 			if strings.EqualFold(rk, "community") {
 				delete(req, rk)

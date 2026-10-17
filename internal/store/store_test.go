@@ -468,3 +468,23 @@ func TestOldHistoryFileRewriteFails(t *testing.T) {
 		t.Fatalf("file changed: %s", data)
 	}
 }
+
+// TestRedactFileNullRequestDuplicate: a file with the community in "request"
+// and a case-variant duplicate "Request": null must not panic.
+func TestRedactFileNullRequestDuplicate(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "20260101T090000Z-dup.json"
+	data := []byte(`{"id":"dup","request":{"cidr":"10.0.0.0/24","community":"private"},"Request":null,"hosts":[]}`)
+	if err := os.WriteFile(filepath.Join(s.histDir, name), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("panic: %v", r)
+		}
+	}()
+	_ = s.redactFile(fileInfo{name: name}, data)
+}
