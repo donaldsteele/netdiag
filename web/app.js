@@ -149,7 +149,7 @@ document.addEventListener('alpine:init', () => {
     webUnset(c) {
       if (!c || c.id !== 'webserver') return false;
       if (c.data && typeof c.data.configured === 'boolean') return !c.data.configured;
-      return c.status === 'info' && /^no web server configured/.test(c.detail || '');
+      return c.status === 'info' && /^(not configured|no web server configured)/.test(c.detail || '');
     },
     // The web server check failed on a certificate this computer does not
     // trust, and sent that certificate's fingerprint along, for the web

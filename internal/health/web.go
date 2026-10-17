@@ -46,7 +46,7 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 	cfg := in.Config
 	raw := strings.TrimSpace(cfg.WebURL)
 	if raw == "" {
-		c := mk(3, model.HealthInfo, "no web server configured (set one in Settings)", 0)
+		c := mk(3, model.HealthInfo, "not configured", 0)
 		c.Data = map[string]any{"configured": false}
 		return c
 	}

@@ -16,7 +16,7 @@ test('web server card links to Settings when no URL is set', async ({ page }) =>
   await page.goto('/');
   await page.locator('#tab-health').click();
   const card = webCard(page);
-  await expect(card).toContainText('no web server configured');
+  await expect(card).toContainText('not configured');
   // Other cards never offer the link.
   await expect(page.locator('.hcard a.setweb:visible')).toHaveCount(1);
   const link = card.getByRole('link', { name: 'Set the web server URL in Settings' });

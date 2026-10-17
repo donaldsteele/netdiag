@@ -157,7 +157,7 @@ export function webCheck(state = 'unset', url = WEB_URL) {
       data: { configured: true, url, certSHA256: CERT_SHA256, certSubject: 'intranet.local',
         certExpires: '2027-10-01T00:00:00Z' } };
   }
-  return { ...base, status: 'info', detail: 'no web server configured (set one in Settings)', latencyMs: 0,
+  return { ...base, status: 'info', detail: 'not configured', latencyMs: 0,
     data: { configured: false } };
 }
 
