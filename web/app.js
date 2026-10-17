@@ -308,6 +308,7 @@ document.addEventListener('alpine:init', () => {
       const key = (scanId || '') + ':' + n.id;
       if (this.seenNotices[key]) return;
       this.seenNotices[key] = true;
+      if (n.ok) { this.onFixed(n, key); return; }
       this.logPush('notice', (n.title || 'Notice') + (n.message ? ': ' + n.message : ''), n.ip);
       this.banners.unshift(Object.assign({}, n, {bid: key}));
       if (this.banners.length > 50) this.banners.length = 50;
@@ -315,6 +316,37 @@ document.addEventListener('alpine:init', () => {
       if (this.settings && this.settings.alerts.desktop && this.desktopState() === 'granted') {
         try { new Notification(n.title || 'netdiag', {body: n.message || '', tag: n.key || n.id}); } catch (e) {}
       }
+    },
+    // An OK notice closes the problem its key opened. The fault's banner turns
+    // into a Fixed banner in place (a new one if it was dismissed), with no
+    // sound, and a desktop notification replaces the fault's: same tag,
+    // silent (v0.6-D8).
+    onFixed(n, bid) {
+      const fixed = {ok: true, severity: 'info', title: n.title, message: n.message, at: n.at, openedAt: n.openedAt, ip: n.ip};
+      const b = n.key ? this.banners.find(x => x.key === n.key && !x.ok) : null;
+      if (b) Object.assign(b, fixed);
+      else {
+        this.banners.unshift(Object.assign({}, n, fixed, {bid: bid}));
+        if (this.banners.length > 50) this.banners.length = 50;
+      }
+      this.logPush('notice', 'Fixed: ' + (n.title || 'Notice') + ' ' + this.fixedText(n) + (n.message ? ' ' + n.message : ''), n.ip);
+      if (this.settings && this.settings.alerts.desktop && this.desktopState() === 'granted') {
+        try { new Notification('Fixed: ' + (n.title || 'netdiag'), {body: 'Fixed ' + this.fixedText(n), tag: n.key || n.id, silent: true}); } catch (e) {}
+      }
+    },
+    // "at 10:42 (was down 12 min)." for an OK notice (local time).
+    fixedText(n) {
+      const at = new Date(n.at), from = new Date(n.openedAt);
+      const end = isNaN(at) ? new Date() : at;
+      let s = 'at ' + end.toTimeString().slice(0, 5);
+      if (!isNaN(from) && end >= from) {
+        const m = Math.floor((end - from) / 60000);
+        s += ' (was down ' + (m < 1 ? 'less than a minute' : m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min') + ')';
+      }
+      return s + '.';
+    },
+    bannerLead(b) {
+      return (b.ok ? 'Fixed: ' : b.severity === 'critical' ? 'Critical: ' : b.severity === 'warn' ? 'Warning: ' : 'Notice: ') + b.title;
     },
     shownBanners() { return this.banners.slice(0, 3); },
     moreBanners() { return Math.max(0, this.banners.length - 3); },

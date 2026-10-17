@@ -72,10 +72,10 @@
   </header>
   <section id="alerts" class="banners" aria-label="Alerts">
     <template x-for="b in shownBanners()" :key="b.bid">
-      <div class="banner" :class="'sev-' + b.severity" :role="b.severity === 'critical' ? 'alert' : 'status'"
+      <div class="banner" :class="b.ok ? 'sev-ok' : 'sev-' + b.severity" :role="b.severity === 'critical' ? 'alert' : 'status'"
            :aria-live="b.severity === 'critical' ? 'assertive' : 'polite'">
-        <div><svg class="ico" :class="sevClass(b.severity)" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + sevIcon(b.severity)"></use></svg> <strong x-text="(b.severity === 'critical' ? 'Critical: ' : b.severity === 'warn' ? 'Warning: ' : 'Notice: ') + b.title"></strong>
-          <span x-text="b.message"></span> <span class="sub" x-show="b.ip" x-text="b.ip"></span></div>
+        <div><svg class="ico" :class="sevClass(b.ok ? 'ok' : b.severity)" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + sevIcon(b.ok ? 'ok' : b.severity)"></use></svg> <strong x-text="bannerLead(b)"></strong>
+          <span x-text="b.ok ? fixedText(b) : b.message"></span> <span class="sub" x-show="b.ip" x-text="b.ip"></span></div>
         <button type="button" @click="dismiss(b.bid)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-x"></use></svg>Dismiss<span class="sr" x-text="' ' + b.title"></span></button>
       </div>
     </template>

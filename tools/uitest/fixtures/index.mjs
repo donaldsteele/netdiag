@@ -176,13 +176,26 @@ export function health({ web = 'unset', webURL = WEB_URL } = {}) {
   };
 }
 
+// Keys follow notify.Key: <trigger>|<MAC or ip:IP>|<part>.
 export function notice(n = 1) {
   if (n === 1) {
-    return { id: 'n-1', trigger: 'supplyLow', severity: 'warn', ip: ip(10), title: 'Toner low',
-      message: 'Black Toner is at 15% on HL-L2350DW', at: T1, key: `supplyLow:${ip(10)}:Black Toner` };
+    return { id: 'n-1', trigger: 'supplyLow', severity: 'warn', ip: ip(10), mac: '00:1B:A9:12:34:56', title: 'Toner low',
+      message: 'Black Toner is at 15% on HL-L2350DW', at: T1, key: 'supplyLow|00:1B:A9:12:34:56|6c1a9b0e' };
   }
-  return { id: 'n-2', trigger: 'deviceOffline', severity: 'warn', ip: ip(200), title: 'Device offline',
-    message: `VMware, Inc. at ${ip(200)} stopped responding`, at: new Date().toISOString(), key: `deviceOffline:${ip(200)}` };
+  return { id: 'n-2', trigger: 'deviceOffline', severity: 'warn', ip: ip(200), mac: '00:50:56:AB:CD:EF', title: 'Device offline',
+    message: `VMware, Inc. at ${ip(200)} stopped responding`, at: new Date(Date.now() - 12 * 60000).toISOString(),
+    key: 'deviceOffline|00:50:56:AB:CD:EF|' };
+}
+
+// fixedNotice(n): the OK notice that closes notice(n): same key, ok, openedAt
+// set to the fault's time, 12 minutes later for notice(2).
+export function fixedNotice(n = 2) {
+  const f = notice(n);
+  const titles = { supplyLow: 'Supply OK again', deviceOffline: 'Device back online' };
+  const at = n === 1 ? new Date(Date.parse(T1) + 12 * 60000).toISOString() : new Date().toISOString();
+  return { id: `n-${n + 10}`, trigger: f.trigger, severity: 'info', ip: f.ip, mac: f.mac, title: titles[f.trigger],
+    message: n === 1 ? 'Black Toner at 60% on HL-L2350DW.' : `VMware, Inc. at ${ip(200)} answers again.`,
+    at, key: f.key, ok: true, openedAt: f.at };
 }
 
 export function interfaces() {

@@ -160,6 +160,36 @@ func TestNoticeDedupeScopedToScan(t *testing.T) {
 	}
 }
 
+// An OK notice turns its fault's banner (same key) into a Fixed banner with
+// a shape and a word, never beeps, and replaces the desktop notification
+// with the same tag, silently (v0.6-D8).
+func TestFixedBanners(t *testing.T) {
+	js, _ := readAsset("app.js")
+	html, _ := readAsset("index.html")
+	src := string(js)
+	for _, want := range []string{
+		"if (n.ok) { this.onFixed(n, key); return; }",
+		"x.key === n.key && !x.ok",
+		"'Fixed: '",
+		"tag: n.key || n.id, silent: true",
+		"(was down ",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+	i := strings.Index(src, "onFixed(n, bid) {")
+	j := strings.Index(src, "fixedText(n) {")
+	if i < 0 || j < i || strings.Contains(src[i:j], "beep(") {
+		t.Errorf("onFixed must not beep")
+	}
+	for _, want := range []string{"sevIcon(b.ok ? 'ok' : b.severity)", "bannerLead(b)", "b.ok ? fixedText(b) : b.message", "b.ok ? 'sev-ok'"} {
+		if !strings.Contains(string(html), want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+}
+
 // Banner identity must be unique across scans (scan id + notice id), used as
 // the x-for key and for dismiss.
 func TestBannerIdentityUniqueAcrossScans(t *testing.T) {

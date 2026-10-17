@@ -199,6 +199,7 @@ select{padding-right:4px}
 .alert.warn::before{content:"! ";font-weight:700;color:var(--warn)}
 .alert.error::before{content:"x ";font-weight:700;color:var(--bad)}
 .banner.sev-info{border-left-color:var(--info)}
+.banner.sev-ok{border-left-color:var(--ok)}
 .banner.more{color:var(--fg-muted);font-size:13px}
 /* health cards */
 .healthpanel{margin:10px 0;background:transparent;border:0;padding:0}
