@@ -74,7 +74,7 @@ func TestCancelScanRefusesUILive(t *testing.T) {
 }
 
 // A live-mode scan from the window that is still in its first pass is about
-// to watch the network, so cancel_scan leaves it running too (D21).
+// to watch the network, so cancel_scan leaves it running too (v0.6-D26).
 func TestCancelScanRefusesUILiveFirstPass(t *testing.T) {
 	gate := make(chan struct{})
 	defer close(gate)
@@ -86,8 +86,15 @@ func TestCancelScanRefusesUILiveFirstPass(t *testing.T) {
 	t.Cleanup(func() { sc.Cancel() })
 	var out cancelOut
 	e.ok(t, "cancel_scan", map[string]any{"scanId": sc.ID}, &out)
-	if out.Cancelled || out.State != model.StateRunning || out.Note != noteWatchingFromWindow {
+	if out.Cancelled || out.State != model.StateRunning || out.Note != noteFirstPassFromWindow {
 		t.Fatalf("cancel_scan = %+v", out)
+	}
+	// The window shows Cancel until the first scan ends.
+	if !strings.Contains(out.Note, "click Cancel") || !strings.Contains(out.Note, "Stop live") {
+		t.Fatalf("note = %q", out.Note)
+	}
+	if sc.State() != model.StateRunning {
+		t.Fatalf("scan state = %q", sc.State())
 	}
 }
 

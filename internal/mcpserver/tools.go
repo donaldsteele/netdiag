@@ -109,9 +109,14 @@ type cancelOut struct {
 	Note      string `json:"note,omitempty"`
 }
 
-// noteWatchingFromWindow is cancel_scan's answer for a live-mode scan that
-// was started from the netdiag window (D19).
-const noteWatchingFromWindow = "That scan is watching the network from the netdiag window; ask the person to click Stop live there."
+// noteWatchingFromWindow is cancel_scan's answer for a live scan that was
+// started from the netdiag window (D19), and noteFirstPassFromWindow for one
+// in live mode that is still on its first scan (v0.6-D26): the window shows
+// Cancel until it is watching.
+const (
+	noteWatchingFromWindow  = "That scan is watching the network from the netdiag window; ask the person to click Stop live there."
+	noteFirstPassFromWindow = "That scan was started from the netdiag window to watch the network and is still on its first scan; ask the person to click Cancel there, or Stop live once it is watching."
+)
 
 type listDevicesIn struct {
 	ScanID     string `json:"scanId" jsonschema:"scan id"`
@@ -196,7 +201,7 @@ func registerTools(s *mcp.Server, svc *service.Service, opts Options) {
 		Annotations: readAnn("Get scan summary")}, t.getScan)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "cancel_scan", Title: "Cancel a running scan",
-		Description: "Cancel a running scan started in this netdiag process. Already collected results are kept. A live scan started from the netdiag window is not cancelled (cancelled=false with a note): ask the person to click Stop live there.",
+		Description: "Cancel a running scan started in this netdiag process. Already collected results are kept. A live-mode scan started from the netdiag window is not cancelled, even during its first scan (cancelled=false with a note): ask the person to click Stop live there.",
 		Annotations: &mcp.ToolAnnotations{Title: "Cancel a running scan", DestructiveHint: ptr(false),
 			OpenWorldHint: ptr(false), IdempotentHint: true}}, t.cancelScan)
 
@@ -374,8 +379,13 @@ func (t *tools) cancelScan(_ context.Context, _ *mcp.CallToolRequest, in scanIDI
 	state := sc.State()
 	cancelled := false
 	if q := sc.Request(); (state == model.StateRunning || state == model.StateLive) && q.Live && q.Origin() != model.OriginMCP {
-		// Watching started from the window stays on (D19).
-		return nil, cancelOut{State: state, Note: noteWatchingFromWindow}, nil
+		// Watching started from the window stays on (D19), from its first
+		// scan on (v0.6-D26).
+		note := noteWatchingFromWindow
+		if state == model.StateRunning {
+			note = noteFirstPassFromWindow
+		}
+		return nil, cancelOut{State: state, Note: note}, nil
 	}
 	if state == model.StateRunning || state == model.StateLive {
 		cancelled = t.svc.Cancel(in.ScanID)
