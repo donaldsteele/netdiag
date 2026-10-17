@@ -12,3 +12,4 @@ tools/uitest/node_modules/
 tools/uitest/out/
 tools/icons/node_modules/
 .claude/worktrees/
+graphify-out/

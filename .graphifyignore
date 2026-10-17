@@ -1,0 +1,17 @@
+# graphify: build the knowledge graph from code, docs and the roadmap only.
+# Images, fonts, vendored and generated files add nothing to a dependency graph.
+*.png
+*.jpg
+*.ico
+*.svg
+*.woff2
+*.gz
+*.syso
+web/vendor/
+docs/assets/
+docs/img/
+testdata/
+tools/uitest/out/
+THIRD_PARTY_LICENSES.txt
+LICENSE
+NOTICE
