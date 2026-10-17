@@ -218,6 +218,11 @@ func TestRunHealthTarget(t *testing.T) {
 	check("named interface, router on another network", "eth0", health.Input{Iface: "eth0", IfaceIP: "10.0.0.30"})
 	check("named VPN adapter", "vpn0", health.Input{Iface: "vpn0", IfaceIP: "172.16.0.5"})
 	check("unknown name: default interface", "nope", def)
+	// The default-route adapter keeps its router even when its first address
+	// is on another subnet (a second static address, or a /32 link).
+	ifaces[1].CIDR = "192.168.50.7/32"
+	check("default adapter, router outside its first prefix", "", def)
+	ifaces[1].CIDR = "192.168.1.0/24"
 	ifErr = errors.New("cannot list")
 	check("no scan, interfaces unreadable: default route", "", health.Input{Gateway: "192.168.1.1"})
 	ifErr = nil

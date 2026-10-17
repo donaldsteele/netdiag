@@ -65,9 +65,9 @@ func (s *Service) RunHealth(ctx context.Context, iface string) model.HealthRepor
 //     scan (otherwise the computer has moved to another network);
 //   - else the interface named iface, or the default-route interface.
 //
-// A gateway is used only when it lies inside the interface's network:
-// with two adapters, the default route's router may belong to the other
-// one. Otherwise the gateway is left empty, and the Gateway check says no
+// A gateway is used only on the default-route adapter or when it lies
+// inside the interface's network: with two adapters, the default route's
+// router may belong to the other one. Otherwise the gateway is left empty, and the Gateway check says no
 // router is known for this adapter. When the interfaces cannot be listed,
 // no adapter is named and the default route's router is used.
 func (s *Service) healthTarget(iface string) health.Input {
@@ -87,7 +87,7 @@ func (s *Service) healthTarget(iface string) health.Input {
 				switch {
 				case gw == "" && f.IsDefault:
 					gw = s.gatewayOn(f)
-				case gw != "" && !onNetwork(gw, f):
+				case gw != "" && !f.IsDefault && !onNetwork(gw, f):
 					gw = ""
 				}
 			}
@@ -115,10 +115,12 @@ func (s *Service) healthTarget(iface string) health.Input {
 	return in
 }
 
-// gatewayOn returns the default route's gateway when it lies inside f's
-// network, else "".
+// gatewayOn returns the default route's gateway for f: always when f is
+// the default-route adapter (the route goes out through it, whatever its
+// first address or prefix is, e.g. a second static address or a /32 link),
+// otherwise only when the gateway lies inside f's network. Else "".
 func (s *Service) gatewayOn(f netinfo.Iface) string {
-	if gw, err := s.cfg.Gateway(); err == nil && onNetwork(gw, f) {
+	if gw, err := s.cfg.Gateway(); err == nil && (f.IsDefault || onNetwork(gw, f)) {
 		return gw
 	}
 	return ""
