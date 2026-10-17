@@ -55,6 +55,9 @@ test('an OK notice flips its banner to Fixed in place, silently', async ({ page 
   await expect(banners(page)).toHaveCount(1); // the fault's banner became the Fixed one
   await expect(fixed).toHaveClass(/sev-ok/);
   await expect(fixed.locator('strong')).toHaveText('Fixed: Device back online');
+  // A fixed problem has nothing to try, and no Show device.
+  await expect(fixed.locator('details.btry')).toBeHidden();
+  await expect(fixed.getByRole('button', { name: /^Show device/ })).toBeHidden();
   await expect(fixed).toContainText(/at \d\d:\d\d \(was down 12 min\)\./);
   // The OK message stays: it says what was fixed.
   await expect(fixed).toContainText(fx.fixedNotice(2).message);

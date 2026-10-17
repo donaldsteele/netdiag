@@ -193,6 +193,36 @@ func TestFixedBanners(t *testing.T) {
 	}
 }
 
+// The advice UI (v0.6 M7): health cards say what a result means with the raw
+// detail under Technical details, banners have What to try and Show device,
+// the drawer shows the conflict pair and the printer-without-status block,
+// and Settings has the "This network has no internet" switch. Links come
+// only from server data (no URL literal in app.js, TestNoExternalReferences).
+func TestAdviceUI(t *testing.T) {
+	js, _ := readAsset("app.js")
+	html, _ := readAsset("index.html")
+	for _, want := range []string{
+		"<strong>What this means:</strong>", "<summary>Technical details</summary>", "What to try<span",
+		"Show device<span", `class="plain cpair"`, `id="printer-nostatus"`, `id="set-nointernet"`,
+		"This network has no internet</label>", `id="health-fine"`, "Everything looks fine (checked ",
+		"conflictSeen(c) ? 'Conflict' : 'Possible conflict'", `:href="linkAction(a) ? a.target : null"`,
+		`rel="noopener noreferrer"`,
+	} {
+		if !strings.Contains(string(html), want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"this.post('/api/os/open', {page: page})", "a.kind !== 'osSettings' || this.isWindows()",
+		"/^https?:/i.test(a.target || '')", "noInternet: 'This network has no internet'",
+		"return this.alternations(hist) >= 2;",
+	} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+}
+
 // Banner identity must be unique across scans (scan id + notice id), used as
 // the x-for key and for dismiss.
 func TestBannerIdentityUniqueAcrossScans(t *testing.T) {
@@ -407,7 +437,9 @@ func TestIconSpriteBudgetAndRefs(t *testing.T) {
 		"i-circle-check", "i-circle-help", "i-circle-x", "i-triangle-alert", "i-info",
 		"i-router", "i-network", "i-book-search", "i-cloud", "i-wifi", "i-server", "i-activity",
 		"i-radar", "i-circle-plus", "i-wifi-off", "i-heart-pulse", "i-bell", "i-globe", "i-radio-tower",
-		"i-printer", "i-chevron-down", "i-chevron-right"}
+		"i-printer", "i-chevron-down", "i-chevron-right",
+		// actionIcon (advice buttons, v0.6 M7).
+		"i-refresh-cw", "i-settings", "i-monitor", "i-map-pin", "i-external-link"}
 	for _, id := range dynamic {
 		if !has(id) {
 			t.Errorf("icons.svg missing dynamically referenced symbol %s", id)

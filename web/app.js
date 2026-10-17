@@ -147,6 +147,62 @@ document.addEventListener('alpine:init', () => {
       return 'Health: ' + [f ? f + ' fail' : '', w ? w + ' warn' : ''].filter(Boolean).join(', ');
     },
     healthLatency(c) { return c.latencyMs > 0 ? c.latencyMs.toFixed(1) + ' ms' : ''; },
+    // No check failing or warning: the health panel says so in words. A
+    // network without internet on purpose gets here too once Settings says
+    // so (v0.6-D15).
+    healthFine() {
+      const c = (this.health && this.health.checks) || [];
+      return c.length > 0 && !c.some(x => x.status === 'fail' || x.status === 'warn');
+    },
+    healthTime() { return this.clock(this.health && this.health.checkedAt) || 'just now'; },
+    // "10:42" in local time for an RFC 3339 time, or ''.
+    clock(at) { const d = new Date(at || ''); return isNaN(d) ? '' : d.toTimeString().slice(0, 5); },
+
+    // ---- advice (What this means / What to try) ----
+    // The buttons to show for a piece of advice. The server builds every
+    // target; links are shown only for http(s) targets, and Open Location
+    // settings only when this browser is on Windows too.
+    adviceActions(adv) {
+      const kinds = ['recheck', 'openSettings', 'showDevice', 'osSettings', 'openRouter', 'openDevicePage'];
+      return ((adv && adv.actions) || []).filter(a => a && a.label && kinds.includes(a.kind) &&
+        (a.kind !== 'osSettings' || this.isWindows()) &&
+        (a.kind !== 'openRouter' && a.kind !== 'openDevicePage' || this.linkAction(a)));
+    },
+    linkAction(a) { return (a.kind === 'openRouter' || a.kind === 'openDevicePage') && /^https?:/i.test(a.target || ''); },
+    isWindows() {
+      const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+      return /^win/i.test(p);
+    },
+    actionIcon(a) { return {recheck: 'refresh-cw', openSettings: 'settings', showDevice: 'monitor', osSettings: 'map-pin'}[a.kind] || 'external-link'; },
+    async runAction(a) {
+      if (a.kind === 'recheck') return this.recheck();
+      if (a.kind === 'openSettings') return this.openSettings(a.target);
+      if (a.kind === 'showDevice') return this.showDevice(a.target);
+      if (a.kind === 'osSettings') return this.openOSPage(a.target);
+    },
+    async openOSPage(page) {
+      try {
+        const r = await this.post('/api/os/open', {page: page});
+        this.healthMsg = r.ok ? 'Windows Settings is opening. If no window appears, look for it on the taskbar.'
+          : r.status === 501 ? "netdiag can't open that page on this computer."
+          : 'Could not open it (HTTP ' + r.status + ').';
+      } catch (e) { this.healthMsg = 'Could not open it: ' + e.message; }
+    },
+    // Show device: the device's details in the Devices view.
+    showDevice(ip) {
+      if (!ip) return;
+      this.showView('devices');
+      this.$nextTick(() => this.openDrawer(ip));
+    },
+    // Esc closes an open disclosure and puts focus back on its summary; on a
+    // closed one it goes on to close the drawer.
+    closeDetails(ev, el) {
+      if (!el.open) return;
+      ev.stopPropagation();
+      el.open = false;
+      const s = el.querySelector('summary');
+      if (s) s.focus();
+    },
     // The web server check has no URL to test. Reports saved before
     // data.configured existed are recognised by their detail text.
     webUnset(c) {
@@ -188,15 +244,22 @@ document.addEventListener('alpine:init', () => {
     },
 
     // ---- settings ----
-    openSettings() {
+    // section (an advice button's target) names the part of Settings to
+    // put focus on.
+    openSettings(section) {
       if (!this.settings) { this.settingsError = this.storeDown ? 'The data store is unavailable, so settings cannot be changed.' : 'Settings are not loaded yet.'; }
       else { this.settingsError = ''; }
       this.draft = JSON.parse(JSON.stringify(this.settings || {community: '', webServer: {}, alerts: {triggers: {}}, ignoredConflictMACs: [], mcp: {enabled: false}}));
       this.draft.ignoredConflictMACs = this.draft.ignoredConflictMACs || [];
       this.draft.mcp = this.draft.mcp || {enabled: false};
       this.draft.mcp.enabled = !!this.draft.mcp.enabled;
+      this.draft.noInternet = !!this.draft.noInternet;
       this.repairedNote = this.repairedText();
-      this.$nextTick(() => { const d = this.$refs.dlg; if (d && !d.open) d.showModal(); });
+      const focus = {webserver: 'set-weburl', health: 'set-internet'}[section];
+      this.$nextTick(() => {
+        const d = this.$refs.dlg; if (d && !d.open) d.showModal();
+        const f = focus && document.getElementById(focus); if (f) f.focus();
+      });
     },
     // Settings fields that were not valid in the settings file and were
     // reset when netdiag read it (GET /api/settings "repaired"). They wait
@@ -215,7 +278,7 @@ document.addEventListener('alpine:init', () => {
       community: 'SNMP community', printerStatusPollSec: 'Printer status check in live mode',
       webServer: 'Web server settings', 'webServer.url': 'Web server URL', 'webServer.mustContain': 'Page must contain',
       'webServer.expectStatus': 'Expected HTTP status', 'webServer.trustedCert': 'Trusted certificate',
-      internetCheckURL: 'Internet check URL', alerts: 'Alert settings', 'alerts.sound': 'Play a sound', 'alerts.desktop': 'Desktop notifications',
+      internetCheckURL: 'Internet check URL', noInternet: 'This network has no internet', alerts: 'Alert settings', 'alerts.sound': 'Play a sound', 'alerts.desktop': 'Desktop notifications',
       'alerts.supplyThresholdPct': 'Supply threshold', 'alerts.cooldownSec': 'Repeat-alert cooldown',
       'alerts.triggers': 'Alert types',
       'alerts.triggers.printerOffline': 'Printer goes offline', 'alerts.triggers.deviceOffline': 'Any device goes offline',
@@ -257,12 +320,14 @@ document.addEventListener('alpine:init', () => {
       if (this.draft.webServer.trustedCert && this.draft.webServer.trustedCert === was.trustedCert &&
           hostOf(this.draft.webServer.url) !== hostOf(was.url)) this.draft.webServer.trustedCert = '';
       const webBefore = JSON.stringify(was);
+      const offBefore = !!(this.settings && this.settings.noInternet);
       const ok = await this.putSettings(this.draft, true);
       if (!ok) return;
       this.closeSettings();
       // A new web server address, trusted certificate or expected answer
-      // makes the Web server card out of date: check again.
-      if (JSON.stringify(this.settings.webServer || {}) !== webBefore) await this.recheck();
+      // makes the Web server card out of date, and so does the "no
+      // internet" switch for the name and internet cards: check again.
+      if (JSON.stringify(this.settings.webServer || {}) !== webBefore || !!this.settings.noInternet !== offBefore) await this.recheck();
     },
     async putSettings(doc, showErr) {
       try {
@@ -322,7 +387,8 @@ document.addEventListener('alpine:init', () => {
     // sound, and a desktop notification replaces the fault's: same tag,
     // silent (v0.6-D8).
     onFixed(n, bid) {
-      const fixed = {ok: true, severity: 'info', title: n.title, message: n.message, at: n.at, openedAt: n.openedAt, ip: n.ip};
+      // A fixed problem needs no advice: the fault's What to try goes.
+      const fixed = {ok: true, severity: 'info', title: n.title, message: n.message, at: n.at, openedAt: n.openedAt, ip: n.ip, advice: null};
       const b = n.key ? this.banners.find(x => x.key === n.key && !x.ok) : null;
       if (b) Object.assign(b, fixed);
       else {
@@ -355,6 +421,12 @@ document.addEventListener('alpine:init', () => {
     bannerLead(b) {
       return (b.ok ? 'Fixed: ' : b.severity === 'critical' ? 'Critical: ' : b.severity === 'warn' ? 'Warning: ' : 'Notice: ') + b.title;
     },
+    // Show device next to Dismiss: for a fault whose advice points at a
+    // device this page lists.
+    bannerDevice(b) {
+      return !b.ok && !!b.ip && !!b.advice && (b.advice.actions || []).some(a => a.kind === 'showDevice') &&
+        this.hosts.some(h => h.ip === b.ip);
+    },
     shownBanners() { return this.banners.slice(0, 3); },
     moreBanners() { return Math.max(0, this.banners.length - 3); },
     dismiss(bid) { this.banners = this.banners.filter(b => b.bid !== bid); },
@@ -381,6 +453,51 @@ document.addEventListener('alpine:init', () => {
       return this.conflicts.filter(c => ids.includes(c.id) || (c.ips || []).includes(h.ip));
     },
     hasConflict(h) { return this.conflictsFor(h).length > 0; },
+    // How often the MAC answering at an address changed: A, B, A is 2
+    // (mirrors advice.Alternations).
+    alternations(hist) {
+      let n = 0, last = '';
+      for (const o of (hist || [])) {
+        const m = String(o.mac || '').toUpperCase();
+        if (!m) continue;
+        if (last && m !== last) n++;
+        last = m;
+      }
+      return n;
+    },
+    // "Conflict" only when the two devices were seen taking turns: the
+    // address's MAC history shows at least two alternations. Without a
+    // history (a scan that is not live), a mac_flap the scan marked "fail"
+    // was seen as a swap (mirrors advice.SwapSeen).
+    conflictSeen(c) {
+      const h = this.hosts.find(x => x.ip === (c.ips || [])[0]);
+      const hist = (h && h.macHistory) || [];
+      if (hist.length) return this.alternations(hist) >= 2;
+      return c.kind === 'mac_flap' && c.severity === 'fail';
+    },
+    // One card per device in a mac_flap or duplicate_name conflict, from the
+    // conflict's MACs, the vendors and addresses netdiag knows for them and
+    // the address's MAC history.
+    conflictCards(c) {
+      if (c.kind !== 'mac_flap' && c.kind !== 'duplicate_name') return [];
+      const ip0 = (c.ips || [])[0];
+      const at = this.hosts.find(x => x.ip === ip0);
+      const hist = (at && at.macHistory) || [];
+      return (c.macs || []).slice(0, 6).map((m, i) => {
+        const mac = String(m).toUpperCase();
+        const owners = this.hosts.filter(h => String(h.mac || '').toUpperCase() === mac);
+        const parts = [(owners.find(h => h.vendor) || {}).vendor || '', mac];
+        if (c.kind === 'duplicate_name') {
+          if (owners.length) parts.push('at ' + owners.map(h => h.ip).join(', '));
+        } else {
+          const also = owners.filter(h => h.ip !== ip0).map(h => h.ip);
+          if (also.length) parts.push('also uses ' + also.join(', '));
+          const seen = [...new Set(hist.filter(o => String(o.mac || '').toUpperCase() === mac).map(o => this.clock(o.at)).filter(Boolean))];
+          if (seen.length) parts.push('seen at ' + seen.slice(-3).join(', '));
+        }
+        return {mac: mac, label: 'Device ' + String.fromCharCode(65 + i) + ':', text: parts.filter(Boolean).join(' · ')};
+      });
+    },
     conflictKind(c) {
       return {mac_flap: 'The MAC address for this IP keeps changing - two devices may share the IP, or a device is switching adapters.',
               mac_multi_ip: 'One MAC address answers for several IPs - often a range extender or router, or a device with several addresses.',

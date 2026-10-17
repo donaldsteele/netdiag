@@ -6,6 +6,7 @@ import { test, expect } from '@playwright/test';
 import { installMocks, initStorage } from '../support/mock.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 import { OUT_DIR, VIEWPORTS } from '../support/config.mjs';
+import * as fx from '../fixtures/index.mjs';
 
 async function measure(page, view) {
   return page.evaluate((view) => {
@@ -82,6 +83,36 @@ for (const [vpName, vp] of Object.entries(VIEWPORTS)) for (const theme of ['dark
     all.push(...await measure(page, 'settings'));
     await fs.mkdir(path.join(OUT_DIR, 'probe'), { recursive: true });
     await fs.writeFile(path.join(OUT_DIR, 'probe', `${vpName}-${theme}.json`), JSON.stringify(all, null, 1));
+    expect(all).toEqual([]);
+  });
+}
+
+// The advice views (v0.6 M7): the banner's What to try, the conflict pair
+// with its Technical details, and health cards that all have advice.
+for (const [vpName, vp] of Object.entries(VIEWPORTS)) for (const theme of ['dark', 'light']) {
+  test(`alignment with advice ${vpName} ${theme}`, async ({ page }) => {
+    await initStorage(page, { theme, live: false });
+    await installMocks(page, { health: 'all', frames: fx.framesWith(fx.flapHosts(2), [fx.flapConflict(2)], [fx.notice(1)]) });
+    await page.setViewportSize(vp);
+    await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
+    await page.goto('/');
+    await scanToFinish(page);
+    const all = [];
+    await page.locator('#alerts details.btry summary').first().click();
+    all.push(...await measure(page, 'banner-advice'));
+    await page.keyboard.press('Escape');
+    await page.locator(`#hosts button.rowbtn[data-ip="${fx.FLAP_IP}"]`).click();
+    await page.locator('#drawer .cbox details.tech summary').click();
+    all.push(...await measure(page, 'drawer-conflict'));
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#drawer')).toBeHidden();
+    await page.evaluate(() => document.querySelector('#tab-health')?.click());
+    // The scan's own report has advice on two checks; a recheck gets six.
+    await page.getByRole('button', { name: 'Recheck', exact: true }).click();
+    await expect(page.locator('.hcard .advice')).toHaveCount(6);
+    await page.locator('.hcard details.tech summary').first().click();
+    all.push(...await measure(page, 'health-advice'));
     expect(all).toEqual([]);
   });
 }

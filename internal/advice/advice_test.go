@@ -1,8 +1,10 @@
 package advice
 
 import (
+	"encoding/json"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -402,6 +404,72 @@ func TestConflictAdvice(t *testing.T) {
 	}
 	if n := Alternations([]model.MACObservation{{MAC: "A"}, {MAC: ""}, {MAC: "B"}, {MAC: "A"}, {MAC: "B"}}); n != 3 {
 		t.Errorf("Alternations = %d", n)
+	}
+}
+
+// TestUITestFixtureAdvice: the UI harness fixtures
+// (tools/uitest/fixtures/index.mjs) carry the advice this catalogue gives
+// for the same results, word for word, so the advice specs test what
+// netdiag really sends.
+func TestUITestFixtureAdvice(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "tools", "uitest", "fixtures", "index.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	x := Ctx{GOOS: "windows", Gateway: "192.168.2.1"}
+	hc := func(id, status, reason string, data map[string]any) *model.Advice {
+		d := map[string]any{"reason": reason}
+		for k, v := range data {
+			d[k] = v
+		}
+		return Health(model.HealthCheck{ID: id, Status: status, Data: d}, x)
+	}
+	printer := &model.Host{IP: "192.168.2.10", Printer: &model.PrinterInfo{Supplies: []model.Supply{{Description: "Black Toner", Percent: 15}}}}
+	flapHost := func(alt int) Ctx {
+		h := model.Host{IP: "192.168.2.44"}
+		for i := 0; i <= alt; i++ {
+			h.MACHistory = append(h.MACHistory, model.MACObservation{MAC: []string{"24:6F:28:AA:BB:CC", "3C:52:82:11:22:33"}[i%2]})
+		}
+		return Ctx{Hosts: map[string]model.Host{h.IP: h}}
+	}
+	flap := model.Conflict{Kind: model.ConflictMACFlap, Severity: "fail", IPs: []string{"192.168.2.44"}}
+	cases := map[string]*model.Advice{
+		"gateway no_reply":         hc("gateway", model.HealthFail, model.ReasonNoReply, nil),
+		"dhcp apipa":               hc("dhcp", model.HealthFail, model.ReasonAPIPA, nil),
+		"dns no_internet":          hc("dns", model.HealthWarn, model.ReasonNoInternet, nil),
+		"dns no_internet, switch":  hc("dns", model.HealthInfo, model.ReasonNoInternet, map[string]any{"noInternet": true}),
+		"web not_set":              hc("webserver", model.HealthInfo, model.ReasonNotSet, nil),
+		"web tls":                  hc("webserver", model.HealthFail, model.ReasonTLS, nil),
+		"web status":               hc("webserver", model.HealthFail, model.ReasonStatus, map[string]any{"status": 503}),
+		"internet no_response":     hc("internet", model.HealthInfo, model.ReasonNoResponse, nil),
+		"internet, switch":         hc("internet", model.HealthInfo, model.ReasonNoResponse, map[string]any{"noInternet": true}),
+		"wifi 48":                  hc("wifi", model.HealthWarn, model.ReasonWeak, map[string]any{"signalPct": 48}),
+		"wifi 32":                  hc("wifi", model.HealthWarn, model.ReasonWeak, map[string]any{"signalPct": 32}),
+		"supply low":               Notice(model.Notice{Trigger: model.TriggerSupplyLow, IP: "192.168.2.10", Detail: "Black Toner"}, printer, x),
+		"device offline":           Notice(model.Notice{Trigger: model.TriggerDeviceOffline, IP: "192.168.2.200"}, nil, x),
+		"mac_multi_ip":             Conflict(model.Conflict{Kind: model.ConflictMACMultiIP, IPs: []string{"192.168.2.30"}}, x),
+		"mac_flap, 2 alternations": Conflict(flap, flapHost(2)),
+		"mac_flap, 1 alternation":  Conflict(flap, flapHost(1)),
+		"printer without status":   PrinterNoStatus(model.Host{IsPrinter: true}),
+		"wifi hidden_location":     hc("wifi", model.HealthUnavailable, model.ReasonHiddenLocation, nil),
+	}
+	quoted := func(s string) string {
+		var b strings.Builder
+		enc := json.NewEncoder(&b)
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(s)
+		return strings.TrimSpace(b.String())
+	}
+	for name, a := range cases {
+		if a == nil {
+			t.Errorf("%s: no advice", name)
+			continue
+		}
+		for _, s := range append([]string{a.Meaning}, a.Steps...) {
+			if !strings.Contains(string(src), quoted(s)) {
+				t.Errorf("%s: fixtures lack %s", name, quoted(s))
+			}
+		}
 	}
 }
 

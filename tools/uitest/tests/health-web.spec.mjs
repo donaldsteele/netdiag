@@ -10,9 +10,27 @@ const webCard = (page) => page.locator('.hcard').filter({ has: page.getByRole('h
 const fpLong = (fp) => fp.toUpperCase().match(/../g).join(':');
 const settingsPuts = (rec) => rec.requests.filter((r) => r.method === 'PUT' && r.path === '/api/settings');
 
-test('web server card links to Settings when no URL is set', async ({ page }) => {
+test('web server card offers Open Settings when no URL is set', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
+  await page.goto('/');
+  await page.locator('#tab-health').click();
+  const card = webCard(page);
+  await expect(card).toContainText('What this means: No web server is set, so this check is skipped.');
+  await expect(card).toContainText('not configured');
+  // The advice's Open Settings button replaces the v0.5.7 link.
+  await expect(page.locator('.hcard a.setweb:visible')).toHaveCount(0);
+  await card.getByRole('button', { name: /^Open Settings/ }).click();
+  const dialog = page.locator('#settings-dialog');
+  await expect(dialog).toHaveJSProperty('open', true);
+  await expect(dialog.getByLabel('Web server URL')).toBeFocused();
+  await expect(dialog.locator('#trusted-cert')).toBeHidden();
+  expect(rec.unmatched, 'unmatched requests').toEqual([]);
+});
+
+test('a saved report without advice still links to Settings when no URL is set', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { scenario: 'scan', web: 'unset-old' });
   await page.goto('/');
   await page.locator('#tab-health').click();
   const card = webCard(page);

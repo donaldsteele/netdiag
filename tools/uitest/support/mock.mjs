@@ -39,7 +39,12 @@ const matchId = (re, p) => {
 // hidden; webURL makes it report another one instead (an out-of-date result).
 // repaired: JSON paths GET /api/settings lists as reset on load (F7), such as
 // ['alerts.supplyThresholdPct']; like the server, a successful PUT clears it.
-export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired } = {}) {
+// health: 'default', or a fx.health state ('all': every check has advice;
+// 'offline': a local network without internet, which follows the "This
+// network has no internet" switch in settings, v0.6-D15).
+// osOpen: the status POST /api/os/open answers for the known page
+// (204, or 501 as on macOS); any other page gets 400, as on the server.
+export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired, health: healthState = 'default', osOpen = 204 } = {}) {
   const rec = { requests: [], unmatched: [], external: [], sse: [] };
   const origin = new URL(BASE_URL).origin;
   const MCP_URL = 'http://127.0.0.1:8787/mcp';
@@ -50,6 +55,7 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
   // Mirrors model.RedactURL: user:password@ becomes user:xxxxx@.
   const redact = (u) => String(u || '').replace(/^([a-z][a-z0-9+.-]*:\/\/[^/?#@:]*):[^/?#]*@/i, '$1:xxxxx@');
   const health = () => {
+    if (healthState !== 'default') return fx.health({ state: healthState, noInternet: !!settings.noInternet });
     const ws = settings.webServer || {};
     return fx.health({ web: ws.trustedCert ? 'ok' : web, webURL: webURL || redact(ws.url) });
   };
@@ -101,6 +107,12 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     if (method === 'POST' && /^\/api\/scans\/[^/]+\/remote$/.test(p)) return empty(route);
     if (method === 'GET' && /^\/api\/scans\/[^/]+\/remote\.rdp$/.test(p)) {
       return route.fulfill({ status: 200, contentType: 'application/x-rdp', body: 'full address:s:' + url.searchParams.get('ip') + '\r\n' });
+    }
+    if (method === 'POST' && p === '/api/os/open') {
+      // Mirrors handleOSOpen: only the fixed list (location) is opened.
+      const pg = (JSON.parse(body || '{}') || {}).page;
+      if (pg !== 'location') return json(route, 400, { error: 'unknown settings page' });
+      return osOpen === 204 ? empty(route) : json(route, osOpen, { error: "netdiag can't open this settings page on this computer" });
     }
     if (method === 'POST' && p === '/api/quit') return empty(route);
     if (method === 'POST' && /^\/api\/scans\/[^/]+\/cancel$/.test(p)) return empty(route);
