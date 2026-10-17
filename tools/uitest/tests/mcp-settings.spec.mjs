@@ -42,6 +42,8 @@ for (const theme of THEMES) {
     await expect.poll(() => rec.requests.filter((r) => r.method === 'PUT').length).toBeGreaterThan(1);
     const last = rec.requests.filter((r) => r.method === 'PUT').pop();
     expect(JSON.parse(last.body).mcp.enabled).toBe(true);
+    // Nor reset the team chat settings.
+    expect(JSON.parse(last.body).chat).toEqual({ enabled: false, minSeverity: 'warning' });
   });
 }
 

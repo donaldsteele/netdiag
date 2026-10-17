@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"netdiag/internal/store"
 	"netdiag/web"
 )
 
@@ -405,6 +406,43 @@ func TestMCPSettingsUI(t *testing.T) {
 	for _, want := range []string{`id="mcp-enabled"`, `role="switch"`, `Agent access (MCP)`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("index.html missing %q", want)
+		}
+	}
+}
+
+// Every field RepairSettings can reset has a plain label in app.js for the
+// "Some settings were not valid and were reset" notice in Settings.
+func TestSettingsRepairedUI(t *testing.T) {
+	html, err := readAsset("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js, err := readAsset("app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(html), `id="settings-repaired"`) {
+		t.Error(`index.html missing id="settings-repaired"`)
+	}
+	if !strings.Contains(string(js), "Some settings were not valid and were reset: ") {
+		t.Error("app.js missing the repaired settings notice")
+	}
+	all := store.DefaultSettings()
+	all.PrinterStatusPollSec, all.WebServer.URL, all.WebServer.ExpectStatus = 1, "ftp://x", 1
+	all.WebServer.TrustedCert, all.InternetCheckURL = "abc", "nope"
+	all.Alerts.SupplyThresholdPct, all.Alerts.CooldownSec = 0, 1
+	all.IgnoredConflictMACs, all.Chat.MinSeverity = []string{"zz"}, "loud"
+	_, paths := store.RepairSettings(all)
+	if len(paths) != 9 {
+		t.Fatalf("repaired paths %v", paths)
+	}
+	for _, p := range paths {
+		key := p + ": '"
+		if strings.Contains(p, ".") {
+			key = "'" + p + "': '"
+		}
+		if !strings.Contains(string(js), key) {
+			t.Errorf("app.js repairedLabels has no label for %s", p)
 		}
 	}
 }

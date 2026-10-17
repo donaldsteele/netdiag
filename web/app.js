@@ -11,7 +11,7 @@ document.addEventListener('alpine:init', () => {
     theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
     view: 'devices', navOpen: false, views: ['devices', 'health', 'activity', 'history'], health: null, healthOpen: true, healthBusy: false, healthMsg: '',
     conflicts: [], banners: [], seenNotices: {},
-    settings: null, draft: null, settingsError: '', storeDown: false, desktopNote: '', audio: null,
+    settings: null, draft: null, settingsError: '', storeDown: false, desktopNote: '', audio: null, repairedNote: '', repairedSeen: '',
     history: [], historyError: '', baseId: '', currentId: '', diff: null, diffError: '', diffBusy: false,
     shown: {},
     remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
@@ -192,7 +192,32 @@ document.addEventListener('alpine:init', () => {
       this.draft.ignoredConflictMACs = this.draft.ignoredConflictMACs || [];
       this.draft.mcp = this.draft.mcp || {enabled: false};
       this.draft.mcp.enabled = !!this.draft.mcp.enabled;
+      delete this.draft.repaired;
+      this.repairedNote = this.repairedText();
       this.$nextTick(() => { const d = this.$refs.dlg; if (d && !d.open) d.showModal(); });
+    },
+    // Settings fields that were not valid in the settings file and were
+    // reset when netdiag read it (GET /api/settings "repaired"). The notice
+    // shows once, the first time Settings opens; saving writes a valid file.
+    repairedLabels: {
+      community: 'SNMP community', printerStatusPollSec: 'Printer status check in live mode',
+      'webServer.url': 'Web server URL', 'webServer.mustContain': 'Page must contain',
+      'webServer.expectStatus': 'Expected HTTP status', 'webServer.trustedCert': 'Trusted certificate',
+      internetCheckURL: 'Internet check URL', 'alerts.sound': 'Play a sound', 'alerts.desktop': 'Desktop notifications',
+      'alerts.supplyThresholdPct': 'Supply threshold', 'alerts.cooldownSec': 'Repeat-alert cooldown',
+      'alerts.triggers.printerOffline': 'Printer goes offline', 'alerts.triggers.deviceOffline': 'Any device goes offline',
+      'alerts.triggers.supplyLow': 'Printer supply low', 'alerts.triggers.printerAlert': 'Printer alert',
+      'alerts.triggers.newDevice': 'New device', 'alerts.triggers.ipConflict': 'IP or name conflict',
+      'alerts.triggers.healthFailed': 'Health check fails', ignoredConflictMACs: 'Ignored conflict MACs',
+      'mcp.enabled': 'Allow AI agents to connect', 'chat.enabled': 'Send alerts to team chat', 'chat.minSeverity': 'Team chat alert level',
+    },
+    repairedText() {
+      const rep = (this.settings && Array.isArray(this.settings.repaired)) ? this.settings.repaired : [];
+      const key = rep.join(',');
+      if (!rep.length || key === this.repairedSeen) return '';
+      this.repairedSeen = key;
+      const names = [...new Set(rep.map(p => this.repairedLabels[p] || p))];
+      return 'Some settings were not valid and were reset: ' + names.join(', ') + '. Check them below.';
     },
     closeSettings() { const d = this.$refs.dlg; if (d && d.open) d.close(); },
     async saveSettings() {

@@ -37,11 +37,14 @@ const matchId = (re, p) => {
 // has one); once Settings trust a certificate, the check reports 'ok'. Like
 // the server, the check reports the URL in Settings with any password
 // hidden; webURL makes it report another one instead (an out-of-date result).
-export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL } = {}) {
+// repaired: JSON paths GET /api/settings lists as reset on load (F7), such as
+// ['alerts.supplyThresholdPct']; like the server, a successful PUT clears it.
+export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired } = {}) {
   const rec = { requests: [], unmatched: [], external: [], sse: [] };
   const origin = new URL(BASE_URL).origin;
   const MCP_URL = 'http://127.0.0.1:8787/mcp';
   let settings = { ...(initialSettings || fx.settings()), mcpUrl: MCP_URL };
+  if (repaired && repaired.length) settings.repaired = [...repaired];
   if (web !== 'unset' && !(settings.webServer && settings.webServer.url)) settings.webServer = { ...settings.webServer, url: fx.WEB_URL };
   let history = fx.history();
   // Mirrors model.RedactURL: user:password@ becomes user:xxxxx@.
@@ -69,7 +72,10 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     if (method === 'GET' && p === '/api/interfaces') return json(route, 200, fx.interfaces());
     if (method === 'GET' && p === '/api/settings') return json(route, 200, settings);
     if (method === 'PUT' && p === '/api/settings') {
-      settings = { ...JSON.parse(body), mcpUrl: MCP_URL };
+      // Mirrors handlePutSettings: the saved file is valid, so the reply
+      // has no repaired list (the page may send the one it got back).
+      const { repaired: _sent, ...doc } = JSON.parse(body);
+      settings = { ...doc, mcpUrl: MCP_URL };
       return json(route, 200, settings);
     }
     if (method === 'GET' && p === '/api/health') return json(route, 200, health());

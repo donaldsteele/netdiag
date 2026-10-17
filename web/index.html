@@ -463,6 +463,7 @@
   <form @submit.prevent="saveSettings()" x-show="draft" class="sform">
     <h2 id="settings-h">Settings</h2>
     <div class="alert error" role="alert" x-show="settingsError" x-text="settingsError"></div>
+    <div class="alert warn" id="settings-repaired" role="status" x-show="repairedNote" x-text="repairedNote"></div>
     <template x-if="draft">
       <div>
         <fieldset><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-radar"></use></svg>Scanning</legend>

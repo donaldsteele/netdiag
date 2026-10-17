@@ -204,6 +204,7 @@ export function settings() {
     },
     ignoredConflictMACs: [],
     mcp: { enabled: false },
+    chat: { enabled: false, minSeverity: 'warning' },
   };
 }
 
