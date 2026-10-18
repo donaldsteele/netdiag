@@ -15,7 +15,7 @@ First time? Read **HOW-TO-OPEN.txt** (included in your zip). It explains the Sma
 3. Your browser opens to the netdiag page on this computer only.
 4. Check the interface and address range (pre-filled). Click **Scan**.
 5. Read the results:
-   - **Devices** (the default view): the stat tiles (Alive, Printers, Web, mDNS, Offline, Conflicts). Click a tile to filter the table to those devices. Below them is the health strip (gateway, DHCP, DNS, internet, Wi-Fi and web server) and the hosts table (see below).
+   - **Devices** (the default view): the **Problems right now** card says what is broken at this moment, or "Everything looks fine" (see **Problems right now** below). Then the stat tiles (Alive, Printers, Web, mDNS, Offline, Conflicts). Click a tile to filter the table to those devices. Below them is the health strip (gateway, DHCP, DNS, internet, Wi-Fi and web server) and the hosts table (see below).
    - **Health** (sidebar, or click a health pill): one card per check, with its status, detail and response time (see **Health panel** below).
    - **Activity**: the live activity log of the scan and of live-mode events (see below).
    - **History**: earlier scans, and a **Compare** view that shows what changed between two of them.
@@ -29,7 +29,7 @@ First time? Read **HOW-TO-OPEN.txt** (included in your zip). It explains the Sma
 ### The web interface
 
 - **Sidebar navigation**: Devices, Health, Activity, History and Settings. The sidebar becomes a narrow icon rail on medium-width windows and a **menu** button on narrow ones (phones and small windows). Keyboard users can reach every item with Tab, and the current view is marked.
-- **Top bar**: the interface, target range and SNMP community fields, the **Live mode** switch, **Scan** / **Stop live** and **Restart watching**, **Export** and **Quit**, then the health summary and icon buttons for muting alerts (bell), enabling desktop alerts (screen) and switching theme (moon/sun). Hover an icon to see its name. The **LIVE** indicator pulses while live mode runs.
+- **Top bar**: the interface, target range and SNMP community fields, the **Live mode** switch, **Scan** / **Stop live** and **Restart watching**, **Export** and **Quit**, then the health summary and icon buttons for muting alerts (bell), enabling desktop alerts (screen) and switching theme (moon/sun). Once team chat is connected, a chat button shows its state (see **Team chat alerts (bubbles)**). Hover an icon to see its name. The **LIVE** indicator pulses while live mode runs.
 - **Palette and themes**: the warm dark theme is the default (dark brown with orange accents). Use the sun/moon button in the top bar for the warm light theme; your choice is remembered in this browser only. Both themes meet the WCAG AA contrast levels for text and controls. Status is never shown by colour alone: every status has a shape and a word.
 - **Icon legend** (status shapes): up = circle with a check (green); warning = triangle (gold); fail or offline = circle with an X (coral red); unknown or no ping = circle with a question mark; info = "i" (violet). Badges: **NEW** (sparkles), **OFFLINE** (wifi-off), **CONFLICT** (triangle), and a printer icon for printers.
 - **Details drawer**: opens on the right with a full description of one device. It stays open while live mode updates the device, and closes with **Esc** or its close button, which also returns the keyboard focus to the row. On narrow screens it fills the window.
@@ -40,7 +40,7 @@ First time? Read **HOW-TO-OPEN.txt** (included in your zip). It explains the Sma
 
 ![netdiag details drawer in the light theme](docs/img/drawer-light.png)
 
-Nothing is installed. No administrator rights are needed. The tool only listens on `127.0.0.1` (this computer), with no login. The web page itself makes no requests to the internet. Apart from name lookups sent to this computer's own DNS servers (the DNS check, and device names during a scan), the only outside request netdiag makes is the optional **internet check** (one quick request to a test address, described under Health panel), which runs from this computer.
+Nothing is installed. No administrator rights are needed. The tool only listens on `127.0.0.1` (this computer), with no login. The web page itself makes no requests to the internet. Apart from name lookups sent to this computer's own DNS servers (the DNS check, and device names during a scan), the only outside request netdiag makes is the optional **internet check** (one quick request to a test address, described under Health panel), which runs from this computer. Once you connect team chat, netdiag also talks to your chat server on the local network.
 
 ## Connect Claude (AI agent access via MCP)
 
@@ -115,7 +115,7 @@ This only works while the netdiag window is running. If you already added Option
 
 ### What you can ask Claude
 
-Pick one of netdiag's prompts from Claude's menu, or just ask in your own words: Claude reads netdiag's runbooks and follows the one that fits, so it knows which checks to run. It answers in plain words and starts with **OK**, **Problem**, **Fixed** or **Not checked**.
+Pick one of netdiag's prompts from Claude's menu, or just ask in your own words: Claude reads netdiag's runbooks and follows the one that fits, so it knows which checks to run. It answers in plain words and starts with **OK**, **Problem**, **Fixed** or **Not checked**. The full list, with what Claude does and which buttons it may ask you to click, is under "Runbooks" in [docs/mcp.md](docs/mcp.md#runbooks).
 
 - **What's wrong right now:** "Use netdiag to tell me what's wrong on the network." (`explain_problems`)
 - **The internet is down:** "The internet isn't working. Use netdiag to find out why." (`internet_not_working`)
@@ -164,6 +164,19 @@ For the full list of tools, resources and prompts, and the settings details, see
 - The **gateway (router)** and **this computer** are labelled.
 
 Scans are limited to ranges of /22 (1024 addresses) or smaller. A /24 typically finishes in under 10 seconds.
+
+## Problems right now
+
+The **Problems right now** card at the top of the Devices view always says what is broken at this moment, most urgent first, or ✔ **OK** "Everything looks fine (checked 10:42)".
+
+- **What it lists.** The same problems the alerts are about: a printer that went offline, a printer alert, a supply at or below the supply threshold, a conflict, and a health check that fails (or could not run). A device going offline counts only when **Any device goes offline** is on in Settings > Alerts, so a phone that went home for the night does not make the card red; it is still listed under the **Problems** filter. Each kind counts only while its alert type is on in Settings > Alerts, and a conflict that involves an ignored MAC is left out.
+- **Each item** has a shape and a word (✖ **Problem** for urgent ones, ▲ **Warning**, "i" **Note**), what it is, which device or check and since when. **What to try** opens what it means and up to three things to try; **Show device** opens the device's details, and **Open Health** the health cards. Notes (a health check that only warns) come last, under "Also worth knowing".
+- **Fixed in the last day.** A problem netdiag reported and saw fixed stays on the card for a day, as ✔ **Fixed** "Fixed at 10:42 (was down 12 min)". **Dismiss** hides it in this browser.
+- **More than five.** The card shows five items; **Show all** lists the rest.
+- **When it is not sure.** It says **Checking** while a scan has not finished, **Not checked** when nothing was scanned yet (press **Scan**) or the health checks did not run (**Open Health**, then **Recheck**), and **Paused** or **Stopped** while netdiag holds its checks because this computer lost the network or moved to another one (see **Live mode**). "Everything looks fine" is only said after a finished check.
+- **Not watching.** When live mode is off, the card says "netdiag isn't watching right now. This is from the last check at 10:42." Tick **Live mode** and press **Scan** to keep watching.
+
+The card reads the problems again a moment after something changes, and every minute. The Health panel's "Everything looks fine" line comes from the same place, so the two never disagree. Claude reads the same list through `list_problems` (see **Connect Claude**).
 
 ## Health panel
 
@@ -257,6 +270,41 @@ In live mode netdiag raises an alert when something changes: a printer goes offl
 - Alerts only fire when something changes, not on every check. An alert is not repeated while its problem lasts, and not within its **cooldown** (default 300 seconds) unless it was fixed in between. If the page loses its connection to netdiag for a moment and reconnects, or you reload it, old alerts come back as banners without sound, and an alert that was fixed in the meantime shows as Fixed (see **Live mode**).
 - **Settings** (header button) has the switches for each alert type, the **supply threshold** (percent, 1 to 100, default 15) and the **cooldown** (30 to 3600 seconds). The supply threshold also decides when a printer supply counts under the **Problems** filter. "Device offline" is off by default because it is noisy; "Printer offline" is on.
 - On the command line, `netdiag scan --live` prints each alert as a line (`ALERT ...`, and `FIXED Health check OK again DNS check is OK again. (was down 5m)` when it is fixed; JSON lines with `"ok":true` for Fixed with `--json`) and the health summary to stderr.
+- What is still open is always on the **Problems right now** card. To have the alerts in your team chat too, see **Team chat alerts (bubbles)** below.
+
+## Team chat alerts (bubbles)
+
+netdiag can post its alerts to your team chat (bubbles), so everyone in the channel sees when something on the local network breaks. Each alert says in plain words what it means and what to try. When the problem is fixed, netdiag closes the same chat card itself, with "Fixed at 10:42 (was down 12 min)". Connecting takes a few clicks and no typing, with no administrator rights on this computer; your chat admin approves netdiag in bubbles.
+
+**Connect.** Open **Settings**, go to **Team chat (bubbles)** and click **Connect to team chat**. Then:
+
+1. netdiag looks for your chat server on the local network. Click **Use this** next to it. If it is not listed (Windows Firewall or a separate Wi-Fi network can hide it), click **Type the address** and enter the address your chat admin reads in bubbles under Admin > Overview, or **Paste a connection string** your chat admin made under Admin > Apps.
+2. **Is this the right server?** netdiag shows the server's fingerprint, with the first four groups large. Ask your chat admin to open **Admin > Overview** in bubbles and read out the start of the fingerprint. If it matches, click **It matches**. If it doesn't, click **It doesn't**: netdiag stops, because something on the network may be pretending to be the chat server. Tell your chat admin.
+3. **Ask your chat admin to approve netdiag.** netdiag shows a code. Your chat admin opens **Admin > Pairing** in bubbles, checks that the code matches, ticks a channel for the alerts (or **Also create a channel for this app**) and clicks **Approve**. The request waits 10 minutes.
+4. **Channel.** netdiag picks the channel your chat admin ticked, or asks you which one when there are several. If netdiag isn't in any channel yet, ask your chat admin to add it to one (for example #netdiag-alerts), then click **Check again**.
+5. Click **Send test alert**. A test card appears in the channel and closes itself at once. **Send alerts to team chat** is turned on for you; click **Finish**, then **Close**.
+
+![Connect to team chat: the fingerprint to compare with your chat admin](docs/img/chat-wizard.png)
+
+![Settings with Team chat (bubbles) connected](docs/img/settings-chat.png)
+
+**What goes to chat.** The alerts that are switched on in Settings > Alerts, at the level you choose under **Send**:
+
+- **Problems and warnings** (the default): urgent problems and warnings.
+- **Only urgent problems**: a router that does not answer, a printer that reports an error, and two devices seen taking turns using one address.
+- **Everything, including notes**: also new devices, and any device going offline when that alert is on.
+
+How serious each alert is follows the same list as the banners (see **Alerts (live mode)**). A chat card names the device, its address, MAC address and maker, the printer model, when the problem started, and a link to the device's own web page when it has one. netdiag never sends the SNMP community.
+
+**Only while netdiag is watching.** Alerts go to team chat only while netdiag is watching this network: leave netdiag open on this computer with **Live mode** ticked. A scan without live mode sends no new alerts (it can still close a card whose problem it found fixed). netdiag is not a server that watches on its own: when this computer is off or asleep, or netdiag is closed, nothing is sent. When this computer itself loses the network, the "netdiag lost the network" notice stays on this computer and is never sent to chat.
+
+**When the chat server can't be reached**, netdiag keeps the alerts and sends them when it is back, with the time each problem really started. An alert whose problem was fixed in the meantime is not sent at all (nobody needs to act on it), and one still waiting after an hour is dropped, because it is no longer news; the problem stays on the **Problems right now** card while it lasts. Waiting alerts are kept when you quit netdiag, and sent once the next live scan has checked that they still matter. **Try now** in Settings tries again at once.
+
+**The chat button** in the top bar shows the state with a shape and a word: connected, "can't reach the server", or stopped (no channel, needs reconnecting, or the server's identity changed). Click it to open the Team chat section of Settings, which says what is wrong and offers the button that fixes it: **Try now**, **Change channel** or **Reconnect**. See **Troubleshooting** for each one.
+
+**Disconnect.** **Disconnect** in Settings asks first, then stops sending alerts and forgets the connection on this computer. Your chat admin should also remove netdiag in bubbles under **Admin > Apps**.
+
+**Privacy.** Everyone in the channel sees what netdiag posts: device names and addresses, MAC addresses, makers and printer models. Choose a channel for the people who look after the network. netdiag keeps its chat connection key in `bubbles.json` in its data folder, protected with your Windows sign-in (DPAPI) so another user, or a copy on another computer, can't use it; on a Mac the file can be read only by your user account. The key is never in Settings, exports or anything Claude can read.
 
 ## Printer status monitoring
 
@@ -297,7 +345,7 @@ On the command line: `netdiag history` lists the saved scans, and `netdiag compa
 | Windows | `%AppData%\netdiag` (for example `C:\Users\<name>\AppData\Roaming\netdiag`) |
 | macOS | `~/Library/Application Support/netdiag` |
 
-The folder holds `settings.json` (your settings) and a `history` folder with one file per saved scan. Only `settings.json` keeps the SNMP community. Saved scans, exports and everything else netdiag shows outside Settings show it as `***`, so a file you send to someone never gives it away. Scans saved by netdiag 0.5.7 or earlier kept it in clear; netdiag cleans each of those files (it writes `***` in place of the community and changes nothing else) the first time it reads it (for example when you open History). To change the folder for one run, set the environment variable `NETDIAG_DATA_DIR` to the folder you want before starting netdiag (for example `set NETDIAG_DATA_DIR=D:\netdiag-data` in Command Prompt, or `$env:NETDIAG_DATA_DIR="D:\netdiag-data"` in PowerShell, or `NETDIAG_DATA_DIR=/path ./netdiag` in Terminal).
+The folder holds `settings.json` (your settings) and a `history` folder with one file per saved scan. netdiag also keeps a few small files there: `instance.json` (the address of the running netdiag and the key its page's buttons use, so a second start can open the same page), `open-problems.json` (the problems that are open, and what was fixed in the last day, so a restart neither repeats an alert nor misses a fix), `network-profile.json` (how netdiag recognises the networks it watched), and, once team chat is connected, `bubbles.json` (the chat connection, with its key protected; see **Team chat alerts (bubbles)**) and `chat-outbox.json` (chat alerts still waiting to be sent). Only `settings.json` keeps the SNMP community. Saved scans, exports and everything else netdiag shows outside Settings show it as `***`, so a file you send to someone never gives it away. Scans saved by netdiag 0.5.7 or earlier kept it in clear; netdiag cleans each of those files (it writes `***` in place of the community and changes nothing else) the first time it reads it (for example when you open History). To change the folder for one run, set the environment variable `NETDIAG_DATA_DIR` to the folder you want before starting netdiag (for example `set NETDIAG_DATA_DIR=D:\netdiag-data` in Command Prompt, or `$env:NETDIAG_DATA_DIR="D:\netdiag-data"` in PowerShell, or `NETDIAG_DATA_DIR=/path ./netdiag` in Terminal).
 
 **How to clear it.** To remove one scan, use **Delete** in the History view. To reset your settings to the defaults, quit netdiag and delete `settings.json`. To clear everything, quit netdiag and delete the whole folder above (or the `NETDIAG_DATA_DIR` folder you chose). netdiag creates the folder again the next time it starts.
 
@@ -317,6 +365,7 @@ Leave **Live mode** ticked (next to **Scan**; your choice is remembered) to keep
 - **Open netdiag again to get the page back.** If you closed the browser tab, double-click netdiag again (or run it again): it opens the page of the netdiag that is already running, at the same address, and the console says "netdiag is already running at http://127.0.0.1:8787. Opened it in your browser." Only one netdiag runs at a time for each data folder. netdiag starts at the address it used last, which is `http://127.0.0.1:8787` unless that port was taken; then it picks a free port and remembers it.
 - **Buttons only work in a page netdiag opened.** Each time netdiag starts, it opens the page with a new key that its buttons send along, so other users on this computer, and programs that can't read your netdiag data folder, can't press them. A page without the current key (one left open from before netdiag was started again, or one you opened by typing the address) still shows the results, but its buttons and Settings are off and it plays no alert sounds. It says "**Buttons on this page are turned off for safety.** Double-click netdiag to open a fresh page." Once netdiag has opened a fresh page, the pages already open work again too.
 - **If netdiag stops.** When netdiag is closed or stops working, the page says "**netdiag has stopped.** Open netdiag again to keep watching." within about 30 seconds. If netdiag was started again, it says "**netdiag was restarted.**" with a **Reload page** button.
+- **When this computer loses the network, netdiag pauses its checks.** If this computer's own Wi-Fi or cable drops, or the router and most devices stop answering at once, netdiag does not report every device offline. After this computer sleeps and wakes, the devices that missed checks while it slept are not counted as offline either. When the network is gone, the status line says "Live · checks paused: this computer lost the network (since 10:42)" (or "the router stopped answering"), one "netdiag lost the network" notice appears, and the checks start again by themselves when the network is back, with a "netdiag is back on the network" notice. Nothing about it goes to team chat. If this computer is now on a different network (it was moved, or joined another Wi-Fi), netdiag stops the alerts for the network it was watching ("Live · alerts stopped: this computer is on a different network now"); press **Restart watching** to watch the network it is on now.
 - With the page open in several tabs, every tab follows the scan that is watching (also after **Restart watching** in another tab) and shows the alerts, but only the tab you used last plays the sound and shows desktop alerts.
 
 **Offline detection.** Each known device gets one cheap presence check per cycle: a single ping if it was found by ping, otherwise a connection to its lowest open port, otherwise a look at the ARP table (same IP and MAC address). A device that answered ping but stops can still count as present through its open port. After two missed checks in a row a device is marked **OFFLINE** (dimmed row, "offline for 2m", listed under the **Offline** and **Problems** filters, and announced to screen readers); one missed check never flips it. When it answers again it is shown as back online. If an address suddenly shows a different MAC address (another device got the same IP), it is treated as a new device and fully checked once. Your own computer is never checked. Exports include `online` and `last_seen`.
@@ -373,7 +422,28 @@ Some devices block ping. netdiag also reads the ARP table, so a device that has 
 netdiag scans at most 1024 addresses (a /22). A bigger range is refused. The automatic suggestion is limited to the /24 around this computer, and you will see a note saying so. Enter a smaller range, or a larger one within /22, in the address box.
 
 **"server: ... address already in use" when starting.**
-Another copy of netdiag may be open, or the port you asked for is taken. Close the other window, or start without `--port` so a free port is chosen.
+The port you asked for with `--port` is taken by another program. Start without `--port`: netdiag then uses the address it used last (normally `http://127.0.0.1:8787`), or picks a free port when that one is taken. Starting netdiag while it is already running is not a problem: it opens the page of the netdiag that is running.
+
+**"another netdiag is using the data folder … but is not answering".**
+A netdiag for the same data folder is still starting or stopping, or it stopped answering. Wait a few seconds and start netdiag again. If it keeps happening, close the other netdiag's black window (or its Terminal), then start netdiag again.
+
+**The page says "Buttons on this page are turned off for safety".**
+The page was not opened by the netdiag that is running now: it was left open from before netdiag was started again, or the address was typed by hand. It still shows the results, but its buttons and Settings are off and it makes no alert sounds. Double-click netdiag again (or run it again): it opens a fresh page, and the pages already open work again too.
+
+**The page says "netdiag lost the network" or "checks paused".**
+This computer's own Wi-Fi or cable dropped, or the router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline (see **Live mode**). Check this computer's network cable or Wi-Fi, and that the router is switched on. The checks start again by themselves when the network is back. If it says "this computer is on a different network now", the computer was moved or joined another Wi-Fi: press **Restart watching** to watch the network it is on now.
+
+**Chat alerts stopped.**
+Open **Settings > Team chat (bubbles)** (or click the chat button in the top bar). It says what is wrong:
+
+- **Not connected**: click **Connect to team chat**.
+- **Can't reach the server**: the chat server is off, or this computer can't reach it. netdiag keeps the alerts and sends them when the server is back; **Try now** tries again at once. If the chat server moved to a new address on the local network, netdiag finds it again by itself when the server announces its new address.
+- **No channel**: netdiag isn't allowed to post in its channel any more, or the channel was archived. Ask your chat admin to add netdiag to the channel again and click **Send test alert**, or click **Change channel**.
+- **Needs reconnecting**: the chat server no longer accepts netdiag (your chat admin may have removed it), or this computer can't open the saved connection (it was copied from another computer or Windows user). Click **Reconnect**. Your chat admin may then see a second netdiag app, and can remove the old one under Admin > Apps.
+- **Connected**, but nothing arrives: alerts go only while netdiag is watching this network (**Live mode** ticked, netdiag open on this computer), only for the alert types switched on in Settings > Alerts, and only at the level chosen under **Send**. Check that **Send alerts to team chat** is on, then click **Send test alert**.
+
+**Settings says "the chat server's identity changed".**
+The chat server answered with a different identity than the one you checked when you connected, so netdiag stopped sending alerts. This happens when the chat server is reinstalled, or when something on the network is pretending to be it. Ask your chat admin before you press **Reconnect**: during Reconnect, compare the fingerprint with the one they read in bubbles under **Admin > Overview**, and click **It doesn't** if it does not match.
 
 **Windows says "Windows protected your PC" or antivirus quarantines the file.**
 netdiag is not code-signed. In SmartScreen choose "More info", then "Run anyway". If antivirus removes it, restore it and add the folder as an exception, or ask IT staff to allow it. For IT staff: a scan connects to ten ports on each device it finds, including the remote access ports 22, 3389 and 5900 (to show **Remote access**), so network security tools may report it as remote-access probing from this computer.
@@ -403,7 +473,7 @@ No device answered the Bonjour (mDNS) query. Devices may still be found through 
 Click **Ignore this MAC** in the detail panel and confirm. The MAC is saved in Settings under **Ignored conflict MACs**, where **Remove** (then **Save**) undoes it.
 
 **The page does not load after the window opens.**
-Keep the black window open. Closing it stops netdiag. If the browser did not open, copy the address shown in the window (it begins with `http://127.0.0.1:`) into your browser.
+Keep the black window open: closing it stops netdiag. If the browser did not open, or you closed the tab, double-click netdiag again (or run it again): it opens the page of the netdiag that is already running, with its buttons working. A page you open by typing the address (it begins with `http://127.0.0.1:`, normally `http://127.0.0.1:8787`) shows the results, but its buttons stay off until netdiag opens a page for you.
 
 ## Limits (by design)
 
@@ -412,6 +482,8 @@ Keep the black window open. Closing it stops netdiag. If the browser did not ope
 - Only the ten fixed ports above are probed. netdiag is not a port scanner or vulnerability tool.
 - The last 20 scans are saved on this computer (see **History and compare**). Export anything you need to send to someone; the saved files are only on this computer.
 - Apart from name lookups sent to this computer's own DNS servers (which may be on the internet), the only request netdiag makes to the internet is the optional internet check (a single request, server-side, configurable in Settings). The web page makes no external requests.
+- When team chat is connected, netdiag also talks to your chat server on the local network (and nothing else). Chat alerts are sent only while netdiag is open and watching on this computer (**Live mode**); netdiag does not keep watching after you quit it or while this computer sleeps.
+- One netdiag runs at a time for each data folder: starting it again opens the page of the one that is running.
 - Built and tested for Windows and macOS. Linux is not supported.
 
 ## Building from source
