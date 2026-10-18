@@ -69,6 +69,13 @@ async function wizardSpinners(page, check) {
   const held = new Promise((r) => { release = r; });
   await page.route('**/api/bubbles/discover', async (route) => { await held; return route.fallback(); });
   await page.goto(HOME);
+  // Settings opens only once the page has read the settings (as in
+  // chat.spec's openSettings); a click before that is lost.
+  await expect.poll(() => page.evaluate(() => {
+    const el = document.querySelector('.shell');
+    const data = el && el._x_dataStack ? el._x_dataStack[0] : null;
+    return !!(data && data.settings);
+  })).toBe(true);
   await page.evaluate(() => document.querySelector('#nav-settings').click());
   await page.locator('#settings-dialog #chat-connect').click();
   const w = page.locator('#chat-dialog');
