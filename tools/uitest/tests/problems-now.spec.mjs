@@ -116,7 +116,7 @@ for (const theme of THEMES) {
     await expect(items(page)).toHaveCount(5);
     await expect(card(page).locator('#pn-fine')).toBeHidden();
     const words = await card(page).locator('.psev').allTextContents();
-    // One device on several addresses (the fixture's extender) is a note (v0.6-D51).
+    // One device on several addresses (the fixture's extender) is a note (v0.6-D57).
     expect(words).toEqual(['Urgent', 'Warning', 'Warning', 'Warning', 'Note']);
     const icons = await card(page).locator('.psev use').evaluateAll((els) => els.map((e) => e.getAttribute('href')));
     expect(icons[0]).toBe('icons.svg#i-circle-x');
@@ -382,7 +382,7 @@ test('ignoring a MAC makes the card read again', async ({ page }) => {
   await page.goto(HOME);
   await scanToFinish(page);
   await expect(items(page).filter({ hasText: 'One device uses several addresses' })).toHaveCount(1);
-  // One device on several addresses is a note, as its drawer box says (v0.6-D51).
+  // One device on several addresses is a note, as its drawer box says (v0.6-D57).
   const note = card(page).locator('#pn-notes .pitem').filter({ hasText: 'One device uses several addresses' });
   await expect(note.locator('.psev')).toHaveText('Note');
   await expect(note.locator('.psev use')).toHaveAttribute('href', 'icons.svg#i-info');

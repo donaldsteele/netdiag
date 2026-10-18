@@ -212,8 +212,8 @@ export function flapNotice(alternations = 2) {
 // has, so it carries the catalogue's general answer.
 export function healthNotice() {
   return { id: 'n-41', trigger: 'healthFailed', severity: 'critical', ip: '', title: 'Health check failed',
-    message: 'Gateway reachable check failed.', at: T1, key: 'healthFailed||gateway',
-    advice: advice("A network health check keeps failing.", ["In netdiag, press Open Health to see what to try."], [], 'Gateway reachable check failed.') };
+    message: 'Router check failed.', at: T1, key: 'healthFailed||gateway', detail: 'Router',
+    advice: advice("A network health check keeps failing.", ["In netdiag, press Open Health to see what to try."], [], 'Router check failed.') };
 }
 
 // advice(): a model.Advice as internal/advice builds it. Meanings and steps
@@ -365,7 +365,7 @@ export function health({ web = 'unset', webURL = WEB_URL, state = 'default', noI
     // The router answers only on its web page.
     const h = health({ web, webURL });
     const detail = `${GATEWAY} did not reply to ping, but answers on port 80`;
-    h.checks[0] = { id: 'gateway', label: 'Gateway reachable', status: 'ok', detail, latencyMs: 2.1, data: { reason: 'tcp_only' },
+    h.checks[0] = { id: 'gateway', label: 'Router', status: 'ok', detail, latencyMs: 2.1, data: { reason: 'tcp_only' },
       advice: advice("Your router doesn't answer netdiag's test message, but its web page answers, so it is working.", [],
         [{ kind: 'openRouter', label: 'Open router page', target: `http://${GATEWAY}/` }], detail) };
     return h;

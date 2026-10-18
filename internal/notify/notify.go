@@ -695,7 +695,7 @@ func (e *Engine) ObserveConflicts(cur []model.Conflict, cycle bool) []model.Noti
 
 // Conflict notice titles. One device on several addresses is often normal
 // (an extender or mesh point), so it is not called a conflict: the window
-// says Note (v0.6-D51).
+// says Note (v0.6-D57).
 const (
 	TitleConflict         = "Network conflict"
 	TitleSeveralAddresses = "One device uses several addresses"

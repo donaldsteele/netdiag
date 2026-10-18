@@ -309,7 +309,7 @@ func TestCurrentPrinterAndConflicts(t *testing.T) {
 
 // TestCurrentSeveralAddresses: one device on several addresses (an extender
 // or mesh point) is a note under its own title, as the drawer's Note says
-// it, whatever its MAC history; it leaves everything fine (v0.6-D51).
+// it, whatever its MAC history; it leaves everything fine (v0.6-D57).
 func TestCurrentSeveralAddresses(t *testing.T) {
 	ext := model.Host{IP: "10.0.0.30", Alive: true, Online: true, MAC: "02:00:5E:00:00:30", Conflicts: []string{"c-m"},
 		MACHistory: []model.MACObservation{{MAC: "02:00:5E:00:00:30"}, {MAC: "02:00:5E:00:00:99"}, {MAC: "02:00:5E:00:00:30"}}}
@@ -524,6 +524,14 @@ func TestViewSharedMAC(t *testing.T) {
 	})
 	if len(v.Fixed) != 1 || v.Fixed[0].Device.IP != a.IP {
 		t.Errorf("fixed: %+v", v.Fixed)
+	}
+
+	// A fixed conflict is named by its device: the MACs its notice's Detail
+	// carries for team chat stay out of the card.
+	v = view(nil, []Fixed{{Key: "ipConflict|mac_flap|10.0.1.9", Title: "Network conflict", Detail: "24:6F:28:AA:BB:CC, 3C:52:82:11:22:33",
+		IP: "10.0.1.9", Network: net, FixedAt: "2026-10-17T10:22:00Z"}})
+	if len(v.Fixed) != 1 || v.Fixed[0].Detail != "" || v.Fixed[0].Device == nil || v.Fixed[0].Device.IP != "10.0.1.9" {
+		t.Errorf("fixed conflict: %+v", v.Fixed)
 	}
 }
 

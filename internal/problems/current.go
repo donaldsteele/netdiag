@@ -287,7 +287,7 @@ func Current(r model.ScanResult, set model.Settings) []Problem {
 			p := Problem{Key: notify.ConflictKey(c), Kind: model.TriggerIPConflict, Severity: cardSeverity(notify.ConflictSeverity(c)),
 				Title: notify.ConflictTitle(c), Detail: strings.Join(c.IPs, ", "), Advice: c.Advice}
 			// One device on several addresses keeps its own title (a note,
-			// v0.6-D51); the others are a conflict only when the swap was seen.
+			// v0.6-D57); the others are a conflict only when the swap was seen.
 			if p.Title == notify.TitleConflict && !advice.SwapSeen(c, x) {
 				p.Title = TitlePossible
 			}

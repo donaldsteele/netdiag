@@ -209,7 +209,7 @@ test('the switch waits until netdiag knows which network this is', async ({ page
   // A button that opens Settings at the switch (here from a report that
   // still offers it) lands on the switch's help, which says why it is
   // grey, not on the first field of the dialog.
-  const open = card(page, 'DNS resolving').getByRole('button', { name: /^Open Settings/ });
+  const open = card(page, 'Name lookup (DNS)').getByRole('button', { name: /^Open Settings/ });
   await open.click();
   const dialog = page.locator('#settings-dialog');
   await expect(dialog).toHaveJSProperty('open', true);
@@ -423,7 +423,7 @@ test('a conflict banner leads with plain words and offers Show device', async ({
   await page.goto(HOME);
   await scanToFinish(page);
   const banner = page.locator('#alerts div.banner:not(.more)').filter({ hasText: 'Network conflict' });
-  await expect(banner.locator('.btext')).toContainText('Critical: Network conflict Two devices may be using 192.168.2.44.');
+  await expect(banner.locator('.btext')).toContainText('Urgent: Network conflict Two devices may be using 192.168.2.44.');
   await expect(banner).not.toContainText(fx.FLAP_MACS[0]);
   await banner.locator('details.btry summary').click();
   await expect(banner.locator('ol.steps li').first()).toHaveText('In netdiag, press Show device and compare the two devices (Device A and Device B).');
@@ -441,7 +441,7 @@ test('a conflict banner without a seen swap promises only to tell you', async ({
   await page.goto(HOME);
   await scanToFinish(page);
   const banner = page.locator('#alerts div.banner:not(.more)').filter({ hasText: 'Network conflict' });
-  await expect(banner.locator('.btext')).toContainText('Critical: Network conflict Two devices may be using 192.168.2.44.');
+  await expect(banner.locator('.btext')).toContainText('Urgent: Network conflict Two devices may be using 192.168.2.44.');
   await banner.locator('details.btry summary').click();
   await expect(banner.locator('ol.steps li')).toHaveText(['If you just replaced a device, this is expected.', 'If it happens again, netdiag will tell you.']);
   await expect(banner).not.toContainText('mark it as a conflict');
@@ -576,7 +576,7 @@ test('a card\'s Check again shows its progress on the card', async ({ page }) =>
   await page.goto(HOME);
   await page.getByRole('button', { name: 'Menu' }).click();
   await page.locator('#tab-health').click();
-  const gw = card(page, 'Gateway reachable');
+  const gw = card(page, 'Router');
   const btn = gw.getByRole('button', { name: /^(Check again|Checking)/ });
   await btn.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await btn.click();
@@ -609,7 +609,7 @@ test('Check again has one label and comes first', async ({ page }) => {
   await page.locator('#tab-health').click();
   await expect(page.locator('#health').getByRole('button', { name: 'Recheck' })).toHaveCount(0);
   await expect(page.locator('#health-run')).toHaveText('Check again');
-  for (const label of ['DNS resolving', 'Web server']) {
+  for (const label of ['Name lookup (DNS)', 'Web server']) {
     await expect(card(page, label).locator('.aacts button:visible')).toHaveText([/^Check again/, /^Open Settings/]);
   }
 });

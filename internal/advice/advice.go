@@ -305,7 +305,7 @@ func health(c model.HealthCheck, reason string, x Ctx) *model.Advice {
 		return adv("This computer isn't using Wi-Fi right now, for example because it uses a network cable.", nil)
 	case "wifi|" + model.ReasonHiddenLocation:
 		// Open Location settings comes before Check again here, in the
-		// order the step names them (v0.6-D50).
+		// order the step names them (v0.6-D56).
 		var acts []model.AdviceAction
 		if x.GOOS == "windows" {
 			acts = append(acts, model.AdviceAction{Kind: model.ActionOSSettings, Label: LabelOpenLocation, Target: model.OSPageLocation})

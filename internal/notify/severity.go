@@ -60,7 +60,7 @@ func severityFor(trigger string, ctx sevCtx) string {
 		case ctx.kind == model.ConflictMACMultiIP:
 			// One device on several addresses is often normal (an
 			// extender or mesh point): a note, as the window says it
-			// (v0.6-D51).
+			// (v0.6-D57).
 			return sevInfo
 		}
 		return sevWarn
