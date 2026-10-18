@@ -4,10 +4,13 @@ Run this on real hardware before handing out a release. Record the build
 version (`netdiag version`), the date, the tester, and the router and printer
 models in the table at the bottom.
 
-Status: **NOT YET EXECUTED.** All items are unchecked. They must be completed
-by a person on physical hardware. Do not tick an item without observing it.
-The v0.6 items (section 6) were added on 2026-10-18 and are not run yet; tick
-each one only with its date, OS and result filled in.
+Status: **PARTLY EXECUTED.** Sections 1 to 5 are unchecked. In section 6,
+6.1 (the Zebra and team chat) and the release candidate scan in 6.6 were run
+on 2026-10-18 on the Windows 11 PC that also ran the bubbles server, with the
+person next to the Zebra; 6.2 to 6.5 (standard-user Windows 11 with the
+firewall on, macOS 15, mDNS devices, Claude) are not run yet. Items must be
+completed by a person on physical hardware. Do not tick an item without
+observing it; tick each one only with its date, OS and result filled in.
 
 Machines required:
 - [ ] One Windows 11 PC (amd64, standard user account, no admin rights)
@@ -183,18 +186,18 @@ When testing, stop only the netdiag you started, by its process ID or its path, 
 
 ### 6.1 Real hardware: the Zebra and team chat (v0.6 §7.4)
 
-- [ ] **Cover open, then closed.** Steps: with team chat connected and **Send alerts to team chat** on, start a live scan of the Zebra's network and wait for the first scan to finish. Ask for the Zebra's cover to be opened. Within about 5 seconds the banner reads "Urgent: Printer alert <name>: Door or cover open", where <name> is how netdiag names the Zebra, for example "ZD621 (192.168.68.76)" (one alert: the printer's "offline or paused" flag is part of it), and #netdiag-alerts gets exactly one alert card within 10 seconds. Ask for the cover to be closed. The banner turns into ✔ **Fixed**, with no sound, and the same chat card (same key) is resolved with "Fixed at HH:MM (lasted N min)" within 10 seconds. Take all five screenshots in this one run, so the site's Zebra story matches: while the cover is open, `real-zebra-fault.png` (the page with the alert banner) and `real-zebra-fault-drawer.png` (the Zebra's details panel with its alert); after it is fixed, `real-zebra-recovered.png` (the Fixed banner) and `real-zebra-activity.png` (Activity with the alert and its Fixed line), all into `docs/assets/shots/`; and a screenshot of the resolved card in bubbles as `docs/assets/shots/bubbles-resolved.png`.
-  Date: · OS: · Result:
-- [ ] **Printer offline, then back.** Steps: in live mode, ask for the Zebra to be switched off. After 2 missed checks (about 30 seconds at the default 15 s), "Printer offline" appears on the page and in chat, as a warning. Ask for it to be switched on: after 2 good checks the banner turns into "Fixed: Printer back online at HH:MM (lasted N min)" and the chat card is resolved with the same words.
-  Date: · OS: · Result:
-- [ ] **Restart while a problem is open.** Steps: open the cover and wait for its alert. Click **Quit**. Ask for the cover to be closed. Start netdiag again and scan with **Live mode** ticked: the first scan gives one Fixed and one chat resolve, and no new alert. Then open the cover, restart netdiag the same way with the cover still open: no second alert appears, on the page or in chat.
-  Date: · OS: · Result:
-- [ ] **This computer loses the network.** Steps: in live mode, unplug this computer's network cable (or turn its Wi-Fi off) for 2 minutes. No device is reported offline; the status line says "Live · checks paused: this computer lost the network", one "Warning: This computer lost the network" notice appears, nothing is posted to chat, and one "netdiag is back on the network" notice appears after reconnecting. Then put the laptop to sleep for 5 minutes and wake it: no devices are reported offline.
-  Date: · OS: · Result:
-- [ ] **Chat server down.** Steps: stop the bubbles server. Open the cover, then close it, then start the server: nothing about it is posted. Stop the server again, open the cover, click **Quit** in netdiag, start the server, then start netdiag and scan with **Live mode**: exactly one alert is posted, and in bubbles its time is when the cover was opened, not when netdiag started again.
-  Date: · OS: · Result:
-- [ ] **One netdiag at a time.** Steps: double-click netdiag twice. The second start opens the same page (same address, buttons working) and its window closes by itself, saying "netdiag is already running at …". Stop only the netdiag you started.
-  Date: · OS: · Result:
+- [x] **Cover open, then closed.** Steps: with team chat connected and **Send alerts to team chat** on, start a live scan of the Zebra's network and wait for the first scan to finish. Ask for the Zebra's cover to be opened. Within about 5 seconds the banner reads "Urgent: Printer alert <name>: Door or cover open", where <name> is how netdiag names the Zebra, for example "ZD621 (192.168.68.76)" (one alert: the printer's "offline or paused" flag is part of it), and #netdiag-alerts gets exactly one alert card within 10 seconds. Ask for the cover to be closed. The banner turns into ✔ **Fixed**, with no sound, and the same chat card (same key) is resolved with "Fixed at HH:MM (lasted N min)" within 10 seconds. Take all five screenshots in this one run, so the site's Zebra story matches: while the cover is open, `real-zebra-fault.png` (the page with the alert banner) and `real-zebra-fault-drawer.png` (the Zebra's details panel with its alert); after it is fixed, `real-zebra-recovered.png` (the Fixed banner) and `real-zebra-activity.png` (Activity with the alert and its Fixed line), all into `docs/assets/shots/`; and a screenshot of the resolved card in bubbles as `docs/assets/shots/bubbles-resolved.png`.
+  Date: 2026-10-18 · OS: Windows 11 Pro 26300 (administrator account, Ethernet) · Result: release candidate d17d2db, bubbles v0.2.0 on this PC (127.0.0.1, not another computer). Cover opened: banner "Urgent: Printer alert … Door or cover open" and one critical card at 12:53:31-32; the printer's offline flag was part of it. Cover closed: the banner turned into Fixed and the same card (same key) was resolved at 12:54:06, thread "Fixed at 12:54 (lasted less than a minute)". All five screenshots taken in this run. Then the labels misfed and were reseated: no paper, door open and service requested came as 3 real cards, all resolved by 12:54:37.
+- [x] **Printer offline, then back.** Steps: in live mode, ask for the Zebra to be switched off. After 2 missed checks (about 30 seconds at the default 15 s), "Printer offline" appears on the page and in chat, as a warning. Ask for it to be switched on: after 2 good checks the banner turns into "Fixed: Printer back online at HH:MM (lasted N min)" and the chat card is resolved with the same words.
+  Date: 2026-10-18 · OS: Windows 11 Pro 26300 (administrator account, Ethernet) · Result: v0.6 at 5fa841b. Port 9100 stopped answering 11:29:06; "Printer offline" (warning) on the page and in chat at 11:29:34. Back on 11:30:04; Fixed "Printer back online at 11:30" (down 54 s) and the same card resolved at 11:30:28. Between those two the card had already dropped the problem while the chat card was open (the OK waits for the second good check).
+- [x] **Restart while a problem is open.** Steps: open the cover and wait for its alert. Click **Quit**. Ask for the cover to be closed. Start netdiag again and scan with **Live mode** ticked: the first scan gives one Fixed and one chat resolve, and no new alert. Then open the cover, restart netdiag the same way with the cover still open: no second alert appears, on the page or in chat.
+  Date: 2026-10-18 · OS: Windows 11 Pro 26300 (administrator account, Ethernet) · Result: v0.6 at 5fa841b. Cover open, Quit, cover closed, start and scan: one Fixed and one resolve at 11:35:28, no new alert. Cover open (card 11:37:43), restart with it still open: matched to the same card under the device's other key, no second alert on the page or in chat; closed, resolved 11:40:31.
+- [x] **This computer loses the network.** Steps: in live mode, unplug this computer's network cable (or turn its Wi-Fi off) for 2 minutes. No device is reported offline; the status line says "Live · checks paused: this computer lost the network", one "Warning: This computer lost the network" notice appears, nothing is posted to chat, and one "netdiag is back on the network" notice appears after reconnecting. Then put the laptop to sleep for 5 minutes and wake it: no devices are reported offline.
+  Date: 2026-10-18 · OS: Windows 11 Pro 26300 (administrator account, Ethernet) · Result: first run (d17d2db) failed: with the cable out, Env.Self fell back to the WSL adapter on another prefix and the guard held "different network" until Restart watching. Fixed in f20a2a4 (TestOtherAdapterIsLostLink). Second run (f20a2a4): cable out 13:14:27 to 13:16:48; one "This computer lost the network" at 13:14:32 and one "netdiag is back on the network" at 13:17:43, no device offline, nothing in chat. This PC cannot sleep (graphics driver, Hyper-V); hibernated instead: on resume one lost/back pair (13:36:15, 13:37:14), no offline flood, nothing in chat.
+- [x] **Chat server down.** Steps: stop the bubbles server. Open the cover, then close it, then start the server: nothing about it is posted. Stop the server again, open the cover, click **Quit** in netdiag, start the server, then start netdiag and scan with **Live mode**: exactly one alert is posted, and in bubbles its time is when the cover was opened, not when netdiag started again.
+  Date: 2026-10-18 · OS: Windows 11 Pro 26300 (administrator account, Ethernet) · Result: v0.6 at 5fa841b. bubbles stopped; cover opened 11:42:21 and closed 11:42:46; bubbles back 11:43:08, netdiag reconnected 11:44:10: nothing posted. Stopped again, cover opened 11:45:56, Quit (chat-outbox.json kept the post), bubbles started, netdiag started and scanned: exactly one card at 11:46:49 with its time 11:45:56. Closed: resolved 11:47:36.
+- [x] **One netdiag at a time.** Steps: double-click netdiag twice. The second start opens the same page (same address, buttons working) and its window closes by itself, saying "netdiag is already running at …". Stop only the netdiag you started.
+  Date: 2026-10-18 · OS: Windows 11 Pro 26300 (administrator account, Ethernet) · Result: v0.6 at 5fa841b. The second start printed "netdiag is already running at http://127.0.0.1:8788. Opened it in your browser." and exited 0; that page's buttons worked.
 
 ### 6.2 Windows 11, standard user, firewall on (v0.6 §7.5)
 
@@ -254,8 +257,8 @@ When testing, stop only the netdiag you started, by its process ID or its path, 
 
 ### 6.6 Defender (v0.6 §7.6)
 
-- [ ] **Release candidate scan.** Steps: run `"%ProgramFiles%\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File <path to the RC netdiag.exe>` (it now uses DPAPI, a start lock and more Bonjour service types). Record the result; a detection is filed as a false positive before release.
-  Date: · OS: · Result:
+- [x] **Release candidate scan.** Steps: run `"%ProgramFiles%\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File <path to the RC netdiag.exe>` (it now uses DPAPI, a start lock and more Bonjour service types). Record the result; a detection is filed as a false positive before release.
+  Date: 2026-10-18 · OS: Windows 11 Pro 26300 (administrator account, Ethernet) · Result: rc-v0.6.0-d17d2db netdiag.exe: MpCmdRun custom scan found no threats (definitions 1.461.89.0, engine 1.1.26090.9).
 - [ ] **Release build scan.** Steps: the same scan on the release build's `netdiag.exe`, then submit it to Microsoft as a false positive (until code signing lands).
   Date: · OS: · Result:
 
@@ -263,4 +266,4 @@ When testing, stop only the netdiag you started, by its process ID or its path, 
 
 | Date | Tester | Build version | Machine / OS | Router model | Printer model | Notes |
 |------|--------|---------------|--------------|--------------|---------------|-------|
-|      |        |               |              |              |               |       |
+| 2026-10-18 | Product owner with Claude Code | v0.6 at 5fa841b, f20a2a4 and the release candidate d17d2db (v0.5.8-207-gd17d2db) | Windows 11 Pro 26300, administrator account, Ethernet; bubbles v0.2.0 on the same PC (127.0.0.1) | TP-Link (by its MAC vendor) at 192.168.68.1 | Zebra ZD621 (192.168.68.76) | 6.1 all passed (the cable test after the f20a2a4 fix); 6.6 release candidate scan clean. |
