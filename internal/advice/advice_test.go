@@ -159,6 +159,11 @@ var technicalRe = regexp.MustCompile(`(?i)\b(ARP|DHCP|DNS|SNMP|MAC|ICMP|IP addre
 // to Claude, where nothing is above or below it and "here" is another place.
 var placeRe = regexp.MustCompile(`(?i)\b(below|above|here)\b`)
 
+// screenRe finds a step that sends the reader to one of netdiag's own
+// screens. Team chat posts the steps too, where nobody can open Health or
+// a device, so such a step says "in netdiag".
+var screenRe = regexp.MustCompile(`(?i)\bopen (health|the device|this address|the details)\b`)
+
 func TestWordingLint(t *testing.T) {
 	for name, a := range every() {
 		if a == nil {
@@ -174,6 +179,11 @@ func TestWordingLint(t *testing.T) {
 			}
 			if m := placeRe.FindString(s); m != "" {
 				t.Errorf("%s: %q says %q, which is not true everywhere the advice is shown", name, s, m)
+			}
+		}
+		for _, s := range a.Steps {
+			if m := screenRe.FindString(s); m != "" && !strings.Contains(s, "in netdiag") {
+				t.Errorf("%s: %q says %q without \"in netdiag\": team chat readers can't open it", name, s, m)
 			}
 		}
 		if m := technicalRe.FindString(a.Meaning); m != "" {
@@ -197,6 +207,11 @@ func TestWordingLint(t *testing.T) {
 	for _, bad := range []string{"Look at the two devices below.", "the steps above", "netdiag will show both devices here."} {
 		if !placeRe.MatchString(bad) {
 			t.Errorf("place lint misses %q", bad)
+		}
+	}
+	for _, bad := range []string{"Open Health to see what to try.", "Open the device to see the details."} {
+		if !screenRe.MatchString(bad) {
+			t.Errorf("screen lint misses %q", bad)
 		}
 	}
 }
@@ -503,6 +518,8 @@ func TestUITestFixtureAdvice(t *testing.T) {
 		"mac_flap, 1 alternation":   Conflict(flap, flapHost(1)),
 		"printer without status":    PrinterNoStatus(model.Host{IsPrinter: true}),
 		"wifi hidden_location":      hc("wifi", model.HealthUnavailable, model.ReasonHiddenLocation, nil),
+		"dns no_reply":              hc("dns", model.HealthFail, model.ReasonNoReply, nil),
+		"gateway no_gateway":        hc("gateway", model.HealthUnavailable, model.ReasonNoGateway, nil),
 		"netdiagLink link":          Notice(model.Notice{Trigger: model.TriggerNetdiagLink, Code: model.HeldLink}, nil, x),
 		"netdiagLink other network": Notice(model.Notice{Trigger: model.TriggerNetdiagLink, Code: model.HeldNetworkChanged}, nil, x),
 		"netdiagLink gateway":       Notice(model.Notice{Trigger: model.TriggerNetdiagLink, Code: model.HeldGateway}, nil, x),

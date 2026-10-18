@@ -444,9 +444,16 @@ func TestAlertContentLimits(t *testing.T) {
 			check = f.Value
 		}
 	}
+	// The steps say where to look, since chat readers can't open Health.
 	if in.Title != "Health check failed: Web server" || check != "Web server" ||
-		!strings.HasPrefix(in.Text, "Web server check failed.\n\nWhat to try:\n1. ") || *in.OccurredAt != e.OpenedAt {
+		in.Text != "Web server check failed.\n\nWhat to try:\n1. Open Health in netdiag to see what to try." || *in.OccurredAt != e.OpenedAt {
 		t.Fatalf("health from the ledger %+v", in)
+	}
+	ce := problems.Entry{Key: "ipConflict|mac_flap|192.168.1.50", Trigger: model.TriggerIPConflict, Severity: "warn",
+		Title: "Network conflict", IP: "192.168.1.50", Network: "n"}
+	if in = alertForEntry(ce, nil); in.Text != "Two devices may be trying to use the same address, so they can work badly.\n\n"+
+		"What to try:\n1. Open this address in netdiag to see the details." {
+		t.Fatalf("conflict from the ledger %q", in.Text)
 	}
 	pe := problems.Entry{Key: "printerOffline|ip:192.168.1.50|", Trigger: model.TriggerPrinterOffline, Severity: "warn",
 		Title: "Printer offline", IP: "192.168.1.50", Name: "Front Desk HP", Network: "n"}

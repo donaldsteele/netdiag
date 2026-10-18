@@ -350,9 +350,9 @@ func notice(n model.Notice, h *model.Host) *model.Advice {
 			steps("If you don't recognise it, ask whoever looks after the network."), showDevice(n.IP)...)
 	case model.TriggerIPConflict:
 		return adv("Two devices may be trying to use the same address, so they can work badly.",
-			steps("Open the device to see the details."), showDevice(n.IP)...)
+			steps("Open this address in netdiag to see the details."), showDevice(n.IP)...)
 	case model.TriggerHealthFailed:
-		return adv("A network health check keeps failing.", steps("Open Health to see what to try."))
+		return adv("A network health check keeps failing.", steps("Open Health in netdiag to see what to try."))
 	case model.TriggerNetdiagLink:
 		switch n.Code {
 		case model.HeldGateway:

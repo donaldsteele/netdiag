@@ -53,7 +53,8 @@ func TestPrompts(t *testing.T) {
 			`"network_changed": "Not checked: this computer is on a different network now`, "**Restart watching**",
 			`source is "live": its scan is still going. Start with "Not checked: netdiag has not finished checking yet." Suggest waiting a minute`,
 			`"Not checked: no problems found, but the health checks did not run for this scan." Suggest **Open Health** on the Problems right now card in the netdiag window, then **Check again**`,
-			// Fixed items say what was fixed and how long it lasted, never "was down".
+			// Fixed items say what was fixed (the problem's own title, as the
+			// ledger keeps it) and how long it lasted, never "was down".
 			`"Fixed at 10:42 (lasted 12 min): Health check failed · Router"`, "title (what was wrong) and its detail"}},
 		{"internet_not_working", nil, []string{"run_health_check", "wifi", "dhcp", "gateway", "dns", "internet", "**Check again** in the **Health** view"}},
 		{"device_offline", nil, []string{"list_devices", "get_device", "probe_host", "foundBy", "conflict", "Fixed", "filter=offline"}},

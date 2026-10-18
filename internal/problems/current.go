@@ -398,8 +398,9 @@ const (
 
 // FixedItem is a problem fixed in the last FixedFor.
 type FixedItem struct {
-	Key   string `json:"key"`
-	Kind  string `json:"kind"`
+	Key  string `json:"key"`
+	Kind string `json:"kind"`
+	// Title is what was fixed: the open problem's title (Fixed.Title).
 	Title string `json:"title"`
 	// Detail says which one was fixed, as an open item's does: the check
 	// (its plain name, model.HealthLabel), the printer alert or the supply

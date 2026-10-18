@@ -71,7 +71,10 @@ type Entry struct {
 
 // Fixed is a problem fixed in the last FixedFor.
 type Fixed struct {
-	Key   string `json:"key"`
+	Key string `json:"key"`
+	// Title is the open problem's title ("Health check failed", "Printer
+	// offline"): what was fixed. Only a problem the ledger did not have open
+	// keeps the OK notice's title.
 	Title string `json:"title"`
 	// Detail says which one was fixed, as the open problem's Detail does
 	// (the check, the printer alert or the supply).
