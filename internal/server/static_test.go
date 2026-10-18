@@ -219,7 +219,7 @@ func TestAdviceUI(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"this.post('/api/os/open', {page: page})", "a.kind !== 'osSettings' || this.isWindows()",
+		"this.api('POST', '/api/os/open', {page: page})", "a.kind !== 'osSettings' || this.isWindows()",
 		"/^https?:/i.test(a.target || '')", "noInternetNetworks: 'This network has no internet'",
 		"return this.alternations(hist) >= 2;", "if (c.kind !== 'mac_flap') return false;",
 		"noInternet: 'set-nointernet'", "vendors[mac] ||", "this.health && this.health.network",

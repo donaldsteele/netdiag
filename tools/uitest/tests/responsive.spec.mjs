@@ -1,7 +1,7 @@
 // T8: responsive pass. No horizontal page scroll at 360/390/768/1100/1440 in every view,
 // the drawer, and the settings dialog. Wide tables scroll inside .tablewrap, not the page.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 
 const WIDTHS = [360, 390, 768, 1100, 1440];
@@ -27,7 +27,7 @@ for (const width of WIDTHS) {
     await page.setViewportSize({ width, height: HEIGHT });
     await initStorage(page, { theme: 'dark', live: false });
     await installMocks(page, { scenario: 'scan' });
-    await page.goto('/');
+    await page.goto(HOME);
     await scanToFinish(page);
     expect(await pageOverflow(page), 'devices view').toBeLessThanOrEqual(0);
 
@@ -63,7 +63,7 @@ for (const width of [360, 390]) {
     await page.setViewportSize({ width, height: HEIGHT });
     await initStorage(page, { theme: 'dark', live: false });
     await installMocks(page, { scenario: 'scan' });
-    await page.goto('/');
+    await page.goto(HOME);
     await navTo(page, '#nav-settings');
     const dialog = page.locator('#settings-dialog');
     await expect(dialog).toBeVisible();

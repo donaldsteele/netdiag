@@ -1,7 +1,7 @@
 // T7: screenshots + axe for empty state, health, history+diff, settings dialog in both themes.
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { runAxe } from '../support/axe.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 import { OUT_DIR, THEMES } from '../support/config.mjs';
@@ -12,7 +12,7 @@ for (const theme of THEMES) {
   test(`empty state ${theme}`, async ({ page }, testInfo) => {
     await initStorage(page, { theme, live: false });
     await installMocks(page, { scenario: 'scan' });
-    await page.goto('/');
+    await page.goto(HOME);
     await expect(page.getByText('> no scan yet')).toBeVisible();
     await shot(page, `empty-${theme}`);
     await runAxe(page, `empty-${theme}`, testInfo);
@@ -21,7 +21,7 @@ for (const theme of THEMES) {
   test(`health, history+diff, settings ${theme}`, async ({ page }, testInfo) => {
     await initStorage(page, { theme, live: false });
     await installMocks(page, { scenario: 'scan' });
-    await page.goto('/');
+    await page.goto(HOME);
     await scanToFinish(page);
     await page.locator('#tab-health').click();
     await expect(page.locator('.hcard').first()).toBeVisible();

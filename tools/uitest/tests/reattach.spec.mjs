@@ -4,7 +4,7 @@
 // stops or restarts, every tab follows the scan that is watching, and only
 // one of the tabs following it beeps.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import * as fx from '../fixtures/index.mjs';
 import { runAxe } from '../support/axe.mjs';
 import { THEMES } from '../support/config.mjs';
@@ -74,7 +74,7 @@ test('reload while live brings back the table, health, banners and live pill wit
   await spyBeeps(page);
   await initStorage(page, { theme: 'dark', live: true });
   const rec = await installMocks(page, { scenario: 'live', settings: soundOn() });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.getByRole('button', { name: 'Scan', exact: true }).click();
   await expect(page.locator('.livepill')).toBeVisible();
   await expect(page.locator('#alerts div.banner:not(.more)')).toContainText('Device offline');
@@ -118,7 +118,7 @@ test('a stale tab cannot stop the watching: Scan asks, Keep watching attaches', 
   const errors = watchErrors(page);
   await initStorage(page, { theme: 'dark', live: true });
   const rec = await installMocks(page, { scenario: 'live' });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect(page.getByRole('button', { name: 'Scan', exact: true })).toBeVisible();
   expect(rec.sse).toEqual([]);
   // The page looked for a running scan on load and after the first
@@ -155,7 +155,7 @@ test('Restart watching asks first; Esc keeps watching and returns focus; Restart
   const errors = watchErrors(page);
   await initStorage(page, { theme: 'dark', live: true });
   const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
-  await page.goto('/');
+  await page.goto(HOME);
   const btn = page.getByRole('button', { name: 'Restart watching', exact: true });
   await expect(btn).toBeVisible();
   await expect(page.locator('#hosts tbody tr.host')).toHaveCount(fx.TOTAL_HOSTS);
@@ -188,7 +188,7 @@ for (const theme of THEMES) {
   test(`restart dialog and netdiag banners are accessible ${theme}`, async ({ page }, testInfo) => {
     await initStorage(page, { theme, live: true });
     const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
-    await page.goto('/');
+    await page.goto(HOME);
     await page.getByRole('button', { name: 'Restart watching', exact: true }).click();
     await expect(restartDialog(page)).toHaveJSProperty('open', true);
     await runAxe(page, `restart-dialog-${theme}`, testInfo);
@@ -205,7 +205,7 @@ for (const theme of THEMES) {
 test('the stopped banner appears within 30 s when netdiag stops, and goes when it answers again', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect.poll(() => rec.identityCalls).toBeGreaterThan(0);
   const stopped = page.locator('#backend-stopped');
   await expect(stopped).toBeHidden();
@@ -225,7 +225,7 @@ test('the stopped banner appears within 30 s when netdiag stops, and goes when i
 test('while live, a broken event stream checks every 5 s, so the stopped banner comes sooner', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: true });
   const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect(page.locator('.livepill')).toBeVisible();
   // The mock stream ends after the replay, like a backend that went away.
   await expect.poll(() => app(page, (a) => a.sseErr)).toBe(true);
@@ -240,7 +240,7 @@ test('while live, a broken event stream checks every 5 s, so the stopped banner 
 test('a restarted netdiag shows the restarted banner with Reload page', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect.poll(() => rec.identityCalls).toBeGreaterThan(0);
   rec.identity = 'restarted';
   const banner = page.locator('#backend-restarted');
@@ -257,7 +257,7 @@ test('a restarted netdiag shows the restarted banner with Reload page', async ({
 test('quitting stops the heartbeat and shows only the quit message', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect.poll(() => rec.identityCalls).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'Quit', exact: true }).click();
   await expect(page.getByText('netdiag has stopped. You can close this tab.')).toBeVisible();
@@ -280,7 +280,7 @@ test('the page starts once: one tab channel, one heartbeat, one attach', async (
   page.on('request', (r) => { if (new URL(r.url()).pathname === '/api/interfaces') lists++; });
   await initStorage(page, { theme: 'dark', live: true });
   const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect(page.locator('.livepill')).toBeVisible({ timeout: 15_000 });
   await expect.poll(() => app(page, (a) => a.settings !== null), { timeout: 15_000 }).toBe(true);
   await expect.poll(() => rec.identityCalls).toBeGreaterThan(0);
@@ -297,7 +297,7 @@ test('the page starts once: one tab channel, one heartbeat, one attach', async (
 test('a page too busy to read the heartbeat answer in time does not call netdiag stopped', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect.poll(() => rec.identityCalls).toBeGreaterThan(0);
   await expect.poll(() => app(page, (a) => a.settings !== null), { timeout: 15_000 }).toBe(true);
   // The answer comes after 300 ms, while the page is busy.
@@ -326,7 +326,7 @@ test('a page too busy to read the heartbeat answer in time does not call netdiag
 test('a heartbeat call that netdiag never answers gives up after 4 s', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect.poll(() => rec.identityCalls).toBeGreaterThan(0);
   // No heartbeat of its own during the test; let one already asking finish.
   await app(page, (a) => a.hbSchedule(600_000));
@@ -352,7 +352,7 @@ test('a replayed fault and its OK come back as a Fixed banner, silently', async 
   await initStorage(page, { theme: 'dark', live: true });
   const frames = [...fx.replayFrames(), { type: 'notice', data: { ...fx.fixedNotice(2), replay: true } }];
   const rec = await installMocks(page, { scenario: 'live', settings: loudSettings(), running: true, frames });
-  await page.goto('/');
+  await page.goto(HOME);
   // 254 rows can take a while on a busy machine.
   await expect(page.locator('.livepill')).toBeVisible({ timeout: 15_000 });
   const banners = page.locator('#alerts div.banner:not(.more)');
@@ -405,9 +405,9 @@ const NEW_ID = 'c0ffee00-0000-4000-8000-000000000002';
 
 test('of the tabs following the scan, only the one focused last beeps', async ({ page }) => {
   const { other, recA, recB } = await twoTabs(page, { running: true, frames: fx.replayFrames() });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect(page.locator('.livepill')).toBeVisible(SLOW);
-  await other.goto('/');
+  await other.goto(HOME);
   await expect(other.locator('.livepill')).toBeVisible(SLOW);
   await settled(page);
   await settled(other);
@@ -460,9 +460,9 @@ test('of the tabs following the scan, only the one focused last beeps', async ({
 test('a tab that is not following the scan never takes the beeping, and follows the scan once it can', async ({ page }) => {
   // page: open, idle, and (for now) told no scan is running. other: watching.
   const { other, recA, recB } = await twoTabs(page);
-  await page.goto('/');
+  await page.goto(HOME);
   await expect(page.getByRole('button', { name: 'Scan', exact: true })).toBeVisible();
-  await other.goto('/');
+  await other.goto(HOME);
   await other.getByRole('button', { name: 'Scan', exact: true }).click();
   await expect(other.locator('.livepill')).toBeVisible(SLOW);
   await settled(page);
@@ -504,7 +504,7 @@ test('a tab that is not following the scan never takes the beeping, and follows 
 test('a scan without live mode in another tab does not pull this tab along', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect(page.getByRole('button', { name: 'Scan', exact: true })).toBeVisible();
   await page.route('**/api/scans/running', (route) => route.fulfill({ status: 200, contentType: 'application/json',
     body: JSON.stringify({ scan: { ...fx.runningScan(), state: 'running', liveSince: undefined,
@@ -518,9 +518,9 @@ test('a scan without live mode in another tab does not pull this tab along', asy
 
 test('Restart watching in one tab: the other tab follows the new scan', async ({ page }) => {
   const { other, recA, recB } = await twoTabs(page, { running: true, frames: fx.replayFrames() });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect(page.locator('.livepill')).toBeVisible(SLOW);
-  await other.goto('/');
+  await other.goto(HOME);
   await expect(other.locator('.livepill')).toBeVisible(SLOW);
   await settled(page);
   await settled(other);
@@ -547,7 +547,7 @@ test('when watching is restarted elsewhere, the page follows the new scan instea
   const errors = watchErrors(page);
   await initStorage(page, { theme: 'dark', live: true });
   const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect(page.locator('.livepill')).toBeVisible(SLOW);
 
   // The old scan's stream ends with done (cancelled): another browser, or a
@@ -569,7 +569,7 @@ test('a tab told of a new scan while netdiag seemed stopped follows it once netd
   const errors = watchErrors(page);
   await initStorage(page, { theme: 'dark', live: true });
   const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect(page.locator('.livepill')).toBeVisible(SLOW);
   await settled(page);
   // No heartbeat of its own during the test; let one already asking finish.
@@ -601,7 +601,7 @@ test('a done from a scan the tab already left does not clear the new attach', as
   const errors = watchErrors(page);
   await initStorage(page, { theme: 'dark', live: true });
   const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
-  await page.goto('/');
+  await page.goto(HOME);
   await expect(page.locator('.livepill')).toBeVisible(SLOW);
   await settled(page);
   await app(page, (a) => { window.__oldStream = a.es; });

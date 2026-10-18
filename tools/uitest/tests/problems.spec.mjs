@@ -1,7 +1,7 @@
 // The Problems filter uses the supply threshold from Settings, like the
 // "Supply low" alert does, instead of a fixed 15%.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import * as fx from '../fixtures/index.mjs';
 
 // One printer with no alerts, no conflict, a working web page and a toner
@@ -35,7 +35,7 @@ const problemsTab = (page) => page.locator('.tabs button.tab', { hasText: /^Prob
 test('Problems follows the supply threshold in Settings', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { settings: settingsWith(50), frames: printerFrames(40) });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanOne(page);
   // 40% is at or below the 50% threshold.
   await expect(problemsTab(page)).toHaveText('Problems (1)');
@@ -57,7 +57,7 @@ test('Problems follows the supply threshold in Settings', async ({ page }) => {
 test('Problems uses 15% when settings have no supply threshold', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { settings: settingsWith(undefined), frames: printerFrames(15) });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanOne(page);
   await expect(problemsTab(page)).toHaveText('Problems (1)');
 });
@@ -67,7 +67,7 @@ test('Problems uses 15% before settings load', async ({ page }) => {
   await installMocks(page, { frames: printerFrames(20) });
   // The data store is down: no settings at all.
   await page.route('**/api/settings', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"data store unavailable"}' }));
-  await page.goto('/');
+  await page.goto(HOME);
   await scanOne(page);
   await expect(problemsTab(page)).toHaveText('Problems (0)');
 });

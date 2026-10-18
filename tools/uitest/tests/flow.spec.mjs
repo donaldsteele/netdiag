@@ -1,6 +1,6 @@
 // Flow smoke tests against mocked /api/* and SSE. These must pass in every milestone.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME, SESSION } from '../support/mock.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 import * as fx from '../fixtures/index.mjs';
 
@@ -19,13 +19,16 @@ function assertClean(rec, errors) {
   expect(errors, 'page errors').toEqual([]);
   expect(rec.unmatched, 'unmatched requests').toEqual([]);
   expect(rec.external, 'external requests').toEqual([]);
+  // Every POST, PUT and DELETE carries this launch's session token (v0.6 4.1).
+  expect(rec.requests.filter((r) => r.session !== SESSION), 'requests without the session token').toEqual([]);
+  expect(rec.unauthorized, 'requests the session guard refused').toEqual([]);
 }
 
 test('scan flow: load, scan, hosts render, history, compare, settings', async ({ page }) => {
   const errors = watchErrors(page);
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('netdiag');
   await expect(page.getByLabel('Target (CIDR or range)')).toHaveValue(fx.CIDR);
@@ -75,7 +78,7 @@ test('live flow: new device, offline transition, conflict and notice', async ({ 
   const errors = watchErrors(page);
   await initStorage(page, { theme: 'dark', live: true });
   const rec = await installMocks(page, { scenario: 'live' });
-  await page.goto('/');
+  await page.goto(HOME);
 
   await page.getByRole('button', { name: 'Scan', exact: true }).click();
   await expect(page.locator('.livepill')).toContainText('Live');
@@ -103,7 +106,7 @@ test('app shell: keyboard sidebar nav, view persistence, responsive rail and ham
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/');
+  await page.goto(HOME);
 
   // Desktop: labelled sidebar, Devices is current by default.
   const nav = page.getByRole('navigation', { name: 'Main' });

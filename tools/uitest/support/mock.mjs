@@ -25,6 +25,11 @@ export async function initStorage(page, { theme = 'dark', live = false } = {}) {
   }, { theme, live });
 }
 
+// The session token the mocked netdiag launched with. Specs open the page
+// at HOME, as netdiag opens the browser (/#s=<token>, v0.6 4.1).
+export const SESSION = 'test-session';
+export const HOME = '/#s=' + SESSION;
+
 const matchId = (re, p) => {
   const m = p.match(re);
   return m ? decodeURIComponent(m[1]) : null;
@@ -51,8 +56,13 @@ const matchId = (re, p) => {
 // rec.running, rec.identity and rec.frames (the event stream, or a function
 // of the scan id that returns it) while the page runs, and rec.scanId: the id
 // POST /api/scans answers and GET /api/scans/running reports (fx.SCAN_ID).
-export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired, health: healthState = 'default', osOpen = 204, running = false, identity = 'ok' } = {}) {
-  const rec = { requests: [], unmatched: [], external: [], sse: [], running, identity, frames: null, identityCalls: 0, runningCalls: 0, scanId: fx.SCAN_ID };
+// session: the token the mocked netdiag expects in X-Netdiag-Session on
+// every POST, PUT and DELETE and on GET /api/settings, like sessionGuard; a
+// request without it gets 401 and is listed in rec.unauthorized and, unless
+// stale is set (a spec that opens the page with an old token on purpose),
+// in rec.unmatched too, so a spec that checks unmatched fails loudly.
+export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired, health: healthState = 'default', osOpen = 204, running = false, identity = 'ok', session = SESSION, stale = false } = {}) {
+  const rec = { requests: [], unmatched: [], unauthorized: [], external: [], sse: [], running, identity, frames: null, identityCalls: 0, runningCalls: 0, scanId: fx.SCAN_ID, session };
   const origin = new URL(BASE_URL).origin;
   const MCP_URL = 'http://127.0.0.1:8787/mcp';
   let settings = { ...(initialSettings || fx.settings()), mcpUrl: MCP_URL };
@@ -78,10 +88,18 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     const p = url.pathname;
     const ctype = req.headers()['content-type'] || '';
     const body = req.postData();
-    if (method !== 'GET') rec.requests.push({ method, path: p, contentType: ctype, body });
+    const token = req.headers()['x-netdiag-session'] || '';
+    if (method !== 'GET') rec.requests.push({ method, path: p, contentType: ctype, body, session: token });
     // Mirrors guard.go: every POST/PUT must declare application/json.
     if ((method === 'POST' || method === 'PUT') && ctype.split(';')[0].trim() !== 'application/json') {
       return json(route, 415, { error: 'Content-Type must be application/json' });
+    }
+    // Mirrors sessionGuard: actions and the settings read need this launch's token.
+    if ((method !== 'GET' || p === '/api/settings') && token !== rec.session) {
+      const what = `${method} ${p} (X-Netdiag-Session: ${token ? 'wrong' : 'missing'})`;
+      rec.unauthorized.push(what);
+      if (!stale) rec.unmatched.push(what);
+      return json(route, 401, { error: 'Open netdiag again to use this button.', session: false });
     }
 
     if (method === 'GET' && p === '/api/interfaces') return json(route, 200, fx.interfaces());

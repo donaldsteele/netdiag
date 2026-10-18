@@ -4,7 +4,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 import { OUT_DIR } from '../support/config.mjs';
 
@@ -16,7 +16,7 @@ async function prepare(page, theme) {
   await installMocks(page, { scenario: 'scan' });
   await page.setViewportSize(SIZE);
   await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanToFinish(page);
 }
 

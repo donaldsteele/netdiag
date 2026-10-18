@@ -1,6 +1,6 @@
 // T7b: Agent access (MCP) section of the Settings dialog.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import * as fx from '../fixtures/index.mjs';
 import { runAxe } from '../support/axe.mjs';
 import { THEMES } from '../support/config.mjs';
@@ -13,7 +13,7 @@ for (const theme of THEMES) {
   test(`mcp settings ${theme}`, async ({ page }, testInfo) => {
     await initStorage(page, { theme, live: false });
     const rec = await installMocks(page, { scenario: 'scan', settings: { ...fx.settings(), chat: { ...CHAT } } });
-    await page.goto('/');
+    await page.goto(HOME);
     const dialog = page.locator('#settings-dialog');
     const sw = dialog.locator('#mcp-enabled');
 
@@ -63,7 +63,7 @@ test('mcp endpoint row does not overflow on narrow screens', async ({ page }) =>
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { scenario: 'scan' });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
+  await page.goto(HOME);
   const dialog = page.locator('#settings-dialog');
   await openSettings(page);
   await dialog.locator('#mcp-enabled').check();

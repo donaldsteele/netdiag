@@ -1,6 +1,6 @@
 // T5: icons everywhere, device-type display, accessible names preserved.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 
 const TYPES = ['gateway', 'printer', 'computer', 'phone', 'tv', 'nas', 'camera', 'network', 'iot', 'server', 'self', 'unknown'];
@@ -9,7 +9,7 @@ const HREF = /^icons\.svg#i-[a-z0-9-]+$/;
 async function setup(page) {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanToFinish(page);
   return rec;
 }

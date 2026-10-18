@@ -1,6 +1,6 @@
 // "Ignore this MAC" asks first, says how to undo it, and Settings can undo it.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 
 const MAC = '00:1B:A9:AA:00:30';
@@ -8,7 +8,7 @@ const MAC = '00:1B:A9:AA:00:30';
 test('Ignore this MAC asks for confirmation and can be undone in Settings', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanToFinish(page);
   const posts = () => rec.requests.filter((r) => r.method === 'POST' && r.path === '/api/conflicts/ignore');
 

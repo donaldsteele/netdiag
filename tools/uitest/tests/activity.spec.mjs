@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 
 async function live(page) {
   await initStorage(page, { theme: 'dark', live: true });
   await installMocks(page, { scenario: 'live' });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.getByRole('button', { name: 'Scan', exact: true }).click();
   await expect(page.locator('.livepill')).toContainText('Live');
   await expect(page.locator('#hosts tbody tr.host')).toHaveCount(254);

@@ -3,7 +3,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 import { OUT_DIR, VIEWPORTS } from '../support/config.mjs';
 import * as fx from '../fixtures/index.mjs';
@@ -50,7 +50,7 @@ for (const [vpName, vp] of Object.entries(VIEWPORTS)) for (const theme of ['dark
     await installMocks(page, { scenario: 'scan' });
     await page.setViewportSize(vp);
     await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
-    await page.goto('/');
+    await page.goto(HOME);
     const all = [];
     all.push(...await measure(page, 'empty'));
     await scanToFinish(page);
@@ -95,7 +95,7 @@ for (const [vpName, vp] of Object.entries(VIEWPORTS)) for (const theme of ['dark
     await installMocks(page, { health: 'all', frames: fx.framesWith(fx.flapHosts(2), [fx.flapConflict(2)], [fx.notice(1)]) });
     await page.setViewportSize(vp);
     await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
-    await page.goto('/');
+    await page.goto(HOME);
     await scanToFinish(page);
     const all = [];
     await page.locator('#alerts details.btry summary').first().click();
@@ -125,7 +125,7 @@ for (const width of [360, 390, 768, 1100, 1440]) {
     await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
     await page.setViewportSize({ width, height: 800 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.goto('/');
+    await page.goto(HOME);
     await expect(page.locator('#restart-btn')).toBeVisible();
     await expect(page.locator('#hosts tbody tr.host')).toHaveCount(fx.TOTAL_HOSTS);
     await page.evaluate(() => { document.querySelector('.shell')._x_dataStack[0].backend = 'restarted'; });

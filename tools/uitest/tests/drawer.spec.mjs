@@ -1,6 +1,6 @@
 // T5: device table search + detail drawer (keyboard, focus, live update, perf).
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 import { runAxe } from '../support/axe.mjs';
 import * as fx from '../fixtures/index.mjs';
@@ -8,7 +8,7 @@ import * as fx from '../fixtures/index.mjs';
 async function setup(page) {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanToFinish(page);
   return rec;
 }
@@ -106,7 +106,7 @@ test('254 hosts plus 100 live updates with advice blocks produce no long task ov
   const list = fx.flapHosts(2);
   list[35] = fx.noStatusPrinter();
   const rec = await installMocks(page, { frames: fx.framesWith(list, [fx.flapConflict(2)], [fx.notice(1)]) });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanToFinish(page);
   await expect(page.locator('#hosts tbody tr.host')).toHaveCount(254);
   await expect(page.locator('#alerts details.btry')).toHaveCount(1);

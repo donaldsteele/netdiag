@@ -1,7 +1,7 @@
 // Web server health card: the "set the URL" link when none is set, and
 // trusting a self-signed certificate.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { runAxe } from '../support/axe.mjs';
 import { THEMES } from '../support/config.mjs';
 import * as fx from '../fixtures/index.mjs';
@@ -13,7 +13,7 @@ const settingsPuts = (rec) => rec.requests.filter((r) => r.method === 'PUT' && r
 test('web server card offers Open Settings when no URL is set', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.locator('#tab-health').click();
   const card = webCard(page);
   await expect(card).toContainText('What this means: No web server is set, so this check is skipped.');
@@ -31,7 +31,7 @@ test('web server card offers Open Settings when no URL is set', async ({ page })
 test('a saved report without advice still links to Settings when no URL is set', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan', web: 'unset-old' });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.locator('#tab-health').click();
   const card = webCard(page);
   await expect(card).toContainText('not configured');
@@ -50,7 +50,7 @@ test('a saved report without advice still links to Settings when no URL is set',
 test('web server card hides the link once a URL is set', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { scenario: 'scan', web: 'ok' });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.locator('#tab-health').click();
   const card = webCard(page);
   await expect(card).toContainText('HTTP 200');
@@ -62,7 +62,7 @@ for (const theme of THEMES) {
   test(`trust a self-signed web server certificate ${theme}`, async ({ page }, testInfo) => {
     await initStorage(page, { theme, live: false });
     const rec = await installMocks(page, { scenario: 'scan', web: 'untrusted' });
-    await page.goto('/');
+    await page.goto(HOME);
     await page.locator('#tab-health').click();
     const card = webCard(page);
     await expect(card).toContainText('the certificate is not trusted');
@@ -126,7 +126,7 @@ for (const theme of THEMES) {
 test('a trusted certificate is kept for the same server and dropped for another', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan', web: 'untrusted' });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.locator('#tab-health').click();
   page.once('dialog', (d) => d.accept());
   await webCard(page).getByRole('button', { name: 'Trust this certificate' }).click();
@@ -148,7 +148,7 @@ test('the trust button is only offered for the web server address in Settings', 
   await initStorage(page, { theme: 'dark', live: false });
   // A result for an address that is no longer the one in Settings.
   const rec = await installMocks(page, { scenario: 'scan', web: 'untrusted', webURL: 'https://old-nas.local/' });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.locator('#tab-health').click();
   const card = webCard(page);
   await expect(card).toContainText('the certificate is not trusted');
@@ -163,7 +163,7 @@ test('the trust button is offered for an address with a password', async ({ page
   const url = 'https://admin:pa55word@intranet.local';
   const rec = await installMocks(page, { scenario: 'scan', web: 'untrusted',
     settings: { ...base, webServer: { ...base.webServer, url } } });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.locator('#tab-health').click();
   const card = webCard(page);
   // The server reports the address with the password hidden.
@@ -181,7 +181,7 @@ test('the trust button is offered for an address with a password', async ({ page
 test('saving a new web server address or certificate runs the checks again', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan', web: 'untrusted' });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.locator('#tab-health').click();
   const card = webCard(page);
   await expect(card.getByRole('button', { name: 'Trust this certificate' })).toBeVisible();

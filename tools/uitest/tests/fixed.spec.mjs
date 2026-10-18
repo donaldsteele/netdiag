@@ -4,7 +4,7 @@
 // the same tag, silently (D8); the Activity log gets a Fixed line under the
 // Notice chip.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { runAxe } from '../support/axe.mjs';
 import * as fx from '../fixtures/index.mjs';
 
@@ -40,7 +40,7 @@ async function liveWith(page, frames, theme = 'dark') {
   await spies(page);
   await initStorage(page, { theme, live: true });
   const rec = await installMocks(page, { scenario: 'live', settings: loudSettings(), frames });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.getByRole('button', { name: 'Scan', exact: true }).click();
   await expect(page.locator('.livepill')).toContainText('Live');
   return rec;

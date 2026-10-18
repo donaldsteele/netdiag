@@ -104,6 +104,7 @@
   <main id="main" tabindex="-1">
     <div class="alert error" role="alert" x-show="error" x-text="error"></div>
     <div class="alert warn" x-show="quitted" role="status">netdiag has stopped. You can close this tab.</div>
+    <div class="alert warn" id="session-off" x-show="sessionOff && !quitted" role="status"><strong>Buttons on this page are turned off for safety.</strong> Double-click netdiag to open a fresh page.</div>
     <div class="alert warn" id="backend-stopped" x-show="backend === 'stopped' && !quitted" role="status"><strong>netdiag has stopped.</strong> Open netdiag again to keep watching.</div>
     <div class="alert warn backendmsg" id="backend-restarted" x-show="backend === 'restarted' && !quitted" role="status"><span><strong>netdiag was restarted.</strong> This page is out of date.</span>
       <button type="button" @click="reloadPage()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Reload page</button></div>

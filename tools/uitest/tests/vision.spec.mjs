@@ -3,7 +3,7 @@
 // Output: out/shots/vision-<type>-<theme>-{devices,health}.png and out/axe/vision-<type>-<theme>.json.
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { runAxe } from '../support/axe.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 import { OUT_DIR, THEMES } from '../support/config.mjs';
@@ -25,7 +25,7 @@ for (const type of DEFICIENCIES) {
       const cdp = await page.context().newCDPSession(page);
       await cdp.send('Emulation.setEmulatedVisionDeficiency', { type });
       await page.setViewportSize(SIZE);
-      await page.goto('/');
+      await page.goto(HOME);
       await scanToFinish(page);
 
       // Devices view: device status icons (th svg.sico use) distinguish up / no ping / offline.

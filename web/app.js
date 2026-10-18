@@ -3,6 +3,7 @@ let tileCur = {}; // non-reactive copy of the tile values, so tweening does not 
 let hbTimer = 0; // next heartbeat
 let tabs = null; // BroadcastChannel shared by every open netdiag tab
 let restartOpener = null; // element that opened the restart dialog
+let session = ''; // this launch's session token, when the browser keeps no storage
 document.addEventListener('alpine:init', () => {
   Alpine.data('app', () => ({
     ifaces: [], ifaceName: '', cidr: '', community: 'public',
@@ -18,6 +19,7 @@ document.addEventListener('alpine:init', () => {
     history: [], historyError: '', baseId: '', currentId: '', diff: null, diffError: '', diffBusy: false,
     shown: {},
     remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
+    sessionOff: false,
     watching: null, restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: null, focusAt: 0, starting: false,
     log: [], logSeq: 0, logHidden: {}, logStick: true, logSeen: {},
     logKinds: [{id: 'scan', label: 'Scan'}, {id: 'host', label: 'New host'}, {id: 'offline', label: 'Offline'}, {id: 'online', label: 'Online'},
@@ -99,6 +101,7 @@ document.addEventListener('alpine:init', () => {
     // Alpine calls init() itself (index.html has no x-init): a second call
     // would open a second tab channel and heartbeat.
     async init() {
+      this.takeSession();
       try { const v = localStorage.getItem('netdiag.live'); if (v !== null) this.live = v === '1'; } catch (e) {}
       try { const sv = localStorage.getItem('netdiag.view'); if (this.views.includes(sv)) this.view = sv; } catch (e) {}
       if (this.view === 'history') this.loadHistory();
@@ -121,7 +124,7 @@ document.addEventListener('alpine:init', () => {
     },
     async loadSettings() {
       try {
-        const r = await fetch('/api/settings');
+        const r = await this.api('GET', '/api/settings');
         if (r.status === 503) { this.storeDown = true; return; }
         if (!r.ok) return;
         const set = await r.json();
@@ -140,7 +143,7 @@ document.addEventListener('alpine:init', () => {
     async recheck() {
       this.healthBusy = true; this.healthMsg = 'Running checks...';
       try {
-        const r = await this.post('/api/health/run', {interface: this.ifaceName});
+        const r = await this.api('POST', '/api/health/run', {interface: this.ifaceName});
         if (r.ok) { this.health = await r.json(); this.healthMsg = 'Checks updated.'; }
         else { this.healthMsg = 'Health check failed (HTTP ' + r.status + ').'; }
       } catch (e) { this.healthMsg = 'Health check failed: ' + e.message; }
@@ -221,7 +224,7 @@ document.addEventListener('alpine:init', () => {
     },
     async openOSPage(page) {
       try {
-        const r = await this.post('/api/os/open', {page: page});
+        const r = await this.api('POST', '/api/os/open', {page: page});
         this.healthMsg = r.ok ? 'Windows Settings is opening. If no window appears, look for it on the taskbar.'
           : r.status === 501 ? "netdiag can't open that page on this computer."
           : 'Could not open it (HTTP ' + r.status + ').';
@@ -385,7 +388,7 @@ document.addEventListener('alpine:init', () => {
     },
     async putSettings(doc, showErr) {
       try {
-        const r = await fetch('/api/settings', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(doc)});
+        const r = await this.api('PUT', '/api/settings', doc);
         if (r.status === 503) { this.storeDown = true; if (showErr) this.settingsError = 'The data store is unavailable.'; return false; }
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { if (showErr) this.settingsError = j.error || ('Could not save settings (HTTP ' + r.status + ')'); return false; }
@@ -595,7 +598,7 @@ document.addEventListener('alpine:init', () => {
       if (this.storeDown) { this.error = 'The data store is unavailable, so the MAC cannot be ignored.'; return; }
       if (!window.confirm(this.ignoreConfirmText(mac))) return;
       try {
-        const r = await this.post('/api/conflicts/ignore', {mac: mac});
+        const r = await this.api('POST', '/api/conflicts/ignore', {mac: mac});
         if (r.status === 503) { this.error = 'The data store is unavailable, so the MAC cannot be ignored.'; return; }
         if (!r.ok) { this.error = 'Could not ignore MAC (HTTP ' + r.status + ')'; return; }
         this.announce = 'Ignoring conflicts for ' + mac + '. To undo, remove it in Settings.';
@@ -626,7 +629,7 @@ document.addEventListener('alpine:init', () => {
     },
     async deleteHistory(id) {
       if (!window.confirm('Delete this saved scan?')) return;
-      const r = await fetch('/api/history/' + encodeURIComponent(id), {method: 'DELETE'});
+      const r = await this.api('DELETE', '/api/history/' + encodeURIComponent(id));
       if (!r.ok && r.status !== 404) { this.historyError = 'Could not delete (HTTP ' + r.status + ')'; return; }
       if (this.currentId === id) this.currentId = '';
       if (this.baseId === id) this.baseId = '';
@@ -677,9 +680,33 @@ document.addEventListener('alpine:init', () => {
       const i = this.ifaces.find(x => x.name === this.ifaceName);
       if (i) this.cidr = i.suggested || i.cidr;
     },
-    async post(url, body) {
-      return fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
-                         body: body === undefined ? undefined : JSON.stringify(body)});
+    // ---- session token (v0.6 4.1) ----
+    // netdiag opens the page at /#s=<token> (or /?s=<token>). The page keeps
+    // the token in localStorage, which every tab on this address shares, and
+    // takes it out of the address bar. A page opened later by a second launch
+    // brings the current token, and the other tabs pick it up from storage.
+    takeSession() {
+      const m = /(?:^|[#&?])s=([A-Za-z0-9_-]+)/.exec(location.hash) || /(?:^|[?&])s=([A-Za-z0-9_-]+)/.exec(location.search);
+      if (m) {
+        session = m[1];
+        try { localStorage.setItem('netdiag.session', session); } catch (e) {}
+        try { history.replaceState(null, '', '/'); } catch (e) {}
+      }
+      window.addEventListener('storage', ev => { if (ev.key === 'netdiag.session' && ev.newValue) this.sessionOff = false; });
+    },
+    sessionToken() {
+      try { const t = localStorage.getItem('netdiag.session'); if (t) return t; } catch (e) {}
+      return session;
+    },
+    // Every request that changes something, and the settings read, goes
+    // through api(), which sends the session token. A 401 means this page's
+    // token is out of date: buttons are off until netdiag opens a fresh page.
+    async api(method, url, body) {
+      const headers = {'X-Netdiag-Session': this.sessionToken()};
+      if (method === 'POST' || method === 'PUT') headers['Content-Type'] = 'application/json';
+      const r = await fetch(url, {method: method, headers: headers, body: body === undefined ? undefined : JSON.stringify(body)});
+      this.sessionOff = r.status === 401;
+      return r;
     },
     resetScan() {
       this.error = ''; this.hosts = []; this.warnings = []; this.drawerIP = '';
@@ -697,7 +724,7 @@ document.addEventListener('alpine:init', () => {
       try {
         const body = {cidr: cidr, interface: this.ifaceName, community: this.community, live: !!this.live};
         if (replace === true) body.replaceLive = true;
-        const r = await this.post('/api/scans', body);
+        const r = await this.api('POST', '/api/scans', body);
         const j = await r.json();
         if (r.status === 409 && j.watching) { this.askRestart(j.watching, true); return; }
         if (!r.ok) { this.error = j.error || ('Scan failed (HTTP ' + r.status + ')'); return; }
@@ -972,11 +999,15 @@ document.addEventListener('alpine:init', () => {
       const i = this.hosts.findIndex(x => x.ip === h.ip);
       if (i >= 0) this.hosts[i] = h; else this.hosts.push(h);
     },
-    async cancel() { if (this.scanId) await this.post('/api/scans/' + this.scanId + '/cancel'); },
+    async cancel() { if (this.scanId) await this.api('POST', '/api/scans/' + this.scanId + '/cancel'); },
     exportAs(f) { if (this.scanId) window.location.href = '/api/scans/' + this.scanId + '/export?format=' + f; },
     async quit() {
+      let r = null;
+      try { r = await this.api('POST', '/api/quit'); } catch (e) {}
+      // A page whose token is out of date cannot quit netdiag: it keeps
+      // watching, and the page says why.
+      if (r && r.status === 401) return;
       if (this.es) this.es.close();
-      try { await this.post('/api/quit'); } catch (e) {}
       this.running = false; this.quitted = true;
       clearTimeout(hbTimer);
       this.leaveBeeper();
@@ -1227,8 +1258,7 @@ document.addEventListener('alpine:init', () => {
       this.remoteShort[key] = 'Starting...';
       let msg, ok = false;
       try {
-        const res = await fetch('/api/scans/' + encodeURIComponent(this.scanId) + '/remote', {method: 'POST',
-          headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ip: h.ip, kind: r.kind})});
+        const res = await this.api('POST', '/api/scans/' + encodeURIComponent(this.scanId) + '/remote', {ip: h.ip, kind: r.kind});
         ok = res.ok;
         if (ok) msg = what + ' to ' + h.ip + ' is opening. If no window appears, look for it ' +
           (this.remoteCaps.platform === 'darwin' ? 'in the Dock.' : 'on the taskbar.');

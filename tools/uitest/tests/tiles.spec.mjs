@@ -1,6 +1,6 @@
 // T4: stat tiles, health strip, progress bar.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 import * as fx from '../fixtures/index.mjs';
 
@@ -9,7 +9,7 @@ const stats = fx.expectedStats();
 test('tiles show fixture counts and filter the table on click', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanToFinish(page);
   const list = fx.hosts();
   const want = {
@@ -35,7 +35,7 @@ test('tiles show fixture counts and filter the table on click', async ({ page })
 test('health strip has 6 pills and opens the Health view', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   const pills = page.locator('.hstrip .hpill');
   await expect(pills).toHaveCount(6);
   await expect(page.locator('#hp-wifi')).toContainText('Warning');

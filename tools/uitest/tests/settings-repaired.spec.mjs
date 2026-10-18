@@ -1,7 +1,7 @@
 // F7: settings that were not valid in the settings file are reset when
 // netdiag reads it, and Settings says so once, naming the fields.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import * as fx from '../fixtures/index.mjs';
 import { runAxe } from '../support/axe.mjs';
 import { THEMES } from '../support/config.mjs';
@@ -34,7 +34,7 @@ for (const theme of THEMES) {
   test(`repaired settings notice ${theme}`, async ({ page }, testInfo) => {
     await initStorage(page, { theme, live: false });
     const rec = await installMocks(page, { scenario: 'scan', settings: custom(), repaired: ['alerts.supplyThresholdPct', 'chat.minSeverity'] });
-    await page.goto('/');
+    await page.goto(HOME);
     const dialog = page.locator('#settings-dialog');
     const note = dialog.locator('#settings-repaired');
     const nav = page.locator('#nav-settings');
@@ -82,7 +82,7 @@ for (const theme of THEMES) {
 test('a save before Settings opens keeps the notice', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan', settings: custom(), repaired: ['alerts.cooldownSec'] });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.getByRole('button', { name: 'Mute alerts' }).click();
   await expect.poll(() => rec.requests.filter((r) => r.method === 'PUT' && r.path === '/api/settings').length).toBe(1);
   const mute = JSON.parse(rec.requests.find((r) => r.method === 'PUT').body);
@@ -96,7 +96,7 @@ test('a save before Settings opens keeps the notice', async ({ page }) => {
 test('no repaired settings, no notice', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.locator('#nav-settings').click();
   const dialog = page.locator('#settings-dialog');
   await expect(dialog).toBeVisible();
@@ -106,7 +106,7 @@ test('no repaired settings, no notice', async ({ page }) => {
 test('reset fields with no control in Settings are named only', async ({ page }) => {
   await initStorage(page, { theme: 'light', live: false });
   await installMocks(page, { scenario: 'scan', repaired: ['webServer.trustedCert', 'chat'] });
-  await page.goto('/');
+  await page.goto(HOME);
   await openSettings(page);
   await expect(page.locator('#settings-repaired')).toHaveText('Some settings were not valid and were reset: Trusted certificate, Team chat.');
 });
@@ -115,7 +115,7 @@ test('unknown repaired field is named by its path', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { scenario: 'scan', repaired: ['alerts.cooldownSec', 'someNewField'] });
   await page.setViewportSize({ width: 360, height: 800 });
-  await page.goto('/');
+  await page.goto(HOME);
   await openSettings(page);
   const note = page.locator('#settings-repaired');
   await expect(note).toHaveText('Some settings were not valid and were reset: Repeat-alert cooldown, someNewField. Check them below.');

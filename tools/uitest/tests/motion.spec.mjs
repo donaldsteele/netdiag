@@ -2,7 +2,7 @@
 // @media (prefers-reduced-motion: no-preference), so reduced-motion emulation
 // must leave nothing running, and the default (no-preference) must keep the motion.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 
 // Animated elements the spec checks by name. Each one must show a running animation
 // by default and none under reduced motion.
@@ -16,7 +16,7 @@ const ANIMATED = [
 async function openAnimatedState(page) {
   await initStorage(page, { theme: 'dark', live: true });
   await installMocks(page, { scenario: 'live' });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.getByRole('button', { name: 'Scan', exact: true }).click();
   await expect(page.locator('.livepill')).toContainText('Live');
   await expect(page.locator('#hosts tr.host.isnew')).toHaveCount(1);

@@ -3,7 +3,7 @@
 // honest conflict view, the printer-without-status block, the Location
 // settings button and the "This network has no internet" switch (D15).
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { runAxe } from '../support/axe.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 import { THEMES } from '../support/config.mjs';
@@ -26,7 +26,7 @@ for (const theme of THEMES) {
   test(`each of the 6 checks says what it means (${theme})`, async ({ page }, testInfo) => {
     await initStorage(page, { theme, live: false });
     const rec = await installMocks(page, { health: 'all' });
-    await page.goto('/');
+    await page.goto(HOME);
     await page.locator('#tab-health').click();
     const cards = page.locator('.hcard');
     await expect(cards).toHaveCount(6);
@@ -82,7 +82,7 @@ const settingsPuts = (rec) => rec.requests.filter((r) => r.method === 'PUT' && r
 test('"This network has no internet" makes Everything looks fine reachable, for this network only', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { health: 'offline', settings: { ...fx.settings(), noInternetNetworks: [OTHER_NETWORK] } });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.locator('#tab-health').click();
   const dns = card(page, 'DNS resolving');
   await expect(dns.locator('.hs')).toContainText('Warning');
@@ -133,7 +133,7 @@ test('"This network has no internet" makes Everything looks fine reachable, for 
 test('a no-internet network with the switch on renders Everything looks fine', async ({ page }) => {
   await initStorage(page, { theme: 'light', live: false });
   await installMocks(page, { health: 'offline', settings: { ...fx.settings(), noInternetNetworks: [fx.NETWORK] } });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.locator('#tab-health').click();
   await expect(page.locator('#health-fine')).toContainText(/OK Everything looks fine \(checked \d\d:\d\d\)/);
   await expect(page.locator('.hcard .hs', { hasText: /Warning|Failed/ })).toHaveCount(0);
@@ -155,7 +155,7 @@ const healthOnlyLine = /OK All health checks look fine \(checked \d\d:\d\d\)/;
 test('Everything looks fine waits for printer alerts, low supplies and conflicts', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { settings: switchOn(), health: 'offline', frames: quietScan(fx.hosts(), [fx.conflict()]) });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanToFinish(page);
   await page.locator('#tab-health').click();
   // The health checks are fine, but a printer has an alert and a low
@@ -180,7 +180,7 @@ for (const deviceOffline of [false, true]) {
   test(`an offline device ${deviceOffline ? 'counts' : 'does not count'} with "Any device goes offline" ${deviceOffline ? 'on' : 'off'}`, async ({ page }) => {
     await initStorage(page, { theme: 'light', live: false });
     const rec = await installMocks(page, { settings: switchOn({ deviceOffline }), health: 'offline', frames: quietScan(quietHosts()) });
-    await page.goto('/');
+    await page.goto(HOME);
     await scanToFinish(page);
     await page.locator('#tab-health').click();
     await expect(page.locator('#health-fine')).toContainText(deviceOffline ? healthOnlyLine : fineLine);
@@ -203,7 +203,7 @@ test('the switch waits until netdiag knows which network this is', async ({ page
   // A report that names no network: an older one, or a router whose MAC
   // netdiag could not read.
   await healthReport(page, false, (h) => { delete h.network; });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.locator('#nav-settings').click();
   const dialog = page.locator('#settings-dialog');
   await expect(dialog.getByRole('switch', { name: 'This network has no internet' })).toBeDisabled();
@@ -217,7 +217,7 @@ test('the health line waits for a check that could not run', async ({ page }) =>
     h.checks[0] = { id: 'gateway', label: 'Gateway reachable', status: 'unavailable', detail: 'no default gateway detected',
       latencyMs: 0, data: { reason: 'no_gateway' } };
   });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.locator('#tab-health').click();
   await expect(page.locator('.hcard')).toHaveCount(6);
   await expect(page.locator('#health-fine')).toBeHidden();
@@ -227,7 +227,7 @@ for (const [alt, heading] of [[0, 'Possible conflict'], [1, 'Possible conflict']
   test(`mac_flap with ${alt} alternation(s) reads "${heading}"`, async ({ page }) => {
     await initStorage(page, { theme: 'dark', live: false });
     const rec = await installMocks(page, { frames: framesWith(fx.flapHosts(alt), [fx.flapConflict(alt)]) });
-    await page.goto('/');
+    await page.goto(HOME);
     await scanToFinish(page);
     const btn = page.locator(`#hosts button.rowbtn[data-ip="${fx.FLAP_IP}"]`);
     await btn.click();
@@ -256,7 +256,7 @@ for (const [alt, heading] of [[0, 'Possible conflict'], [1, 'Possible conflict']
 test('a device that uses no other address still shows its maker', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { frames: framesWith(fx.flapHosts(3, false), [fx.flapConflict(3)]) });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanToFinish(page);
   await page.locator(`#hosts button.rowbtn[data-ip="${fx.FLAP_IP}"]`).click();
   const cards = page.locator('#drawer .cpair .ccard');
@@ -280,7 +280,7 @@ test('mac_multi_ip with an alternating history still reads "Possible conflict"',
     { mac: ext, at: '2026-10-10T10:12:00Z' }];
   at.conflicts = [fx.CONFLICT_ID];
   const rec = await installMocks(page, { frames: framesWith(list, [fx.conflict()]) });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanToFinish(page);
   await page.locator('#hosts button.rowbtn[data-ip="192.168.2.30"]').click();
   const box = page.locator('#drawer .cbox');
@@ -294,7 +294,7 @@ test('mac_multi_ip with an alternating history still reads "Possible conflict"',
 test('the conflict pair stacks at 360 px and sits side by side when wide', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { frames: framesWith(fx.flapHosts(2), [fx.flapConflict(2)]) });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanToFinish(page);
   await page.locator(`#hosts button.rowbtn[data-ip="${fx.FLAP_IP}"]`).click();
   const cards = page.locator('#drawer .cpair .ccard');
@@ -313,7 +313,7 @@ for (const theme of THEMES) {
   test(`conflict drawer with advice is axe clean (${theme})`, async ({ page }, testInfo) => {
     await initStorage(page, { theme, live: false });
     await installMocks(page, { frames: framesWith(fx.flapHosts(2), [fx.flapConflict(2)]) });
-    await page.goto('/');
+    await page.goto(HOME);
     await scanToFinish(page);
     await page.locator(`#hosts button.rowbtn[data-ip="${fx.FLAP_IP}"]`).click();
     await page.locator('#drawer .cbox details.tech summary').click();
@@ -324,7 +324,7 @@ for (const theme of THEMES) {
 test('a banner offers What to try and Show device', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanToFinish(page);
   const banner = page.locator('#alerts div.banner:not(.more)').filter({ hasText: 'Warning: Toner low' });
   await expect(banner).toHaveCount(1);
@@ -348,7 +348,7 @@ test('a printer without status shows what it means and Open its page', async ({ 
   const list = fx.hosts();
   list[35] = fx.noStatusPrinter();
   await installMocks(page, { frames: framesWith(list) });
-  await page.goto('/');
+  await page.goto(HOME);
   await scanToFinish(page);
   await page.locator(`#hosts button.rowbtn[data-ip="${fx.NOSTATUS_IP}"]`).click();
   const block = page.locator('#printer-nostatus');
@@ -368,7 +368,7 @@ for (const [platform, shown] of [['Win32', true], ['MacIntel', false]]) {
     await onPlatform(page, platform);
     await initStorage(page, { theme: 'dark', live: false });
     const rec = await installMocks(page, { health: 'location' });
-    await page.goto('/');
+    await page.goto(HOME);
     await page.locator('#tab-health').click();
     const wifi = card(page, 'Wi-Fi');
     await expect(wifi).toContainText('Windows hides Wi-Fi details until Location is turned on.');
@@ -388,7 +388,7 @@ test('Open Location settings explains a 501', async ({ page }) => {
   await onPlatform(page, 'Win32');
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { health: 'location', osOpen: 501 });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.locator('#tab-health').click();
   await card(page, 'Wi-Fi').getByRole('button', { name: /^Open Location settings/ }).click();
   await expect(page.locator('#health [role="status"].sub')).toContainText("netdiag can't open that page on this computer.");

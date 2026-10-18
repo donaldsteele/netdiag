@@ -3,7 +3,7 @@
 // are overlays and scroll on their own. From 1100px the device table header sticks to the page
 // just under the alert banners.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { scanToFinish } from '../support/steps.mjs';
 
 const nestedScrollers = (page) => page.evaluate(() => [...document.querySelectorAll('main *')].filter(el => {
@@ -16,7 +16,7 @@ for (const width of [390, 768, 1100, 1440]) {
     await initStorage(page, { theme: 'dark', live: false });
     await installMocks(page, { scenario: 'scan' });
     await page.setViewportSize({ width, height: 800 });
-    await page.goto('/');
+    await page.goto(HOME);
     await scanToFinish(page);
     expect(await nestedScrollers(page), 'devices').toEqual([]);
 
