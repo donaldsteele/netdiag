@@ -107,7 +107,7 @@ Tick only after observing the behaviour on real hardware.
 - [ ] Internet row is `info` (never `fail`) on an offline local network
 - [ ] Wi-Fi row shows SSID, signal and channel on Wi-Fi; "not on Wi-Fi" on a cable
 - [ ] Wi-Fi and DHCP rows show real data (not **Could not run**) on a non-English Windows install
-- [ ] macOS Wi-Fi row shows "hidden by macOS" without Location permission
+- [ ] macOS Wi-Fi row shows the name as "(name hidden by OS)" without Location permission, or, when macOS shares no Wi-Fi details, says "macOS doesn't share Wi-Fi details with netdiag. The other checks still work."
 - [ ] **Check again** finishes within about 10 seconds
 - [ ] Header summary chip reads "Health: N failing, M notes" (or "Health: K could not run", or "Health: OK"), with the shape the **Problems right now** card gives the most serious check: ✖ for a failed router, ▲ for another failed check or one that could not run, ⓘ for notes only
 
@@ -223,7 +223,7 @@ When testing, stop only the netdiag you started, by its process ID or its path, 
   Date: · OS: · Result:
 - [ ] **The chat file is private.** Steps: after connecting, run `ls -l ~/Library/Application\ Support/netdiag/bubbles.json`: it reads `-rw-------` (only your user can read it).
   Date: · OS: · Result:
-- [ ] **No Location button on a Mac.** Steps: scan, then open Health, also with Location Services off for netdiag (System Settings > Privacy & Security > Location Services). No card shows **Open Location settings**; the Wi-Fi card may say "hidden by macOS" instead.
+- [ ] **No Location button on a Mac.** Steps: scan, then open Health, also with Location Services off for netdiag (System Settings > Privacy & Security > Location Services). No card shows **Open Location settings**; the Wi-Fi card may show the name as "(name hidden by OS)", or say "macOS doesn't share Wi-Fi details with netdiag. The other checks still work." instead.
   Date: · OS: · Result:
 - [ ] **The Mac build.** Steps: on the build machine, `GOOS=darwin go vet ./...` passes and `scripts/build.sh` makes both darwin zips; the darwin-arm64 binary runs on this Mac after the HOW-TO-OPEN.txt steps.
   Date: · OS: · Result:
