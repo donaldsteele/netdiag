@@ -90,7 +90,7 @@
           </details></div>
         <div class="bacts">
           <button type="button" x-show="bannerDevice(b)" @click="showDevice(b.ip)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-monitor"></use></svg>Show device<span class="sr" x-text="' ' + b.title"></span></button>
-          <button type="button" class="brestart" x-show="bannerRestart(b)" aria-haspopup="dialog" @click="askRestart()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart watching</button>
+          <button type="button" class="brestart" x-show="bannerRestart(b)" aria-haspopup="dialog" @click="restartHere()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart watching</button>
           <button type="button" @click="dismiss(b.bid)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-x"></use></svg>Dismiss<span class="sr" x-text="' ' + b.title"></span></button>
         </div>
       </div>

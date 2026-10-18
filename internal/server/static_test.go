@@ -87,7 +87,7 @@ func TestLiveModeUI(t *testing.T) {
 
 // The storm guard (v0.6 F9c): the live pill says why checks are paused or
 // alerts stopped, with a warning shape, and the banner for another network
-// offers Restart watching.
+// offers Restart watching of the network this computer is on now.
 func TestStormGuardUI(t *testing.T) {
 	html, err := readAsset("index.html")
 	if err != nil {
@@ -98,7 +98,7 @@ func TestStormGuardUI(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{`:class="{held: liveStatus && liveStatus.held}"`, `x-if="liveStatus && liveStatus.held"`,
-		"icons.svg#i-triangle-alert", `x-show="bannerRestart(b)"`} {
+		"icons.svg#i-triangle-alert", `x-show="bannerRestart(b)" aria-haspopup="dialog" @click="restartHere()"`} {
 		if !strings.Contains(string(html), want) {
 			t.Errorf("index.html missing %q", want)
 		}
@@ -106,7 +106,10 @@ func TestStormGuardUI(t *testing.T) {
 	for _, want := range []string{"'Live · checks paused: this computer lost the network'",
 		"'Live · checks paused: the router stopped answering'",
 		"'Live · alerts stopped: this computer is on a different network now'",
-		"b.trigger === 'netdiagLink' && b.code === 'network_changed'"} {
+		"b.trigger === 'netdiagLink' && b.code === 'network_changed'",
+		// A raised reason replaces the banner; Restart watching from it reads
+		// the interfaces again (the new address range).
+		"!(n.key && !b.ok && b.key === n.key)", "async restartHere()", "this.cidr = i.suggested || i.cidr"} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("app.js missing %q", want)
 		}

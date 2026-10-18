@@ -449,8 +449,10 @@ document.addEventListener('alpine:init', () => {
       // notice turns its banner into Fixed the same way.
       if (n.ok) { this.onFixed(n, key); return; }
       if (!n.replay) this.logPush('notice', (n.title || 'Notice') + (n.message ? ': ' + n.message : ''), n.ip);
-      // A banner key is unique: never show two banners for one notice.
-      this.banners = this.banners.filter(b => b.bid !== key);
+      // A banner key is unique: never show two banners for one notice. A
+      // fault under the key of a banner still open says that problem anew
+      // (the storm guard found a stronger reason) and takes its place.
+      this.banners = this.banners.filter(b => b.bid !== key && !(n.key && !b.ok && b.key === n.key));
       this.banners.unshift(Object.assign({}, n, {bid: key}));
       if (this.banners.length > 50) this.banners.length = 50;
       if (n.replay || !this.isBeeper()) return;
@@ -823,6 +825,22 @@ document.addEventListener('alpine:init', () => {
         const k = document.getElementById('restart-keep');
         if (k) k.focus();
       });
+    },
+    // Restart watching from the banner for another network: the interfaces
+    // are read again first, so the restart watches the network this
+    // computer is on now (its new address range), not the one it left.
+    async restartHere() {
+      const opener = document.activeElement;
+      try {
+        const r = await fetch('/api/interfaces');
+        if (r.ok) {
+          this.ifaces = (await r.json()) || [];
+          const i = this.ifaces.find(x => x.name === this.ifaceName) || this.ifaces.find(x => x.isDefault) || this.ifaces[0];
+          if (i) { this.ifaceName = i.name; this.cidr = i.suggested || i.cidr; }
+        }
+      } catch (e) {}
+      if (opener && opener.isConnected && document.activeElement !== opener) opener.focus();
+      this.askRestart();
     },
     restartSince() {
       const t = Date.parse((this.watching || {}).since || '');

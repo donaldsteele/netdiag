@@ -385,7 +385,9 @@ export function fixedNotice(n = 2) {
 
 // The storm guard (v0.6 F9c): a live status while it holds, and its local
 // netdiagLink notice (reason link or network_changed; the advice is the
-// catalogue's, TestUITestFixtureAdvice). HELD_SINCE is when it began.
+// catalogue's, TestUITestFixtureAdvice). The two reasons' notices have
+// their own ids, as when the guard raises link to network_changed under
+// one key. HELD_SINCE is when it began.
 export const HELD_SINCE = '2026-10-10T09:40:00Z';
 export function heldStatus(reason = 'link') {
   return { cycle: 3, unseen: 1, newHosts: 0, online: 64, offline: 0, intervalSec: 15,
@@ -396,7 +398,7 @@ export function linkNotice(reason = 'link') {
   const key = 'netdiagLink||' + NETWORK;
   if (reason === 'network_changed') {
     const message = 'netdiag stopped its alerts for the network it was watching. Press Restart watching to watch this one.';
-    return { id: 'n-30', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'This computer is on a different network',
+    return { id: 'n-32', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'This computer is on a different network',
       message, at: HELD_SINCE, key, code: reason,
       advice: advice("This computer is on a different network now, so netdiag stopped the alerts for the network it was watching.",
         ["If this computer moved on purpose, press Restart watching to watch the network it is on now."], [], message) };

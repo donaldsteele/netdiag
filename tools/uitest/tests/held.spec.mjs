@@ -78,6 +78,38 @@ test('another network: alerts stopped, and the banner offers Restart watching (E
   expect(rec.unmatched, 'unmatched requests').toEqual([]);
 });
 
+test('lost the network, then another network: one banner, which now offers Restart watching', async ({ page }) => {
+  const frames = [...held('link'), { type: 'live', data: fx.heldStatus('network_changed') },
+    { type: 'notice', data: fx.linkNotice('network_changed') }];
+  const rec = await liveWith(page, frames);
+  await expect(page.locator('.livepill')).toHaveText('Live · alerts stopped: this computer is on a different network now');
+  const b = banners(page).filter({ hasText: 'This computer is on a different network' });
+  await expect(b).toHaveCount(1);
+  await expect(banners(page).filter({ hasText: 'netdiag lost the network' })).toHaveCount(0);
+  await expect(b.getByRole('button', { name: 'Restart watching' })).toBeVisible();
+  await b.getByText('What to try').click();
+  await expect(b).toContainText('press Restart watching to watch the network it is on now');
+  expect(rec.unmatched, 'unmatched requests').toEqual([]);
+});
+
+test("Restart watching from the banner watches the address range this computer has now", async ({ page }) => {
+  const rec = await liveWith(page, held('network_changed'));
+  // This computer moved: its Wi-Fi has another address range now.
+  const moved = fx.interfaces().map((i) => i.name === 'Wi-Fi' ? { ...i, ip: '10.20.0.50', cidr: '10.20.0.0/24', suggested: '10.20.0.0/24' } : i);
+  await page.route('**/api/interfaces', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(moved) }));
+  const btn = banners(page).filter({ hasText: 'This computer is on a different network' }).getByRole('button', { name: 'Restart watching' });
+  await btn.click();
+  const dlg = page.locator('#restart-dialog');
+  await expect(dlg).toHaveJSProperty('open', true);
+  await expect(dlg.locator('#restart-settings')).toContainText('10.20.0.0/24');
+  await expect(dlg.locator('#restart-keep')).toBeFocused();
+  await dlg.getByRole('button', { name: 'Restart', exact: true }).click();
+  await expect.poll(() => rec.requests.filter((r) => r.method === 'POST' && r.path === '/api/scans').length).toBe(2);
+  const post = rec.requests.filter((r) => r.method === 'POST' && r.path === '/api/scans')[1];
+  expect(JSON.parse(post.body)).toMatchObject({ cidr: '10.20.0.0/24', interface: 'Wi-Fi', live: true, replaceLive: true });
+  expect(rec.unmatched, 'unmatched requests').toEqual([]);
+});
+
 for (const theme of THEMES) {
   test(`held pill and banners are axe clean (${theme})`, async ({ page }, testInfo) => {
     await liveWith(page, held('network_changed'), theme);

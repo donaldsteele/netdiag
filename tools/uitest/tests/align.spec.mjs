@@ -137,3 +137,26 @@ for (const width of [360, 390, 768, 1100, 1440]) {
     expect(all).toEqual([]);
   });
 }
+
+// The storm guard holds (v0.6 F9c): the live pill's triangle and its words,
+// and the banner for another network with Restart watching, at every width
+// in both themes, for checks paused and for alerts stopped.
+for (const width of [360, 390, 768, 1100, 1440]) for (const theme of ['dark', 'light']) {
+  test(`alignment held ${width} ${theme}`, async ({ page }) => {
+    await initStorage(page, { theme, live: true });
+    const rec = await installMocks(page, { scenario: 'live', running: true });
+    await page.setViewportSize({ width, height: 800 });
+    await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
+    const all = [];
+    for (const reason of ['link', 'network_changed']) {
+      rec.frames = [...fx.replayFrames(), { type: 'live', data: fx.heldStatus(reason) }, { type: 'notice', data: fx.linkNotice(reason) }];
+      await page.goto('/');
+      await expect(page.locator('.livepill.held svg.ico')).toBeVisible();
+      const b = page.locator('#alerts div.banner:not(.more)').filter({ hasText: fx.linkNotice(reason).title });
+      await expect(b).toHaveCount(1);
+      if (reason === 'network_changed') await expect(b.locator('button.brestart')).toBeVisible();
+      all.push(...await measure(page, 'held-' + reason));
+    }
+    expect(all).toEqual([]);
+  });
+}
