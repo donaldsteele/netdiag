@@ -34,6 +34,16 @@ var bubblesV020Tools = []string{
 // says never to call post_alert or ack_alert.
 var bubblesToolNames = []string{"list_alerts", "resolve_alert", "post_message", "post_alert", "ack_alert"}
 
+// bubblesScopes are the scopes each bubbles v0.2.0 tool needs besides
+// "mcp" (each tool's "Needs scopes" in bubbles/internal/mcpserver/tools.go,
+// checked by TestBubblesToolsAtV020). docs/mcp.md names those of every
+// bubbles tool check_chat_alerts uses (TestDocsChatTokenScopes).
+var bubblesScopes = map[string][]string{
+	"list_channels": {"messages:read"}, "read_messages": {"messages:read"}, "search_messages": {"messages:read"},
+	"post_message": {"messages:write"}, "list_alerts": {"alerts:write", "messages:read"},
+	"post_alert": {"alerts:write"}, "ack_alert": {"alerts:write"}, "resolve_alert": {"alerts:write"},
+}
+
 // bubblesFields are the bubbles tools' input and output names a runbook
 // may use (json names in bubbles/internal/mcpserver/tools.go).
 var bubblesFields = []string{"dedupe_key", "next_cursor", "thread_root_id", "renotify_after_s", "author_kind"}
@@ -449,6 +459,25 @@ func TestBubblesToolsAtV020(t *testing.T) {
 		if !strings.Contains(src, `json:"`+f+`"`) {
 			t.Errorf("bubbles v0.2.0 alerts have no %s, which check_chat_alerts reads", f)
 		}
+	}
+	// Each tool's description ends "Needs scopes mcp and x." or "Needs
+	// scopes mcp, x and y.".
+	needs := regexp.MustCompile(`(?s)Name: "([a-z_]+)",.*?Description: "[^"]*Needs scopes ([^."]+)\.`)
+	seen := 0
+	for _, m := range needs.FindAllStringSubmatch(src, -1) {
+		var scopes []string
+		for _, s := range strings.FieldsFunc(strings.ReplaceAll(m[2], " and ", ","), func(r rune) bool { return r == ',' || r == ' ' }) {
+			if s != "mcp" {
+				scopes = append(scopes, s)
+			}
+		}
+		if !slices.Equal(scopes, bubblesScopes[m[1]]) {
+			t.Errorf("bubbles v0.2.0 %s needs %v, bubblesScopes says %v", m[1], scopes, bubblesScopes[m[1]])
+		}
+		seen++
+	}
+	if seen != len(bubblesV020Tools) {
+		t.Errorf("read the scopes of %d bubbles tools, want %d", seen, len(bubblesV020Tools))
 	}
 }
 

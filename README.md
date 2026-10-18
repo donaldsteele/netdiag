@@ -126,13 +126,14 @@ Pick one of netdiag's prompts from Claude's menu, or just ask in your own words:
 - **IP conflicts:** "Use netdiag to explain the conflict on 192.168.1.23." (`explain_conflict`)
 - **A missing device:** "The FRONTDESK laptop is not showing up. Use netdiag to find out why." (`device_missing`)
 - **What changed:** "What changed on the network since the last scan? Use netdiag to compare them." (`what_changed`)
-- **Check the chat alerts:** "Use netdiag to check its alerts in team chat." (`check_chat_alerts`) Claude re-checks each open alert and closes one only when netdiag says it is fixed and you agree. For this, Claude needs its own connection to bubbles (a chat admin gives it a token of the netdiag app), and netdiag connected with `["mcp", "--attach"]` or Option C so Claude sees the window's team chat. See "Checking chat alerts" in [docs/mcp.md](docs/mcp.md).
+- **Check the chat alerts:** "Use netdiag to check its alerts in team chat." (`check_chat_alerts`) Claude re-checks each open alert. When netdiag says one is fixed and you agree, Claude closes it, or asks you to press **Resolve** in bubbles when its chat token can't. For this, Claude needs its own connection to bubbles (a token from your chat admin, best for a chat app of Claude's own), and netdiag connected with `["mcp", "--attach"]` or Option C so Claude sees the window's team chat. See [netdiag with team chat (bubbles)](docs/mcp.md#netdiag-with-team-chat-bubbles) in docs/mcp.md for the token and what it allows.
 
 ### Safety
 
 - Claude can only reach netdiag on this computer (`127.0.0.1`). Nothing else on the network can connect to it.
 - The HTTP option is off until you turn on **Agent access (MCP)**. Claude cannot turn it on itself.
-- Claude cannot change settings, delete history, ignore MAC addresses, quit netdiag or replace the scan that is watching the network, and it cannot connect, disconnect or post to team chat. Chat alerts are closed by netdiag itself.
+- Through netdiag, Claude cannot change settings, delete history, ignore MAC addresses, quit netdiag or replace the scan that is watching the network, and it cannot connect, disconnect or post to team chat. Chat alerts are closed by netdiag itself.
+- A token you give Claude for bubbles is a separate key with its own powers: a token of the netdiag app lets Claude post and close alerts as netdiag. Prefer a chat app of Claude's own, and have your chat admin remove the token when you no longer need it (see "netdiag with team chat (bubbles)" in [docs/mcp.md](docs/mcp.md#netdiag-with-team-chat-bubbles)).
 - The SNMP community string is never shown to Claude, nor a password written in the Web server URL. (Health results saved by netdiag 0.5.7 or earlier may still contain such a password; they age out of History, or delete them there.)
 - A scan that Claude starts sends network traffic, just like a click on **Scan**. Only ask Claude to scan networks you are allowed to scan.
 

@@ -81,6 +81,8 @@ func TestPrompts(t *testing.T) {
 			// netdiag's alerts by author, or by key once the app is renamed.
 			`author_kind "app"`, "renamed netdiag's app", "printerOffline|, deviceOffline|", "or healthFailed|",
 			"Do not close it.", "chat.waiting above 0", "In neither", "May I mark", "Checked with netdiag at", "thread_root_id",
+			// A note needs messages:write, which Claude's token may lack.
+			"post_message only from a token with the messages:write scope", "go on without the note",
 			// Checked again right before closing.
 			"After a yes, call list_problems and get_status again right before you close it",
 			"only if the key is still in fixed and not in open, and chat.waiting is still 0, call resolve_alert", "the problem is back",

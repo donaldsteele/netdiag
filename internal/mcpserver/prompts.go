@@ -452,7 +452,8 @@ var runbooks = []runbook{
 				"Otherwise leave the alert open and say why: the problem is back (netdiag keeps its alert open), or netdiag's own message is still on its way. " +
 				"If bubbles answers that it is not found, Claude's chat app is not the netdiag app (bubbles closes an alert by its key only for the app that posted it): tell the person to press **Resolve** on the alert in bubbles.\n" +
 				"7. Never call post_alert: it would create a duplicate alert under Claude's name. Never call ack_alert: bubbles refuses it for apps, and acknowledging is for people (**Acknowledge** in bubbles).\n" +
-				"8. To add a note to an alert that is still open, show the person the exact text first and post it only after a yes, with post_message in the alert's channel and thread_root_id = the alert's id.\n" +
+				"8. To add a note to an alert that is still open, show the person the exact text first and post it only after a yes, with post_message in the alert's channel and thread_root_id = the alert's id. " +
+				"bubbles takes post_message only from a token with the messages:write scope: if it refuses for that, say notes need that scope on Claude's chat token, and go on without the note.\n" +
 				"9. Answer with the verdict first. The first line of your answer comes from the first of these cases that applies:\n" +
 				"   - Still a problem: an alert in open (step 5), or, when you could not read the alerts, an open problem netdiag posted or still has to (chat.posted or chat.waiting). " +
 				"Start with \"" + verdictProblem + ":\" and how many still need attention.\n" +

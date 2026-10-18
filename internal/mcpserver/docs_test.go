@@ -173,3 +173,38 @@ func TestDocsNeverList(t *testing.T) {
 		t.Errorf("docs/mcp.md \"What Claude can never do\" = %q, want uiOnlyWords %q", got, uiOnlyWords)
 	}
 }
+
+// TestDocsChatTokenScopes: "netdiag with team chat (bubbles)" names every
+// scope the bubbles tools of check_chat_alerts need (bubblesScopes), and
+// says what a token of the netdiag app lets Claude do; "What Claude can
+// never do" speaks only for netdiag's own tools and points there.
+func TestDocsChatTokenScopes(t *testing.T) {
+	doc := mcpDoc(t)
+	sec := docSection(t, doc, "netdiag with team chat (bubbles)")
+	rb, ok := findRunbook("check_chat_alerts")
+	if !ok {
+		t.Fatal("no check_chat_alerts runbook")
+	}
+	n := 0
+	for _, tool := range rb.Tools {
+		for _, s := range bubblesScopes[tool] {
+			if !strings.Contains(sec, "`"+s+"`") {
+				t.Errorf("check_chat_alerts calls bubbles' %s, which needs %s, but docs/mcp.md does not name that scope", tool, s)
+			}
+			n++
+		}
+	}
+	if n == 0 {
+		t.Fatal("check_chat_alerts lists no bubbles tool")
+	}
+	for _, m := range []string{"`mcp`", "post new alerts and close any of netdiag's alerts **as netdiag**", "plain text", "**Admin > Apps**",
+		"An app of its own for Claude (recommended)"} {
+		if !strings.Contains(sec, m) {
+			t.Errorf("docs/mcp.md team chat section lacks %q", m)
+		}
+	}
+	if never := docSection(t, doc, "What Claude can never do"); !strings.Contains(never, "Through netdiag, Claude cannot") ||
+		!strings.Contains(never, "(#netdiag-with-team-chat-bubbles)") {
+		t.Error("\"What Claude can never do\" must speak for netdiag's tools only and point to the team chat section")
+	}
+}
