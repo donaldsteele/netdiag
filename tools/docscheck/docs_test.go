@@ -82,9 +82,16 @@ func TestDocsImagesExist(t *testing.T) {
 	}
 }
 
-// v06Section is the field checklist's v0.6 section heading (master
-// roadmap §8.13): before "## Results".
-const v06Section = "## 6. v0.6 chat alerts and watching"
+// fieldSections are the field checklist's release sections, in order, each
+// with its checks by bold title. Master roadmap §8.13 puts "## 6. v0.6 …"
+// to "## 9. v0.9 …" before "## Results"; a release adds its section here
+// with its own list, and each section ends at the next "## " heading.
+var fieldSections = []struct {
+	heading string
+	items   []string
+}{
+	{"## 6. v0.6 chat alerts and watching", v06Items},
+}
 
 // v06Items are the v0.6 field checks, by their bold title: the real
 // hardware runs of v0.6 §7.4 (1-6), the standard-user runs of §7.5, the
@@ -102,8 +109,8 @@ var v06Items = []string{
 	"No Location button on a Mac.", "The Mac build.",
 	// §7.5 both
 	"Separate data folders, separate netdiags.", "Another user's netdiag does not take your page.",
-	// M12's checks with a live agent
-	"Claude checks the chat alerts.", "Claude Desktop sees the window.",
+	// M9's and M12's checks with a live agent
+	"Claude Code explains the problems.", "Claude checks the chat alerts.", "Claude Desktop sees the window.",
 	// §7.6
 	"Release candidate scan.", "Release build scan.",
 }
@@ -115,52 +122,85 @@ var (
 	resultLine = regexp.MustCompile(`^  Date:(.*)· OS:(.*)· Result:(.*)$`)
 )
 
-// TestFieldChecklistV06: the v0.6 section holds every check in v06Items,
-// each with its steps and a Date, OS and Result line, and an item is ticked
-// only with its date, OS and result filled in (v0.6 §6 M13 acceptance).
-func TestFieldChecklistV06(t *testing.T) {
-	doc := read(t, "docs/field-checklist.md")
-	at, results := strings.Index(doc, "\n"+v06Section+"\n"), strings.Index(doc, "\n## Results\n")
+// fieldSection is the text of the section under heading, up to the next
+// "## " heading (a "### " subsection stays in it), and whether the section
+// is there before "## Results".
+func fieldSection(doc, heading string) (string, bool) {
+	at, results := strings.Index(doc, "\n"+heading+"\n"), strings.Index(doc, "\n## Results\n")
 	if at < 0 || results < at {
-		t.Fatalf("docs/field-checklist.md needs %q before \"## Results\"", v06Section)
+		return "", false
 	}
-	lines := strings.Split(doc[at+1:results], "\n")
-	seen := map[string]bool{}
-	for i, line := range lines {
-		m := itemLine.FindStringSubmatch(line)
-		if m == nil {
-			if strings.HasPrefix(line, "- [") {
-				t.Errorf("%q is not a check with a bold title", line)
+	body := doc[at+len(heading)+2:]
+	if end := strings.Index(body, "\n## "); end >= 0 {
+		body = body[:end]
+	}
+	return body, true
+}
+
+// TestFieldChecklist: each release section holds exactly its checks, each
+// with its steps and a Date, OS and Result line, and an item is ticked only
+// with its date, OS and result filled in (v0.6 §6 M13 acceptance).
+func TestFieldChecklist(t *testing.T) {
+	doc := read(t, "docs/field-checklist.md")
+	for _, sec := range fieldSections {
+		body, ok := fieldSection(doc, sec.heading)
+		if !ok {
+			t.Errorf("docs/field-checklist.md needs %q before \"## Results\"", sec.heading)
+			continue
+		}
+		lines := strings.Split(body, "\n")
+		seen := map[string]bool{}
+		for i, line := range lines {
+			m := itemLine.FindStringSubmatch(line)
+			if m == nil {
+				if strings.HasPrefix(line, "- [") {
+					t.Errorf("%s: %q is not a check with a bold title", sec.heading, line)
+				}
+				continue
 			}
-			continue
+			ticked, title, rest := m[1] == "x", m[2], m[3]
+			if seen[title] {
+				t.Errorf("%s: %q is listed twice", sec.heading, title)
+			}
+			seen[title] = true
+			if !strings.HasPrefix(rest, "Steps: ") || len(rest) < 80 {
+				t.Errorf("%s: %q has no steps (\"Steps: …\" with what to do and what to see)", sec.heading, title)
+			}
+			if i+1 >= len(lines) {
+				t.Errorf("%s: %q has no Date, OS and Result line", sec.heading, title)
+				continue
+			}
+			r := resultLine.FindStringSubmatch(lines[i+1])
+			if r == nil {
+				t.Errorf("%s: %q: the next line is %q, want \"  Date: · OS: · Result:\"", sec.heading, title, lines[i+1])
+				continue
+			}
+			if ticked && (strings.TrimSpace(r[1]) == "" || strings.TrimSpace(r[2]) == "" || strings.TrimSpace(r[3]) == "") {
+				t.Errorf("%s: %q is ticked without its date, OS and result", sec.heading, title)
+			}
 		}
-		ticked, title, rest := m[1] == "x", m[2], m[3]
-		if seen[title] {
-			t.Errorf("%q is listed twice", title)
+		for _, want := range sec.items {
+			if !seen[want] {
+				t.Errorf("%s has no %q check", sec.heading, want)
+			}
 		}
-		seen[title] = true
-		if !strings.HasPrefix(rest, "Steps: ") || len(rest) < 80 {
-			t.Errorf("%q has no steps (\"Steps: …\" with what to do and what to see)", title)
-		}
-		if i+1 >= len(lines) {
-			t.Errorf("%q has no Date, OS and Result line", title)
-			continue
-		}
-		r := resultLine.FindStringSubmatch(lines[i+1])
-		if r == nil {
-			t.Errorf("%q: the next line is %q, want \"  Date: · OS: · Result:\"", title, lines[i+1])
-			continue
-		}
-		if ticked && (strings.TrimSpace(r[1]) == "" || strings.TrimSpace(r[2]) == "" || strings.TrimSpace(r[3]) == "") {
-			t.Errorf("%q is ticked without its date, OS and result", title)
+		if len(seen) != len(sec.items) {
+			t.Errorf("%s has %d checks, its list in fieldSections %d: add the new one there", sec.heading, len(seen), len(sec.items))
 		}
 	}
-	for _, want := range v06Items {
-		if !seen[want] {
-			t.Errorf("the v0.6 section has no %q check", want)
-		}
+}
+
+// TestFieldSectionEndsAtNextHeading: a later release's section is not
+// counted as part of the one before it, and a "### " subsection is.
+func TestFieldSectionEndsAtNextHeading(t *testing.T) {
+	doc := "# Checklist\n\n## 6. v0.6 a\n\n### 6.1 b\n- [ ] six\n\n## 7. v0.7 c\n- [ ] seven\n\n## Results\n"
+	if body, ok := fieldSection(doc, "## 6. v0.6 a"); !ok || !strings.Contains(body, "six") || strings.Contains(body, "seven") {
+		t.Errorf("v0.6 section = %q, %v", body, ok)
 	}
-	if len(seen) != len(v06Items) {
-		t.Errorf("the v0.6 section has %d checks, v06Items %d: add the new one to v06Items", len(seen), len(v06Items))
+	if body, ok := fieldSection(doc, "## 7. v0.7 c"); !ok || !strings.Contains(body, "seven") || strings.Contains(body, "Results") {
+		t.Errorf("v0.7 section = %q, %v", body, ok)
+	}
+	if _, ok := fieldSection("## Results\n\n## 8. v0.8 d\n", "## 8. v0.8 d"); ok {
+		t.Error("a section after \"## Results\" counts")
 	}
 }
