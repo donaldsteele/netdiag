@@ -36,14 +36,15 @@ var bubblesToolNames = []string{"list_alerts", "resolve_alert", "post_message", 
 
 // bubblesFields are the bubbles tools' input and output names a runbook
 // may use (json names in bubbles/internal/mcpserver/tools.go).
-var bubblesFields = []string{"dedupe_key", "next_cursor", "thread_root_id", "renotify_after_s"}
+var bubblesFields = []string{"dedupe_key", "next_cursor", "thread_root_id", "renotify_after_s", "author_kind"}
 
 // runbookFields are the snake_case output, argument and value names a
 // runbook may use that are not tools or prompts: the conflict kinds, the
-// storm guard reason network_changed, the team chat states of get_status
-// (chat.state) and the bubbles fields (dedupe_key and the like).
+// storm guard reason network_changed, the team chat states and reasons of
+// get_status (chat.state, chat.reason) and the bubbles fields (dedupe_key
+// and the like).
 var runbookFields = slices.Concat([]string{"mac_flap", "mac_multi_ip", "duplicate_name", "network_changed",
-	"no_channel", "needs_reconnect", "identity_changed"}, bubblesFields)
+	"no_channel", "needs_reconnect", "identity_changed", "not_allowed"}, bubblesFields)
 
 // bubblesLabels are bubbles' own buttons a runbook may name in bold.
 var bubblesLabels = []string{"Acknowledge", "Resolve", "Admin", "Pairing", "Apps", "Overview"}
@@ -320,8 +321,19 @@ func TestGetRunbookMatchesPrompt(t *testing.T) {
 }
 
 // TestDocsListEveryRunbook: docs/mcp.md names every runbook, tool and
-// resource.
+// resource, and the README's "What you can ask Claude" every runbook.
 func TestDocsListEveryRunbook(t *testing.T) {
+	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ask, _ := strings.Cut(string(readme), "### What you can ask Claude")
+	ask, _, _ = strings.Cut(ask, "\n### ")
+	for _, n := range PromptNames {
+		if !strings.Contains(ask, "(`"+n+"`)") {
+			t.Errorf("README.md \"What you can ask Claude\" does not list %s", n)
+		}
+	}
 	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "mcp.md"))
 	if err != nil {
 		t.Fatal(err)

@@ -64,10 +64,31 @@ func TestPrompts(t *testing.T) {
 			// Each chat state in plain words, with the Settings button that
 			// helps; the open, fixed and neither cases; D10 and D11.
 			`"unreachable": "netdiag can't reach the chat server since`, "**Try now**", "**Reconnect**", "**Change channel**", "**Connect to team chat**",
-			`"unknown"`, "--attach", "chat.sendAlerts", "**Send alerts to team chat**", "If watching is null",
+			`"unknown"`, "--attach", "chat.sendAlerts", "**Send alerts to team chat**",
+			// The window's words for each cause (app.js chatTrouble,
+			// index.html #chat-identity): a changed identity is never
+			// reconnected without the chat admin.
+			`if chat.reason is "unreadable", "netdiag can't open its saved team chat connection on this computer`,
+			`"The chat server no longer accepts netdiag (your chat admin may have removed it)."`,
+			`"identity_changed": "Warning: the chat server's identity changed, so netdiag stopped sending alerts. This happens when the chat server is reinstalled, or when something is pretending to be it."`,
+			"ask their chat admin before they press **Reconnect**", "never suggest reconnecting without that",
+			`if chat.reason is "not_allowed", "netdiag isn't allowed to post in #<chat.channel> any more." Suggest asking the chat admin to add netdiag to it again`,
+			`If chat.reason is "archived", "The channel #<chat.channel> is archived."`,
+			// D10 only when this connection sees the window.
+			`Unless chat.state is "unknown" (watching is then always null, whatever the window does): if watching is null`,
+			"it sees neither team chat nor whether netdiag is watching the network now",
 			"Claude is not connected to your team chat", "ipConflict|<kind>|<anchor>", "state=open", "state=acked", "next_cursor", "chat.appName",
+			// netdiag's alerts by author, or by key once the app is renamed.
+			`author_kind "app"`, "renamed netdiag's app", "printerOffline|, deviceOffline|", "or healthFailed|",
 			"Do not close it.", "chat.waiting above 0", "In neither", "May I mark", "Checked with netdiag at", "thread_root_id",
-			"chat.channel from get_status", `"OK: no netdiag alert needs attention"`, `"Problem:"`}},
+			// Checked again right before closing.
+			"After a yes, call list_problems and get_status again right before you close it",
+			"only if the key is still in fixed and not in open, and chat.waiting is still 0, call resolve_alert", "the problem is back",
+			"chat.channel from get_status", `"OK: no netdiag alert needs attention"`, `"Problem:"`,
+			// Not checked when the alerts could not be read or confirmed.
+			`"Not checked:"`, `"Not checked: Claude is not connected to your team chat, so it could not read the alerts."`,
+			`"Not checked: this connection can't see netdiag's team chat."`, `"Not checked: netdiag could not confirm <N> alerts in chat."`,
+			"Never answer OK about alerts you could not read or confirm."}},
 		{"check_chat_alerts", map[string]string{"channel": "ops-alerts"}, []string{`channel "ops-alerts"`}},
 	}
 	if len(PromptNames) != 10 {

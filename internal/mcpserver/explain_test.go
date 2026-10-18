@@ -61,25 +61,38 @@ var explainVerdicts = []verdictRule{
 // cases in their order, each quoting its first line before the next case.
 func checkVerdictRules(t *testing.T, txt string) {
 	t.Helper()
-	if !strings.Contains(txt, "The first line of your answer comes from the first of steps 3 to 7 that applies.") {
-		t.Fatal("explain_problems does not say its cases are tried in order")
-	}
-	pos := 0
+	conds, firsts := make([]string, len(explainVerdicts)), make([]string, len(explainVerdicts))
 	for i, r := range explainVerdicts {
-		at := strings.Index(txt[pos:], r.cond)
+		conds[i], firsts[i] = r.cond, r.first
+	}
+	checkCaseOrder(t, "explain_problems", txt, "The first line of your answer comes from the first of steps 3 to 7 that applies.", conds, firsts)
+}
+
+// checkCaseOrder checks that runbook name's text says its cases are tried
+// in order (intro), then states each case (conds) in that order after it,
+// each quoting its first line (firsts; "" for a heading whose cases follow)
+// before the next case.
+func checkCaseOrder(t *testing.T, name, txt, intro string, conds, firsts []string) {
+	t.Helper()
+	pos := strings.Index(txt, intro)
+	if pos < 0 {
+		t.Fatalf("%s does not say its cases are tried in order (%q)", name, intro)
+	}
+	for i, cond := range conds {
+		at := strings.Index(txt[pos:], cond)
 		if at < 0 {
-			t.Fatalf("explain_problems does not state %q after the case before it", r.cond)
+			t.Fatalf("%s does not state %q after the case before it", name, cond)
 		}
-		start, end := pos+at+len(r.cond), len(txt)
-		if i+1 < len(explainVerdicts) {
-			next := strings.Index(txt[start:], explainVerdicts[i+1].cond)
+		start, end := pos+at+len(cond), len(txt)
+		if i+1 < len(conds) {
+			next := strings.Index(txt[start:], conds[i+1])
 			if next < 0 {
-				t.Fatalf("explain_problems does not state %q after %q", explainVerdicts[i+1].cond, r.cond)
+				t.Fatalf("%s does not state %q after %q", name, conds[i+1], cond)
 			}
 			end = start + next
 		}
-		if r.first != "" && !strings.Contains(txt[start:end], `"`+r.first+`"`) {
-			t.Fatalf("explain_problems' case %q does not ask for %q: %s", r.cond, r.first, txt[start:end])
+		if firsts[i] != "" && !strings.Contains(txt[start:end], `"`+firsts[i]+`"`) {
+			t.Fatalf("%s' case %q does not ask for %q: %s", name, cond, firsts[i], txt[start:end])
 		}
 		pos = start
 	}
