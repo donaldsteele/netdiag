@@ -316,16 +316,16 @@ In live mode netdiag keeps watching every printer it found through SNMP, so a ja
 - **Error flags become alerts.** Some printers, including Zebra label printers, report problems only through the standard SNMP error flags and leave their alert list empty. netdiag turns those flags into named alerts. Out of paper or toner, door or cover open, paper jam, offline or paused, service requested, missing tray or supply, and output tray full are **urgent**. Paper or toner low, output tray nearly full, input tray empty and maintenance overdue are **warnings**. A printer that only reports "down" or "warning" as its device status gets a general alert. Printers that fill in their own alert list are shown as they report it.
 - **What you see.** A printer with an urgent alert gets a red ✖ status icon (amber ▲ for a warning), even though it still answers ping. The status column and the details panel name the problem (for example "Up, printer error" and "Door or cover open, Printer offline or paused"), and the printer is listed under the **Problems** filter.
 - **One alert per problem.** A printer that stops for a reason, such as an open cover or a paper jam, usually reports "Printer offline or paused" as well. netdiag counts that as part of the reason, so opening a Zebra's cover gives one alert, "Door or cover open". "Printer offline or paused" on its own (someone paused the printer) is an alert of its own.
-- **Back to normal.** Each printer alert is fixed on its own: when the printer stops reporting it, that alert's banner turns into **Fixed** ("Printer alert cleared") and names the alert. A Zebra clears "Door or cover open" a moment before "Printer offline or paused", so its banner turns into Fixed once both are gone: the cover is closed and the printer has resumed. If the printer fails again soon after, the new alert is shown straight away, without waiting for the alert cooldown. (The four Zebra screenshots below were taken with netdiag 0.5, before this changed: they still show two critical banners, "Door or cover open" and "Printer offline or paused", and a separate "Printer OK again" notice. Since 0.6 the open cover is one alert whose banner turns into Fixed.)
+- **Back to normal.** Each printer alert is fixed on its own: when the printer stops reporting it, that alert's banner turns into **Fixed** ("Printer alert cleared") and names the alert. A Zebra clears "Door or cover open" a moment before "Printer offline or paused", so its banner turns into Fixed once both are gone: the cover is closed and the printer has resumed. If the printer fails again soon after, the new alert is shown straight away, without waiting for the alert cooldown. (The four Zebra screenshots below are from a real ZD621 with netdiag 0.6: its cover was opened at 12:53:31 and closed 35 seconds later.)
 - Only printers that answer SNMP get the fast check. Printers found only through IPP or mDNS are refreshed every 60 seconds.
 
-![netdiag 0.5 with a Zebra printer's cover open: red status icon and two critical alert banners (since 0.6, one Door or cover open alert)](docs/assets/shots/real-zebra-fault.png)
+![A Zebra printer with its cover open: red status icon, one urgent Door or cover open banner, and the same problem on the Problems right now card](docs/assets/shots/real-zebra-fault.png)
 
-![netdiag 0.5's details panel for the same printer, listing the alerts and the SNMP status](docs/assets/shots/real-zebra-fault-drawer.png)
+![The details panel for the same printer: Up, printer error; the printer's own flags (door open, offline or paused) and its SNMP status](docs/assets/shots/real-zebra-fault-drawer.png)
 
-![netdiag 0.5 with the printer fixed: green status and a Printer OK again notice (since 0.6, the alert's banner turns into Fixed)](docs/assets/shots/real-zebra-recovered.png)
+![The printer fixed: green status, and the alert's banner turned into Fixed, cleared Door or cover open](docs/assets/shots/real-zebra-recovered.png)
 
-![netdiag 0.5's Activity log with the two alerts and the recovery notice (since 0.6, one alert and a Fixed line)](docs/assets/shots/real-zebra-activity.png)
+![The Activity log of the same run: the printer alert at 12:53:31 and its Fixed line at 12:54:06](docs/assets/shots/real-zebra-activity.png)
 
 ![Settings with the printer status check interval](docs/img/settings-printer-poll.png)
 
