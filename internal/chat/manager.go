@@ -16,6 +16,7 @@ import (
 	"netdiag/internal/bubbles"
 	"netdiag/internal/bubbles/protocol"
 	"netdiag/internal/mdns"
+	"netdiag/internal/problems"
 	"netdiag/internal/store"
 )
 
@@ -89,16 +90,52 @@ type Options struct {
 	PairPoll time.Duration
 	// Logf receives diagnostics, never a token (default: none).
 	Logf func(format string, args ...any)
+	// Ledger is the open-problem ledger (*problems.Ledger): the team chat
+	// state of each problem, so a card is resolved only when it was posted
+	// (v0.6 4.9). nil: the outbox alone tells.
+	Ledger Ledger
+	// PollEvery is how often the chat server is asked whether it answers
+	// (default 60 s); MoveAfter is how long it may not answer before
+	// netdiag looks for it at another address (default 2 min).
+	PollEvery, MoveAfter time.Duration
+	// RetryMin and RetryMax bound the wait before an item is sent again
+	// (default 2 s and 60 s).
+	RetryMin, RetryMax time.Duration
+	// SaveDelay is the shortest time between two saves of chat-outbox.json
+	// (default 1 s).
+	SaveDelay time.Duration
 }
 
-// Manager owns the team chat connection: bubbles.json (its one writer),
-// the pairing wizard's requests and the connection's state. It is safe for
-// concurrent use. The token never leaves it except to the chat server.
-// The alert router, outbox and status polling join it in v0.6 M11.
+// Ledger is the part of *problems.Ledger the router and the outbox use.
+type Ledger interface {
+	Chat(network, key string) string
+	MarkChat(network, key, state string)
+	IsOpen(network, key string) bool
+	Snapshot() ([]problems.Entry, []problems.Fixed)
+	OnDrop(fn func([]problems.Entry))
+}
+
+// Manager owns the team chat connection: bubbles.json and
+// chat-outbox.json (their one writer), the pairing wizard's requests, the
+// connection's state, the alert router on each scan, the outbox and its
+// sender, and the status polling. It is safe for concurrent use. The token
+// never leaves it except to the chat server.
+//
+// Locks: m.mu may be held while the outbox's or the ledger's lock is taken,
+// never the other way round.
 type Manager struct {
 	opt    Options
 	ctx    context.Context
 	cancel context.CancelFunc
+	out    *outbox
+	loops  sync.WaitGroup // the sender and the status poller
+
+	amu     sync.Mutex // guards notes
+	notes   []Note
+	noteSeq int
+	pollNow chan struct{}
+	scansMu sync.Mutex
+	scans   []Watched // the scans the router is attached to, newest last
 
 	discoverMu sync.Mutex // one discovery at a time
 
@@ -121,6 +158,16 @@ type Manager struct {
 	// pairing request still on its way when the person cancelled is never
 	// waited on.
 	pairEpoch int
+	// settings.chat as last saved (ApplySettings); known is false until the
+	// first ApplySettings.
+	enabled, known bool
+	minSeverity    string
+	// burstDue says the current problems go to chat once sending starts:
+	// after a new connection, or Send alerts to team chat switched on.
+	burstDue bool
+	// oldChannel is the channel before the last Change channel, for the
+	// words when a card cannot be moved out of it.
+	oldChannel string
 }
 
 // candidate is a server whose CA netdiag fetched and showed the person.
@@ -158,8 +205,24 @@ func NewManager(opt Options) *Manager {
 	if opt.Logf == nil {
 		opt.Logf = func(string, ...any) {}
 	}
+	if opt.PollEvery <= 0 {
+		opt.PollEvery = 60 * time.Second
+	}
+	if opt.MoveAfter <= 0 {
+		opt.MoveAfter = 2 * time.Minute
+	}
+	if opt.RetryMin <= 0 {
+		opt.RetryMin = 2 * time.Second
+	}
+	if opt.RetryMax < opt.RetryMin {
+		opt.RetryMax = max(60*time.Second, opt.RetryMin)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Manager{opt: opt, ctx: ctx, cancel: cancel}
+	m := &Manager{opt: opt, ctx: ctx, cancel: cancel, pollNow: make(chan struct{}, 1)}
+	m.out = newOutbox(opt.Files, opt.Now, m.markChat)
+	if opt.SaveDelay > 0 {
+		m.out.saveDelay = opt.SaveDelay
+	}
 	if opt.Files != nil {
 		c, err := LoadConnection(opt.Files)
 		switch {
@@ -172,12 +235,38 @@ func NewManager(opt Options) *Manager {
 		case err != ErrNotConnected: // not just a missing file: say what happened to it
 			opt.Logf("team chat: %v", err)
 		}
+		if m.conn != nil || m.needs != nil {
+			if err := m.out.load(); err != nil {
+				opt.Logf("team chat: %v", err)
+			}
+		}
 	}
+	if opt.Ledger != nil {
+		opt.Ledger.OnDrop(m.droppedProblems)
+	}
+	m.loops.Add(2)
+	go m.sender()
+	go m.poller()
 	return m
 }
 
-// Close stops a pairing request that is still waiting.
-func (m *Manager) Close() { m.cancel() }
+// Close stops the sender, the status polling and a pairing request that
+// is still waiting, and saves what the outbox still holds. Flush first to
+// give what waits a last chance to go.
+func (m *Manager) Close() {
+	m.cancel()
+	m.loops.Wait()
+	if err := m.out.save(); err != nil {
+		m.opt.Logf("team chat: save %s: %v", store.FileChatOutbox, err)
+	}
+}
+
+// markChat records a problem's team chat state in the ledger.
+func (m *Manager) markChat(network, key, state string) {
+	if m.opt.Ledger != nil && key != "" {
+		m.opt.Ledger.MarkChat(network, key, state)
+	}
+}
 
 // RefusedError is a request the manager turns down, in words for the page.
 type RefusedError struct{ Msg string }
@@ -203,7 +292,10 @@ type ServerView struct {
 // why for needs_reconnect and no_channel (the Reason* values). Unsaved
 // says, in words, that the connection works but could not be saved, so it
 // would be lost when netdiag closes. Waiting, Dropped and LastSentAt are
-// the outbox's (v0.6 M11).
+// the outbox's: what still waits to go (also what a previous run left),
+// what it gave up on, and when it last delivered something. Activity is
+// the last things the outbox and the polling had to say, for the page's
+// Activity log.
 type Status struct {
 	State       string      `json:"state"`
 	Reason      string      `json:"reason,omitempty"`
@@ -218,12 +310,51 @@ type Status struct {
 	LastSentAt  string      `json:"lastSentAt,omitempty"`
 	LastError   string      `json:"lastError,omitempty"`
 	Unsaved     string      `json:"unsaved,omitempty"`
+	Activity    []Note      `json:"activity"`
+}
+
+// Note is one line for the Activity log.
+type Note struct {
+	ID   int    `json:"id"`
+	At   string `json:"at"`
+	Text string `json:"text"`
+}
+
+// maxNotes is how many notes the status keeps.
+const maxNotes = 20
+
+// note adds a line for the Activity log (and the diagnostics).
+func (m *Manager) addNote(text string) {
+	m.opt.Logf("team chat: %s", text)
+	m.amu.Lock()
+	defer m.amu.Unlock()
+	m.noteSeq++
+	m.notes = append(m.notes, Note{ID: m.noteSeq, At: m.opt.Now().UTC().Format(time.RFC3339), Text: text})
+	if len(m.notes) > maxNotes {
+		m.notes = slices.Clone(m.notes[len(m.notes)-maxNotes:])
+	}
 }
 
 // Status reports the connection's state. A connection that could not be
 // saved is saved again first, so the page's status reads (every 30 s)
 // keep trying.
 func (m *Manager) Status() Status {
+	st := m.status()
+	waiting, dropped, last := m.out.stats()
+	st.Waiting, st.Dropped = waiting, dropped
+	if !last.IsZero() {
+		st.LastSentAt = last.UTC().Format(time.RFC3339)
+	}
+	m.amu.Lock()
+	st.Activity = slices.Clone(m.notes)
+	m.amu.Unlock()
+	if st.Activity == nil {
+		st.Activity = []Note{}
+	}
+	return st
+}
+
+func (m *Manager) status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	st := Status{State: StateOff}
@@ -491,12 +622,31 @@ func (m *Manager) wait(ctx context.Context, s *pairSession, p *bubbles.Pairing) 
 }
 
 // swapLocked makes c the connection, in memory only; m.mu must be held.
-// The trouble the old connection had goes with it.
+// The trouble the old connection had goes with it, and so do the cards it
+// posted: a new connection is a new app in bubbles, which cannot close
+// them, so the current problems go to chat again once sending starts.
 func (m *Manager) swapLocked(c Connection) {
 	m.gen++
 	m.conn, m.needs = &c, nil
 	m.trouble, m.since, m.lastErr = "", time.Time{}, ""
 	m.chanRefused, m.chanMsg, m.unsaved = "", "", ""
+	m.forgetCards()
+	m.burstDue = true
+	m.out.kick()
+}
+
+// forgetCards clears every problem's team chat state (no card of netdiag's
+// in chat any more).
+func (m *Manager) forgetCards() {
+	if m.opt.Ledger == nil {
+		return
+	}
+	open, _ := m.opt.Ledger.Snapshot()
+	for _, e := range open {
+		if e.Chat != "" {
+			m.opt.Ledger.MarkChat(e.Network, e.Key, "")
+		}
+	}
 }
 
 // saveLocked writes the connection to bubbles.json; m.mu must be held and
@@ -552,6 +702,7 @@ func (m *Manager) learn(ctx context.Context, gen int, keep string) ([]Channel, e
 	}
 	if pick.ID != "" {
 		_ = m.setChannel(gen, pick)
+		m.maybeBurst()
 	}
 	return chans, nil
 }
@@ -601,6 +752,7 @@ func (m *Manager) setChannel(gen int, ch Channel) error {
 	return m.updateConn(gen, func(c *Connection) {
 		c.Channel = ch
 		m.chanRefused, m.chanMsg = "", "" // updateConn holds m.mu
+		m.out.kick()
 	})
 }
 
@@ -619,8 +771,9 @@ func (m *Manager) refuseChannel(gen int, id, reason, msg string) {
 func (m *Manager) channelWorks(gen int, id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.conn != nil && m.gen == gen && m.conn.Channel.ID == id {
+	if m.conn != nil && m.gen == gen && m.conn.Channel.ID == id && m.chanRefused != "" {
 		m.chanRefused, m.chanMsg = "", ""
+		m.out.kick()
 	}
 }
 
@@ -694,7 +847,7 @@ type ChannelChoice struct {
 }
 
 func (m *Manager) choice(chans []Channel, err error) ChannelChoice {
-	st := m.Status()
+	st := m.status()
 	if chans == nil {
 		chans = []Channel{}
 	}
@@ -801,6 +954,10 @@ func (m *Manager) SetChannel(ctx context.Context, id string) (ChannelChoice, err
 		if err := m.setChannel(gen, chans[i]); err != nil {
 			return m.choice(chans, nil), refused("netdiag could not save the channel on this computer (" + err.Error() + "). Try again.")
 		}
+		if old := conn.Channel; old.ID != "" && old.ID != chans[i].ID {
+			m.moveCards(old, chans[i])
+		}
+		m.maybeBurst()
 	}
 	return m.choice(chans, nil), nil
 }
@@ -968,6 +1125,9 @@ func (m *Manager) troubleLocked(state, msg string) {
 	}
 	if state == "" {
 		m.since = time.Time{}
+		if m.trouble != "" {
+			m.out.kick() // the outbox may go on
+		}
 	}
 	m.trouble, m.lastErr = state, msg
 }
@@ -1013,6 +1173,9 @@ func (m *Manager) Disconnect() error {
 	m.conn, m.needs, m.cand = nil, nil, nil
 	m.trouble, m.since, m.lastErr = "", time.Time{}, ""
 	m.chanRefused, m.chanMsg, m.unsaved = "", "", ""
+	m.burstDue = false
+	m.out.clearAll()
+	m.forgetCards()
 	if m.opt.Files == nil {
 		return nil
 	}

@@ -57,23 +57,7 @@ func (m *Manager) Discover(ctx context.Context, iface string) (Discovery, error)
 	if err != nil && ctx.Err() != nil {
 		return out, ctx.Err()
 	}
-	for _, r := range recs {
-		for _, d := range r.Info.Details {
-			if d.Type != ServiceType || d.Port == 0 {
-				continue
-			}
-			onboard, _ := strconv.Atoi(d.TXT["onboard"])
-			t, err := ParseTarget(netJoin(r.IP, d.Port), onboard)
-			if err != nil {
-				continue
-			}
-			f := Found{Name: d.Instance, Address: t.Host, Port: t.Port, OnboardPort: t.OnboardPort, FPPrefix: strings.ToLower(d.TXT["fp"])}
-			if f.Name == "" {
-				f.Name = t.Host
-			}
-			out.Servers = append(out.Servers, f)
-		}
-	}
+	out.Servers = append(out.Servers, foundIn(recs)...)
 	slices.SortFunc(out.Servers, func(a, b Found) int { return strings.Compare(a.Name+a.Address, b.Name+b.Address) })
 	m.mu.Lock()
 	m.found = slices.Clone(out.Servers)

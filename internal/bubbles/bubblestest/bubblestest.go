@@ -77,6 +77,53 @@ type Server struct {
 	fail     []failure
 	holds    map[string]*gate // "METHOD /path" -> the calls it holds
 	held     int              // calls waiting on a hold
+	down     bool             // Stop: every API call is a closed connection
+	handler  http.Handler
+	chain    tls.Certificate
+}
+
+// startAPI starts an HTTPS listener on a new 127.0.0.1 port.
+func (s *Server) startAPI() *httptest.Server {
+	a := httptest.NewUnstartedServer(s.handler)
+	a.TLS = &tls.Config{Certificates: []tls.Certificate{s.chain}}
+	a.StartTLS()
+	return a
+}
+
+// api is the current HTTPS listener.
+func (s *Server) api() *httptest.Server {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.API
+}
+
+// Stop makes the server stop answering, as when it is not running: every
+// call to the HTTPS listener gets its connection closed. Start undoes it.
+func (s *Server) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.down = true
+}
+
+// Start makes a stopped server answer again.
+func (s *Server) Start() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.down = false
+}
+
+// Move moves the HTTPS listener to a new port, as when the server's
+// address changes: the old one stops answering. The CA, tokens, channels
+// and alerts stay. It returns the new listener (also in API).
+func (s *Server) Move() *httptest.Server {
+	a := s.startAPI()
+	s.mu.Lock()
+	old := s.API
+	s.API = a
+	s.mu.Unlock()
+	old.CloseClientConnections()
+	old.Close()
+	return a
 }
 
 type pairing struct {
@@ -109,15 +156,29 @@ func New(t testing.TB) *Server {
 	mux.HandleFunc("POST /api/v1/alerts/resolve", s.app(s.resolve, protocol.ScopeAlertsWrite))
 	mux.HandleFunc("POST /api/v1/channels/{id}/messages", s.app(s.postMessage, protocol.ScopeMessagesWrite))
 	mux.HandleFunc("GET /api/v1/apps/self", s.app(s.self))
-	s.API = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		down := s.down
+		s.mu.Unlock()
+		if down {
+			// A server that is not running: the connection just closes.
+			if hj, ok := w.(http.Hijacker); ok {
+				if c, _, err := hj.Hijack(); err == nil {
+					_ = c.Close()
+					return
+				}
+			}
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		if !s.wait(r) {
 			return
 		}
 		mux.ServeHTTP(w, r)
-	}))
-	s.API.TLS = &tls.Config{Certificates: []tls.Certificate{chain}}
-	s.API.StartTLS()
-	t.Cleanup(s.API.Close)
+	})
+	s.chain = chain
+	s.API = s.startAPI()
+	t.Cleanup(func() { s.api().Close() })
 	t.Cleanup(s.releaseAll) // runs first: Close waits for held calls
 
 	s.Onboard = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
