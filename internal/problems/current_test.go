@@ -15,13 +15,14 @@ import (
 )
 
 // golden is testdata/problems/hosts.json, which the page's hostIssues
-// (tools/uitest problems.spec) is tested against too.
+// (tools/uitest problems-now.spec) is tested against too.
 type golden struct {
 	Conflicts []model.Conflict `json:"conflicts"`
 	Hosts     []model.Host     `json:"hosts"`
 	Cases     []struct {
 		Name      string              `json:"name"`
 		Threshold int                 `json:"supplyThresholdPct"`
+		Ignored   []string            `json:"ignoredConflictMACs"`
 		Issues    map[string][]string `json:"issues"`
 	} `json:"cases"`
 	Card []cardItem `json:"card"`
@@ -59,6 +60,7 @@ func TestHostIssuesGolden(t *testing.T) {
 	for _, c := range g.Cases {
 		set := store.DefaultSettings()
 		set.Alerts.SupplyThresholdPct = c.Threshold
+		set.IgnoredConflictMACs = c.Ignored
 		got := map[string][]string{}
 		for _, h := range g.Hosts {
 			for _, is := range HostIssues(h, set, g.Conflicts) {
@@ -263,7 +265,8 @@ func TestCurrentPrinterAndConflicts(t *testing.T) {
 			{Severity: "critical", Code: "hrPrinterDetectedErrorState.doorOpen", Description: "Cover open"},
 			{Severity: "warning", Code: "hrPrinterDetectedErrorState.offline", Description: "Offline"}},
 			Supplies: []model.Supply{{Description: "Labels", Percent: 30, State: "ok"}}}}
-	flap := model.Conflict{ID: "c1", Kind: model.ConflictMACFlap, Severity: "fail", IPs: []string{"10.0.0.44"}}
+	flap := model.Conflict{ID: "c1", Kind: model.ConflictMACFlap, Severity: "fail", IPs: []string{"10.0.0.44"},
+		MACs: []string{"02:00:5E:00:00:44", "02:00:5E:00:00:45"}}
 	r := model.ScanResult{Hosts: []model.Host{zebra}, Conflicts: []model.Conflict{flap}}
 	set := store.DefaultSettings()
 	ps := Current(r, set)
@@ -286,6 +289,15 @@ func TestCurrentPrinterAndConflicts(t *testing.T) {
 	}
 	if ps[1].Detail != "Labels at 30%" || ps[2].Title != TitlePossible {
 		t.Errorf("supply %q, conflict %q", ps[1].Detail, ps[2].Title)
+	}
+	// Ignore this MAC: a finished scan keeps the conflict, the card drops it
+	// (as the page does), whatever the case and separators of the MAC.
+	set.IgnoredConflictMACs = []string{"02-00-5e-00-00-45"}
+	if got := kinds(Current(r, set)); !reflect.DeepEqual(got, []string{"printerAlert:critical", "supplyLow:warning"}) {
+		t.Errorf("ignored MAC: %v", got)
+	}
+	if is := HostIssues(model.Host{IP: "10.0.0.44", Alive: true, Online: true}, set, r.Conflicts); len(is) != 0 {
+		t.Errorf("ignored MAC on the Problems tab: %+v", is)
 	}
 }
 
@@ -371,6 +383,14 @@ func TestViewLedger(t *testing.T) {
 	if len(v.Open) != 1 || v.Open[0].Key != "printerOffline|ip:10.0.0.9|" || v.Open[0].Since != "2026-10-17T10:30:00Z" {
 		t.Fatalf("open: %+v", v.Open)
 	}
+	if a := v.Alerted(); len(a) != 1 || a[0].Key != v.Open[0].Key {
+		t.Errorf("alerted: %+v", a)
+	}
+	// Without the ledger nothing was alerted on: the team chat burst posts
+	// nothing a later OK would not close.
+	if a := NewView(Input{Source: SourceLive, Result: r, Settings: store.DefaultSettings(), Now: now}).Alerted(); len(a) != 0 {
+		t.Errorf("alerted without a ledger: %+v", a)
+	}
 	var keys []string
 	for _, f := range v.Fixed {
 		keys = append(keys, f.Key)
@@ -391,5 +411,114 @@ func TestViewLedger(t *testing.T) {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("JSON lacks %s: %s", want, b)
 		}
+	}
+}
+
+// Two printers behind one MAC (a range extender), both offline: each item
+// has its own key and start. The ledger's entry under the shared MAC key is
+// the printer's that opened it (its address), as the engine's belongs says;
+// the other printer keeps its own "ip:" key and start.
+func TestViewSharedMAC(t *testing.T) {
+	now := time.Date(2026, 10, 17, 10, 42, 0, 0, time.UTC)
+	const net, mac = "n-0123456789ab", "02:00:5E:00:01:04"
+	a := model.Host{IP: "10.0.1.4", Alive: true, IsPrinter: true, MAC: mac, OfflineSince: "2026-10-17T10:30:00Z"}
+	b := model.Host{IP: "10.0.1.8", Alive: true, IsPrinter: true, MAC: mac, OfflineSince: "2026-10-17T10:31:00Z"}
+	r := &model.ScanResult{Hosts: []model.Host{a, b}, Health: fineHealth()}
+	view := func(open []Entry, fixed []Fixed) View {
+		return NewView(Input{Source: SourceLive, Result: r, Settings: store.DefaultSettings(), Network: net, Now: now, Open: open, Fixed: fixed})
+	}
+	keysOf := func(v View) map[string]string {
+		out := map[string]string{}
+		for _, p := range v.Open {
+			if _, dup := out[p.Key]; dup {
+				t.Errorf("two items have the key %s: %+v", p.Key, v.Open)
+			}
+			out[p.Key] = p.Device.IP + " " + p.Since
+		}
+		return out
+	}
+
+	// Without a ledger (a one-shot scan) the second printer has its "ip:" key.
+	if got := keysOf(view(nil, nil)); !reflect.DeepEqual(got, map[string]string{
+		"printerOffline|" + mac + "|": "10.0.1.4 2026-10-17T10:30:00Z",
+		"printerOffline|ip:10.0.1.8|": "10.0.1.8 2026-10-17T10:31:00Z"}) {
+		t.Errorf("no ledger: %v", got)
+	}
+
+	// The engine opened both: the MAC key for .4, the "ip:" key for .8.
+	v := view([]Entry{
+		{Key: "printerOffline|" + mac + "|", IP: a.IP, MAC: mac, Network: net, OpenedAt: "2026-10-17T10:12:00Z"},
+		{Key: "printerOffline|ip:10.0.1.8|", IP: b.IP, MAC: mac, Network: net, OpenedAt: "2026-10-17T10:14:00Z"},
+	}, nil)
+	if got := keysOf(v); !reflect.DeepEqual(got, map[string]string{
+		"printerOffline|" + mac + "|": "10.0.1.4 2026-10-17T10:12:00Z",
+		"printerOffline|ip:10.0.1.8|": "10.0.1.8 2026-10-17T10:14:00Z"}) {
+		t.Errorf("both opened: %v", got)
+	}
+	if len(v.Alerted()) != 2 {
+		t.Errorf("alerted: %+v", v.Alerted())
+	}
+
+	// .8 went offline first and has the MAC key: .4 is not alerted yet, so
+	// it takes its "ip:" key and keeps its own start.
+	v = view([]Entry{{Key: "printerOffline|" + mac + "|", IP: b.IP, MAC: mac, Network: net, OpenedAt: "2026-10-17T10:14:00Z"}}, nil)
+	if got := keysOf(v); !reflect.DeepEqual(got, map[string]string{
+		"printerOffline|ip:10.0.1.4|": "10.0.1.4 2026-10-17T10:30:00Z",
+		"printerOffline|" + mac + "|": "10.0.1.8 2026-10-17T10:14:00Z"}) {
+		t.Errorf(".8 first: %v", got)
+	}
+	if al := v.Alerted(); len(al) != 1 || al[0].Device.IP != b.IP {
+		t.Errorf("alerted: %+v", al)
+	}
+
+	// A device that moved: its problem opened at 10.0.1.5, where another MAC
+	// answers now, so the entry is the printer's at its new address.
+	moved := model.Host{IP: "10.0.1.5", Alive: true, Online: true, MAC: "02:00:5E:00:01:55"}
+	r = &model.ScanResult{Hosts: []model.Host{a, moved}, Health: fineHealth()}
+	v = view([]Entry{{Key: "printerOffline|" + mac + "|", IP: "10.0.1.5", MAC: mac, Network: net, OpenedAt: "2026-10-17T09:00:00Z"}}, nil)
+	if len(v.Open) != 1 || v.Open[0].Since != "2026-10-17T09:00:00Z" || !v.Open[0].alerted {
+		t.Errorf("moved: %+v", v.Open)
+	}
+
+	// Fixed: a printer offline again under its MAC key hides its fix under
+	// the "ip:" key it had before its MAC was known; the other printer's fix
+	// under the shared MAC key stays listed.
+	r = &model.ScanResult{Hosts: []model.Host{b}, Health: fineHealth()}
+	v = view(nil, []Fixed{
+		{Key: "printerOffline|ip:10.0.1.8|", Title: "Printer back online", IP: b.IP, Network: net, FixedAt: "2026-10-17T10:20:00Z"},
+		{Key: "printerOffline|" + mac + "|", Title: "Printer back online", IP: a.IP, Network: net, FixedAt: "2026-10-17T10:21:00Z"},
+	})
+	if len(v.Fixed) != 1 || v.Fixed[0].Device.IP != a.IP {
+		t.Errorf("fixed: %+v", v.Fixed)
+	}
+}
+
+// Everything is not fine while the first pass still sweeps (devices it has
+// not reached are unknown) or while the storm guard holds (the list is from
+// before); the view says why it holds.
+func TestEverythingFineRunningOrHeld(t *testing.T) {
+	r := &model.ScanResult{State: model.StateLive, Hosts: []model.Host{{IP: "10.0.0.1", Alive: true, Online: true}}, Health: fineHealth()}
+	in := Input{Source: SourceLive, Watching: true, Result: r, Settings: store.DefaultSettings()}
+	if v := NewView(in); !v.EverythingFine || v.Held {
+		t.Fatalf("live: %+v", v)
+	}
+	running := *r
+	running.State = model.StateRunning
+	in.Result = &running
+	if v := NewView(in); v.EverythingFine {
+		t.Errorf("first pass: %+v", v)
+	}
+	in.Result = r
+	in.Held, in.HeldReason, in.HeldSince = true, model.HeldNetworkChanged, "2026-10-17T10:40:00Z"
+	v := NewView(in)
+	if v.EverythingFine || !v.Held || v.HeldReason != model.HeldNetworkChanged || v.HeldSince != in.HeldSince {
+		t.Errorf("held: %+v", v)
+	}
+	b, _ := json.Marshal(v)
+	if !strings.Contains(string(b), `"held":true,"heldReason":"network_changed"`) {
+		t.Errorf("JSON: %s", b)
+	}
+	if b, _ := json.Marshal(NewView(Input{Source: SourceLatest, Result: r})); strings.Contains(string(b), "held") {
+		t.Errorf("not held: %s", b)
 	}
 }

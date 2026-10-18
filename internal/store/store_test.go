@@ -216,6 +216,28 @@ func TestHistory(t *testing.T) {
 	}
 }
 
+// LatestScan is the newest saved scan that reads, past a damaged newer file
+// (the Problems right now card reads it every minute, so it does not decode
+// the whole history).
+func TestLatestScan(t *testing.T) {
+	s := open(t)
+	if _, ok := s.LatestScan(); ok {
+		t.Fatal("empty history has a latest scan")
+	}
+	for i := 0; i < 3; i++ {
+		if err := s.SaveScan(scan(fmt.Sprintf("s%02d", i), i, "10.0.0.0/24")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if r, ok := s.LatestScan(); !ok || r.ID != "s02" {
+		t.Fatalf("latest %v %v", r.ID, ok)
+	}
+	os.WriteFile(filepath.Join(s.Dir(), "history", "20990101T000000Z-bad.json"), []byte("xx"), 0o644)
+	if r, ok := s.LatestScan(); !ok || r.ID != "s02" {
+		t.Fatalf("latest past a damaged file %v %v", r.ID, ok)
+	}
+}
+
 func TestOversizeTruncatesHosts(t *testing.T) {
 	s := open(t)
 	r := scan("huge", 1, "c")

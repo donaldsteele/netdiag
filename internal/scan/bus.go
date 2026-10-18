@@ -153,6 +153,16 @@ func (b *Bus) Subscribe() (<-chan model.Event, func()) {
 	}
 }
 
+// Live returns the latest live status; ok is false before the first.
+func (b *Bus) Live() (st model.LiveStatus, ok bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.live != nil {
+		st, ok = b.live.Data.(model.LiveStatus)
+	}
+	return st, ok
+}
+
 // Hosts returns copies of all known hosts sorted by IP.
 func (b *Bus) Hosts() []model.Host {
 	b.mu.Lock()

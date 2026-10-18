@@ -8,6 +8,7 @@ package problems
 import (
 	"fmt"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -59,8 +60,11 @@ type Problem struct {
 	Advice *model.Advice `json:"advice,omitempty"`
 
 	// keys are the keys the problem may be open under in the ledger
-	// (notify.HostKeys): Key first.
+	// (notify.HostKeys: the MAC key, then the "ip:" key).
 	keys []string
+	// alerted: the ledger holds the problem open under Key (NewView), so
+	// netdiag alerted on it and its OK will close it (View.Alerted).
+	alerted bool
 }
 
 // rank orders severities: critical first.
@@ -125,6 +129,32 @@ func checkName(c model.HealthCheck) string {
 	return c.ID
 }
 
+// normMAC is a MAC as conflicts and the ignore list carry it.
+func normMAC(m string) string {
+	return strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(m), "-", ":"))
+}
+
+// activeConflicts are the conflicts of cs that involve none of the MACs the
+// person ignored (Settings, Ignore this MAC): the page drops such a conflict
+// as soon as the MAC is ignored (app.js ignoreMac, conflictsFor), while a
+// finished scan keeps the conflicts it found.
+func activeConflicts(cs []model.Conflict, set model.Settings) []model.Conflict {
+	if len(set.IgnoredConflictMACs) == 0 {
+		return cs
+	}
+	ign := make(map[string]bool, len(set.IgnoredConflictMACs))
+	for _, m := range set.IgnoredConflictMACs {
+		ign[normMAC(m)] = true
+	}
+	var out []model.Conflict
+	for _, c := range cs {
+		if !slices.ContainsFunc(c.MACs, func(m string) bool { return ign[normMAC(m)] }) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // Current lists what is wrong in r right now, most urgent first, for the
 // Problems right now card. Each item follows its Alerts trigger in set:
 //
@@ -137,11 +167,18 @@ func checkName(c model.HealthCheck) string {
 //   - each printer alert (printerAlert; the printer's own severity) and
 //     each supply at or below the threshold (supplyLow, a warning);
 //   - each conflict (ipConflict; critical only for two devices seen taking
-//     turns at one address).
+//     turns at one address) that involves no MAC the person ignored.
 //
 // The severities are the one severity map (notify, v0.6-D3). The keys are
-// the alert keys, without the ledger's: View swaps in the key a problem is
-// open under and its start.
+// the alert keys, each item's its own: a second device behind the same MAC
+// (a range extender) gets its "ip:" key, as the engine opens it. NewView
+// swaps in the key a problem is open under in the ledger and its start.
+//
+// Current is what is wrong, not what netdiag alerted on: it also lists what
+// the alert engine never opens (a check that could not run, a supply the
+// printer calls low above the threshold, a one-shot scan's failed check,
+// which has no streak of two). Team chat posts only View.Alerted, whose
+// cards an OK closes.
 func Current(r model.ScanResult, set model.Settings) []Problem {
 	tr := set.Alerts.Triggers
 	thr := supplyThreshold(set)
@@ -151,6 +188,28 @@ func Current(r model.ScanResult, set model.Settings) []Problem {
 	}
 	x := advice.Ctx{GOOS: runtime.GOOS, Gateway: r.Gateway, Hosts: byIP}
 	var out []Problem
+	// add appends p under the first of its keys that no earlier item of
+	// another device has (Engine.hostKey). An item whose key the same device
+	// already has is the same problem again (a printer listing one alert
+	// twice), and is left out.
+	taken := map[string]string{} // key -> the device address of its item
+	add := func(p Problem) {
+		ip := ""
+		if p.Device != nil {
+			ip = p.Device.IP
+		}
+		for _, k := range p.keys {
+			owner, ok := taken[k]
+			if !ok {
+				p.Key, taken[k] = k, ip
+				out = append(out, p)
+				return
+			}
+			if owner == ip {
+				return
+			}
+		}
+	}
 
 	if tr.HealthFailed && r.Health != nil {
 		for _, c := range r.Health.Checks {
@@ -171,7 +230,7 @@ func Current(r model.ScanResult, set model.Settings) []Problem {
 				p.Advice = advice.Health(c, x)
 			}
 			p.keys = []string{p.Key}
-			out = append(out, p)
+			add(p)
 		}
 	}
 
@@ -185,7 +244,7 @@ func Current(r model.ScanResult, set model.Settings) []Problem {
 				trig, title = model.TriggerPrinterOffline, "Printer offline"
 			}
 			if trig == model.TriggerPrinterOffline && tr.PrinterOffline || trig == model.TriggerDeviceOffline && tr.DeviceOffline {
-				out = append(out, hostProblem(trig, h, "", notify.TriggerSeverity(trig), title, "", h.OfflineSince, x))
+				add(hostProblem(trig, h, "", notify.TriggerSeverity(trig), title, "", h.OfflineSince, x))
 			}
 			continue
 		}
@@ -202,7 +261,7 @@ func Current(r model.ScanResult, set model.Settings) []Problem {
 				it := hostProblem(model.TriggerPrinterAlert, h, notify.AlertPart(a), notify.AlertSeverity(a), "Printer alert", d, "", x)
 				it.Advice = advice.Notice(model.Notice{Trigger: model.TriggerPrinterAlert, IP: h.IP, Code: a.Code, Detail: a.Description,
 					Message: d}, &h, x)
-				out = append(out, it)
+				add(it)
 			}
 		}
 		if tr.SupplyLow {
@@ -217,13 +276,13 @@ func Current(r model.ScanResult, set model.Settings) []Problem {
 				}
 				it := hostProblem(model.TriggerSupplyLow, h, parts[i], notify.TriggerSeverity(model.TriggerSupplyLow), "Supply low", d, "", x)
 				it.Advice = advice.Notice(model.Notice{Trigger: model.TriggerSupplyLow, IP: h.IP, Detail: s.Description, Message: d}, &h, x)
-				out = append(out, it)
+				add(it)
 			}
 		}
 	}
 
 	if tr.IPConflict {
-		for _, c := range r.Conflicts {
+		for _, c := range activeConflicts(r.Conflicts, set) {
 			p := Problem{Key: notify.ConflictKey(c), Kind: model.TriggerIPConflict, Severity: cardSeverity(notify.ConflictSeverity(c)),
 				Title: "Network conflict", Detail: strings.Join(c.IPs, ", "), Advice: c.Advice}
 			if !advice.SwapSeen(c, x) {
@@ -240,7 +299,7 @@ func Current(r model.ScanResult, set model.Settings) []Problem {
 				p.Advice = advice.Conflict(c, x)
 			}
 			p.keys = []string{p.Key}
-			out = append(out, p)
+			add(p)
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return rank(out[i].Severity) < rank(out[j].Severity) })
@@ -284,17 +343,17 @@ type Issue struct {
 // HostIssues lists why device h is on the Problems tab, broader than the
 // card and regardless of the Alerts triggers: it is offline (phones
 // included), in one of conflicts (one whose id the device lists, or that
-// names its address), a printer with alerts or a supply that is low, empty
-// or at or below the threshold in set, or a web page that failed or
-// answered with an HTTP error. The page's isProblem (web/app.js
-// hostIssues) mirrors it; testdata/problems/hosts.json holds the cases both
-// test against.
+// names its address, and that involves no MAC ignored in set), a printer
+// with alerts or a supply that is low, empty or at or below the threshold
+// in set, or a web page that failed or answered with an HTTP error. The
+// page's isProblem (web/app.js hostIssues) mirrors it;
+// testdata/problems/hosts.json holds the cases both test against.
 func HostIssues(h model.Host, set model.Settings, conflicts []model.Conflict) []Issue {
 	var out []Issue
 	if offline(h) {
 		out = append(out, Issue{Kind: IssueOffline})
 	}
-	for _, c := range conflicts {
+	for _, c := range activeConflicts(conflicts, set) {
 		if containsStr(h.Conflicts, c.ID) || containsStr(c.IPs, h.IP) {
 			out = append(out, Issue{Kind: IssueConflict, Detail: c.Kind})
 			break
@@ -350,16 +409,39 @@ type FixedItem struct {
 
 // View is GET /api/problems.
 type View struct {
-	// CheckedAt is when the scan behind it last looked (RFC 3339).
+	// CheckedAt is when the scan behind it last looked (RFC 3339): the
+	// newest of its end (or start, while it runs), the end of its first
+	// pass, its last live cycle that checked and its health report.
 	CheckedAt string `json:"checkedAt,omitempty"`
 	Source    string `json:"source"`
 	// Watching is true while a live-mode scan runs.
 	Watching bool `json:"watching"`
-	// EverythingFine: there is a scan to speak for, its health checks ran
-	// (unless health alerts are off), and nothing is a warning or worse.
+	// Held is the storm guard of the running live scan (model.LiveStatus):
+	// its checks are paused (HeldReason link or gateway) or its alerts
+	// stopped (network_changed), so what the card lists is from before.
+	Held       bool   `json:"held,omitempty"`
+	HeldReason string `json:"heldReason,omitempty"`
+	HeldSince  string `json:"heldSince,omitempty"`
+	// EverythingFine: there is a scan to speak for that has finished its
+	// first pass and is not held, its health checks ran (unless health
+	// alerts are off), and nothing is a warning or worse.
 	EverythingFine bool        `json:"everythingFine"`
 	Open           []Problem   `json:"open"`
 	Fixed          []FixedItem `json:"fixed"`
+}
+
+// Alerted lists the open items the ledger holds open, under the ledger's
+// key, most urgent first: the problems netdiag alerted on, which their OK
+// notice closes. The team chat first-connect burst (v0.6 §4.9, M11) posts
+// these, never Current's items, so every card it posts is closed by an OK.
+func (v View) Alerted() []Problem {
+	var out []Problem
+	for _, p := range v.Open {
+		if p.alerted {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Input is what NewView needs.
@@ -367,6 +449,11 @@ type Input struct {
 	Source    string
 	Watching  bool
 	CheckedAt string
+	// Held, HeldReason and HeldSince are the running live scan's storm
+	// guard (model.LiveStatus).
+	Held       bool
+	HeldReason string
+	HeldSince  string
 	// Result is the scan to speak for (nil for SourceNone).
 	Result   *model.ScanResult
 	Settings model.Settings
@@ -380,14 +467,40 @@ type Input struct {
 	Now   time.Time
 }
 
-// NewView builds the card's answer. An open problem the ledger has under
-// one of its keys takes that key and its OpenedAt; the fixed list holds
-// the network's problems fixed in the last FixedFor that are not open
-// again, newest first.
+// hostKind reports whether trigger is about one device, whose ledger
+// entry must be that device's (owns).
+func hostKind(trigger string) bool {
+	switch trigger {
+	case model.TriggerPrinterOffline, model.TriggerDeviceOffline, model.TriggerPrinterAlert, model.TriggerSupplyLow:
+		return true
+	}
+	return false
+}
+
+// owns reports whether the ledger's open problem e, found under one of p's
+// keys, is p (the engine's belongs): several devices can answer with one MAC
+// (a range extender), so a device's problem is p's when it opened at p's
+// address, or when its device moved there (another MAC answers at its old
+// address now).
+func owns(e Entry, p Problem, byIP map[string]model.Host) bool {
+	if !hostKind(p.Kind) || p.Device == nil || e.IP == "" || e.IP == p.Device.IP {
+		return true
+	}
+	h, ok := byIP[e.IP]
+	return ok && h.MAC != "" && e.MAC != "" && normMAC(h.MAC) != normMAC(e.MAC)
+}
+
+// NewView builds the card's answer. An open problem the ledger holds under
+// one of its keys, for its device, takes that key and its OpenedAt (and is
+// Alerted); the others keep Current's key unless an alerted item has it,
+// then they take their next one. The fixed list holds the network's
+// problems fixed in the last FixedFor that are not open again, newest
+// first.
 func NewView(in Input) View {
-	v := View{Source: in.Source, Watching: in.Watching, CheckedAt: in.CheckedAt, Open: []Problem{}, Fixed: []FixedItem{}}
+	v := View{Source: in.Source, Watching: in.Watching, CheckedAt: in.CheckedAt, Held: in.Held, HeldReason: in.HeldReason,
+		HeldSince: in.HeldSince, Open: []Problem{}, Fixed: []FixedItem{}}
 	if in.Result == nil {
-		v.Source = SourceNone
+		v.Source, v.Held, v.HeldReason, v.HeldSince = SourceNone, false, "", ""
 		return v
 	}
 	opened := map[string]Entry{}
@@ -396,26 +509,70 @@ func NewView(in Input) View {
 			opened[e.Key] = e
 		}
 	}
-	open := map[string]bool{}
-	for _, p := range Current(*in.Result, in.Settings) {
+	byIP := make(map[string]model.Host, len(in.Result.Hosts))
+	for _, h := range in.Result.Hosts {
+		byIP[h.IP] = h
+	}
+	ps := Current(*in.Result, in.Settings)
+	used := map[string]bool{}
+	for i := range ps {
+		p := &ps[i]
 		for _, k := range p.keys {
-			if e, ok := opened[k]; ok {
-				p.Key = k
+			if e, ok := opened[k]; ok && !used[k] && owns(e, *p, byIP) {
+				p.Key, p.alerted, used[k] = k, true, true
 				if e.OpenedAt != "" {
 					p.Since = e.OpenedAt
 				}
 				break
 			}
 		}
-		open[p.Key] = true
+	}
+	for i := range ps {
+		p := &ps[i]
+		if p.alerted {
+			continue
+		}
+		if used[p.Key] {
+			for _, k := range p.keys {
+				if !used[k] {
+					p.Key = k
+					break
+				}
+			}
+		}
+		used[p.Key] = true
+	}
+	// open: the device addresses ("" for none) of the open items under each
+	// of their keys, so a fixed entry under any key of an open problem is
+	// not listed as fixed too.
+	open := map[string][]string{}
+	for _, p := range ps {
+		ip := ""
+		if p.Device != nil && hostKind(p.Kind) {
+			ip = p.Device.IP
+		}
+		for _, k := range p.keys {
+			open[k] = append(open[k], ip)
+		}
 		v.Open = append(v.Open, p)
 	}
+	reopened := func(f Fixed) bool {
+		for _, ip := range open[f.Key] {
+			if ip == "" || f.IP == "" || ip == f.IP {
+				return true
+			}
+		}
+		return false
+	}
 	hasHealth := in.Result.Health != nil && len(in.Result.Health.Checks) > 0
-	v.EverythingFine = EverythingFine(v.Open) && (hasHealth || !in.Settings.Alerts.Triggers.HealthFailed)
+	// While the first pass still sweeps, the devices it has not reached yet
+	// are unknown; while the storm guard holds, the list is from before.
+	v.EverythingFine = EverythingFine(v.Open) && (hasHealth || !in.Settings.Alerts.Triggers.HealthFailed) &&
+		in.Result.State != model.StateRunning && !in.Held
 
 	for i := len(in.Fixed) - 1; i >= 0; i-- {
 		f := in.Fixed[i]
-		if f.Network != in.Network || open[f.Key] || olderThan(f.FixedAt, in.Now, FixedFor) {
+		if f.Network != in.Network || reopened(f) || olderThan(f.FixedAt, in.Now, FixedFor) {
 			continue
 		}
 		kind, _, _ := strings.Cut(f.Key, "|")

@@ -1,15 +1,21 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"netdiag/internal/health"
 	"netdiag/internal/model"
 	"netdiag/internal/problems"
+	"netdiag/internal/scan"
 )
 
 // GET /api/problems (v0.6 #1) needs no session token. Without a scan it
@@ -91,6 +97,70 @@ func TestProblemsLatestScanAndHealthRun(t *testing.T) {
 	waitState(t, u, id, "live")
 	if _, b := raw(t, "GET", u+"/api/problems", "", ""); !strings.Contains(b, `"source":"live"`) || !strings.Contains(b, `"watching":true`) {
 		t.Errorf("live: %s", b)
+	}
+}
+
+// linkEnv is this computer's link: Self fails while down is set, which the
+// storm guard takes for a lost link (v0.6-D36).
+type linkEnv struct{ down *atomic.Bool }
+
+func (e linkEnv) Self(string) (model.SelfInfo, error) {
+	if e.down.Load() {
+		return model.SelfInfo{}, errors.New("no usable IPv4 interface")
+	}
+	return model.SelfInfo{IP: "10.0.0.30", Interface: "eth0"}, nil
+}
+func (linkEnv) Gateway() (string, error) { return "10.0.0.1", nil }
+
+// okChecks is a scan's health checker whose checks are all fine.
+type okChecks struct{ now func() time.Time }
+
+func (c okChecks) Run(context.Context, health.Input) model.HealthReport {
+	return model.HealthReport{CheckedAt: c.now().UTC().Format(time.RFC3339), Checks: []model.HealthCheck{{ID: "gateway", Status: model.HealthOK}}}
+}
+
+// While the storm guard holds a live scan, the card does not say
+// "Everything looks fine" (the list is from before) and says why; its
+// checkedAt is when the scan last looked (its clock here), never the time of
+// the request.
+func TestProblemsHeldLiveScan(t *testing.T) {
+	down := &atomic.Bool{}
+	looked := time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return looked }
+	_, u, _ := startStoreWith(t, func(d *scan.Deps) {
+		d.Env, d.Now, d.LiveInterval, d.Health = linkEnv{down}, clock, 50*time.Millisecond, okChecks{clock}
+	})
+	r, b := doj(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/30","live":true}`, "application/json")
+	if r.StatusCode != 202 {
+		t.Fatalf("live start: %d %s", r.StatusCode, b)
+	}
+	waitState(t, u, idOf(t, b), "live")
+	poll := func(what string, ok func(problems.View) bool) problems.View {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			_, b := raw(t, "GET", u+"/api/problems", "", "")
+			var v problems.View
+			if err := json.Unmarshal([]byte(b), &v); err != nil {
+				t.Fatal(err)
+			}
+			if ok(v) {
+				return v
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: %s", what, b)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	v := poll("live and fine", func(v problems.View) bool { return v.Source == problems.SourceLive && v.EverythingFine })
+	if v.Held || !v.Watching || v.CheckedAt != looked.Format(time.RFC3339) {
+		t.Errorf("live: %+v", v)
+	}
+	down.Store(true)
+	v = poll("held", func(v problems.View) bool { return v.Held })
+	if v.EverythingFine || v.HeldReason != model.HeldLink || v.HeldSince == "" || v.CheckedAt != looked.Format(time.RFC3339) {
+		t.Errorf("held: %+v", v)
 	}
 }
 

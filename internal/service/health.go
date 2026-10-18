@@ -15,7 +15,9 @@ import (
 const healthRunCap = 10 * time.Second
 
 // LatestHealth returns the most relevant health report: running scan, then
-// live scans, then history, unless an on-demand run (RunHealth) is newer.
+// live scans, then history, unless an on-demand run (RunHealth) of the same
+// network is newer (standsIn). With no report at all and no scan running,
+// it is the on-demand run's.
 func (s *Service) LatestHealth() (*model.HealthReport, bool) {
 	var best *model.HealthReport
 	consider := func(h *model.HealthReport) {
@@ -23,7 +25,8 @@ func (s *Service) LatestHealth() (*model.HealthReport, bool) {
 			best = h
 		}
 	}
-	if sc, ok := s.cfg.Registry.Running(); ok {
+	sc, running := s.cfg.Registry.Running()
+	if running {
 		consider(sc.Snapshot().Health)
 	}
 	if best == nil {
@@ -40,8 +43,9 @@ func (s *Service) LatestHealth() (*model.HealthReport, bool) {
 			}
 		}
 	}
-	// Check again: a newer on-demand run says how things are now.
-	if h := s.lastHealthRun(); h != nil && (best == nil || h.CheckedAt > best.CheckedAt) {
+	// Check again: a newer on-demand run of the same network says how
+	// things are now.
+	if h := s.lastHealthRun(); h != nil && (best == nil && !running || best != nil && standsIn(h, best, best.Network, false)) {
 		best = h
 	}
 	return best, best != nil

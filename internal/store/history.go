@@ -256,6 +256,22 @@ func (s *Store) ListHistory() ([]model.HistoryEntry, error) {
 	return out, nil
 }
 
+// LatestScan returns the newest saved scan that can be read; ok is false
+// when there is none. It reads files newest first and stops at the first
+// that decodes, so a caller that only wants the newest scan (the Problems
+// right now card, read every minute) does not decode the whole history the
+// way ListHistory does.
+func (s *Store) LatestScan() (model.ScanResult, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, f := range s.files() {
+		if r, err := s.readScan(f); err == nil {
+			return r, true
+		}
+	}
+	return model.ScanResult{}, false
+}
+
 func (s *Store) find(id string) (fileInfo, bool) {
 	if !idRe.MatchString(id) {
 		return fileInfo{}, false

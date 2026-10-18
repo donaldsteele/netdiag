@@ -356,6 +356,10 @@ func (s *Scan) Network() string {
 	return s.network
 }
 
+// LiveStatus is the latest live status of a live-mode scan (its last cycle,
+// whether it checked, and the storm guard); ok is false until it went live.
+func (s *Scan) LiveStatus() (model.LiveStatus, bool) { return s.bus.Live() }
+
 // ApplySettings applies changed settings (alert triggers, threshold,
 // cooldown, health config, ignored conflict MACs) to a running scan and
 // re-analyzes conflicts. It reports false if the scan is not running.
