@@ -112,6 +112,9 @@ test("Restart watching from the banner watches the address range this computer h
 
 for (const theme of THEMES) {
   test(`held pill and banners are axe clean (${theme})`, async ({ page }, testInfo) => {
+    // A new device's row fades in (rowin, 0.6 s): axe must not measure its
+    // contrast halfway through.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await liveWith(page, held('network_changed'), theme);
     await expect(banners(page).filter({ hasText: 'This computer is on a different network' })).toHaveCount(1);
     await runAxe(page, `held-${theme}`, testInfo);
