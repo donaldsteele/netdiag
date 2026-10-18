@@ -217,6 +217,7 @@ func (s *Server) routes() []route {
 		f("GET /api/settings", s.handleGetSettings),
 		f("PUT /api/settings", s.handlePutSettings),
 		f("GET /api/health", s.handleHealth),
+		f("GET /api/problems", s.handleProblems),
 		f("POST /api/health/run", s.handleHealthRun),
 		f("GET /api/history", s.handleHistory),
 		f("GET /api/history/{id}", s.handleHistoryGet),

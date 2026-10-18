@@ -383,6 +383,61 @@ export function fixedNotice(n = 2) {
     at, key: f.key, ok: true, openedAt: f.at };
 }
 
+// The Problems right now card (GET /api/problems, internal/problems
+// NewView). problemItems(): what problems.Current gives for hosts() and
+// conflict() with the default Alerts settings (TestUITestFixtureProblems in
+// internal/problems checks the keys and words); healthProblems(report)
+// mirrors its health part: a failed check is a problem (critical for the
+// gateway), one that could not run a warning, a warning a note.
+const BROTHER = { ip: ip(10), mac: '00:1B:A9:12:34:56', name: 'BRW001BA9123456' };
+export function problemItems() {
+  return [
+    { key: 'printerAlert|00:1B:A9:12:34:56|toner-low|ae7828e7', kind: 'printerAlert', severity: 'warning', title: 'Printer alert',
+      detail: 'Toner low, replace soon', device: { ...BROTHER } },
+    { key: 'supplyLow|00:1B:A9:12:34:56|1c3936d3', kind: 'supplyLow', severity: 'warning', title: 'Supply low',
+      detail: 'Black Toner at 15%', device: { ...BROTHER }, advice: notice(1).advice },
+    { key: 'supplyLow|64:EB:8C:20:00:20|41dba9b9', kind: 'supplyLow', severity: 'warning', title: 'Supply low',
+      detail: 'Cyan Ink at 0%', device: { ip: ip(20), mac: '64:EB:8C:20:00:20', name: 'WF-4745' } },
+    { key: 'ipConflict|mac_multi_ip|00:1B:A9:AA:00:30', kind: 'ipConflict', severity: 'warning', title: 'Possible conflict',
+      detail: `${ip(30)}, ${ip(31)}`, device: { ip: ip(30), mac: '00:1B:A9:AA:00:30' }, advice: conflict().advice },
+  ];
+}
+export function healthProblems(report) {
+  const out = [];
+  for (const c of (report && report.checks) || []) {
+    const done = c.status !== 'unavailable' || ((c.id === 'wifi' || c.id === 'dhcp') && (c.data || {}).reason !== 'timeout');
+    let severity, title;
+    if (c.status === 'fail') { severity = c.id === 'gateway' ? 'critical' : 'warning'; title = 'Health check failed'; }
+    else if (!done) { severity = 'warning'; title = 'Health check could not run'; }
+    else if (c.status === 'warn') { severity = 'info'; title = 'Health check warning'; }
+    else if (c.status === 'unavailable') { severity = 'info'; title = 'Health check could not run'; }
+    else continue;
+    const p = { key: 'healthFailed||' + c.id, kind: 'healthFailed', severity, title, detail: c.label || c.id, check: c.id };
+    if (c.advice) p.advice = c.advice;
+    out.push(p);
+  }
+  return out;
+}
+// fixedItems(): problems the ledger saw fixed today: the device of
+// notice(2), back after 12 minutes, and the DNS check.
+export function fixedItems() {
+  const at = Date.now() - 60000;
+  return [
+    { key: 'deviceOffline|00:50:56:AB:CD:EF|', kind: 'deviceOffline', title: 'Device back online', device: { ip: ip(200) },
+      openedAt: new Date(at - 12 * 60000).toISOString(), fixedAt: new Date(at).toISOString(), downForSec: 720 },
+    { key: 'healthFailed||dns', kind: 'healthFailed', title: 'Health check OK again',
+      openedAt: new Date(at - 47 * 60000).toISOString(), fixedAt: new Date(at - 40 * 60000).toISOString(), downForSec: 420 },
+  ];
+}
+const RANK = { critical: 0, warning: 1, info: 2 };
+// problemsView(): the GET /api/problems answer for these items, most urgent
+// first; everything is fine when there is a health report and nothing is
+// a warning or worse.
+export function problemsView({ open = [], fixed = [], source = 'latest', watching = false, checkedAt = T1, hasHealth = true } = {}) {
+  const sorted = [...open].sort((a, b) => RANK[a.severity] - RANK[b.severity]);
+  return { checkedAt, source, watching, everythingFine: hasHealth && sorted.every((p) => p.severity === 'info'), open: sorted, fixed };
+}
+
 // The storm guard (v0.6 F9c): a live status while it holds, and its local
 // netdiagLink notice (reason link or network_changed; the advice is the
 // catalogue's, TestUITestFixtureAdvice). The two reasons' notices have

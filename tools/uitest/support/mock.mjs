@@ -73,10 +73,18 @@ const matchId = (re, p) => {
 // /api/bubbles/test answer (sent alert by default). Specs may change
 // rec.chat, rec.channels, rec.pairStates and rec.testResult while the page
 // runs; rec.chatCalls lists the team chat actions in order.
+// problems: GET /api/problems (the Problems right now card). By default it
+// follows the mocked health report (fx.healthProblems, while the "Health
+// check fails" alert is on) plus, once a scan was started or one is
+// running, what the fixture scan has wrong (fx.problemItems); 'fine' leaves
+// the scan's items out, 'some' always has them, 'fixed' adds fx.fixedItems.
+// An object (or a function returning one) is served as it is. Specs may
+// change rec.problems while the page runs; rec.problemsCalls counts reads.
 export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired, health: healthState = 'default', osOpen = 204, running = false, identity = 'ok', session = SESSION, stale = false,
-  chat = 'off', chatExtra = {}, found = {}, pairStates = ['pending', 'approved'], channels = [fx.CHAT_CHANNEL], pairError = '', testResult = null } = {}) {
+  chat = 'off', chatExtra = {}, found = {}, pairStates = ['pending', 'approved'], channels = [fx.CHAT_CHANNEL], pairError = '', testResult = null, problems } = {}) {
   const rec = { requests: [], unmatched: [], unauthorized: [], external: [], sse: [], running, identity, frames: null, identityCalls: 0, runningCalls: 0, scanId: fx.SCAN_ID, session,
-    chat: fx.bubblesStatus(chat, chatExtra), pairError, channels: [...channels], pairStates: [...pairStates], pairPolls: -1, testResult, chatCalls: [], chatReads: 0 };
+    chat: fx.bubblesStatus(chat, chatExtra), pairError, channels: [...channels], pairStates: [...pairStates], pairPolls: -1, testResult, chatCalls: [], chatReads: 0,
+    problems, problemsCalls: 0, scanned: false };
   const origin = new URL(BASE_URL).origin;
   const MCP_URL = 'http://127.0.0.1:8787/mcp';
   let settings = { ...(initialSettings || fx.settings()), mcpUrl: MCP_URL };
@@ -91,6 +99,18 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     }
     const ws = settings.webServer || {};
     return fx.health({ web: ws.trustedCert ? 'ok' : web, webURL: webURL || redact(ws.url) });
+  };
+
+  // Mirrors Service.Problems over the mocked health report and scan.
+  const problemsNow = () => {
+    const p = rec.problems;
+    if (typeof p === 'function') return p();
+    if (p && typeof p === 'object') return p;
+    const h = health();
+    const open = ((settings.alerts || {}).triggers || {}).healthFailed === false ? [] : fx.healthProblems(h);
+    if (p === 'some' || (p !== 'fine' && (rec.scanned || rec.running))) open.push(...fx.problemItems());
+    return fx.problemsView({ open, fixed: p === 'fixed' ? fx.fixedItems() : [], checkedAt: h.checkedAt,
+      source: rec.running ? 'live' : 'latest', watching: !!rec.running, hasHealth: (h.checks || []).length > 0 });
   };
 
   const json = (route, status, body) =>
@@ -129,6 +149,7 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     }
     if (method === 'GET' && p === '/api/health') return json(route, 200, health());
     if (method === 'POST' && p === '/api/health/run') return json(route, 200, health());
+    if (method === 'GET' && p === '/api/problems') { rec.problemsCalls++; return json(route, 200, problemsNow()); }
     if (method === 'GET' && p === '/api/history') return json(route, 200, history);
     if (method === 'GET' && p === '/api/compare') {
       const base = url.searchParams.get('base') || fx.BASE_ID;
@@ -143,6 +164,7 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
       if (rec.running && !JSON.parse(body || '{}').replaceLive) {
         return json(route, 409, { error: 'netdiag is watching this network.', watching: fx.watching(rec.scanId) });
       }
+      rec.scanned = true;
       return json(route, 202, { id: rec.scanId });
     }
     if (method === 'GET' && p === '/api/scans/running') {
@@ -186,6 +208,9 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
         headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
         body: fx.sseBody(frames),
       });
+    }
+    if (method === 'GET' && /^\/api\/scans\/[^/]+\/export$/.test(p)) {
+      return route.fulfill({ status: 200, contentType: 'text/plain', body: 'exported' });
     }
     if (method === 'GET' && matchId(/^\/api\/scans\/([^/]+)$/, p)) {
       return json(route, 200, fx.scanResult({ state: 'done' }));

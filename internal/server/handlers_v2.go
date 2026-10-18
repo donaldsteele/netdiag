@@ -97,6 +97,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, best)
 }
 
+// handleProblems is the Problems right now card (v0.6 #1): what is wrong
+// now, or that everything looks fine, and what was fixed today. It needs no
+// session token, like the scan and health reads.
+func (s *Server) handleProblems(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.svc.Problems())
+}
+
 func (s *Server) handleHealthRun(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Interface string `json:"interface"`

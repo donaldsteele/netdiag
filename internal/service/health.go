@@ -15,7 +15,7 @@ import (
 const healthRunCap = 10 * time.Second
 
 // LatestHealth returns the most relevant health report: running scan, then
-// live scans, then history.
+// live scans, then history, unless an on-demand run (RunHealth) is newer.
 func (s *Service) LatestHealth() (*model.HealthReport, bool) {
 	var best *model.HealthReport
 	consider := func(h *model.HealthReport) {
@@ -40,6 +40,10 @@ func (s *Service) LatestHealth() (*model.HealthReport, bool) {
 			}
 		}
 	}
+	// Check again: a newer on-demand run says how things are now.
+	if h := s.lastHealthRun(); h != nil && (best == nil || h.CheckedAt > best.CheckedAt) {
+		best = h
+	}
 	return best, best != nil
 }
 
@@ -57,7 +61,18 @@ func (s *Service) RunHealth(ctx context.Context, iface string) model.HealthRepor
 	defer cancel()
 	rep := s.cfg.Health.Run(ctx, in)
 	advice.Report(&rep, advice.Ctx{GOOS: runtime.GOOS, Gateway: in.Gateway})
+	kept := rep
+	s.healthMu.Lock()
+	s.lastHealth = &kept
+	s.healthMu.Unlock()
 	return rep
+}
+
+// lastHealthRun is the report of the last on-demand health run, or nil.
+func (s *Service) lastHealthRun() *model.HealthReport {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	return s.lastHealth
 }
 
 // healthTarget picks the interface and gateway an on-demand health check

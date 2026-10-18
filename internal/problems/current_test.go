@@ -149,6 +149,41 @@ func TestCurrentKeysMatchEngine(t *testing.T) {
 	}
 }
 
+// TestUITestFixtureProblems: the UI harness's card items for its fixture
+// scan (tools/uitest/fixtures/index.mjs problemItems) are what Current
+// gives for the same devices and conflict, so the card specs show what
+// netdiag really sends.
+func TestUITestFixtureProblems(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "tools", "uitest", "fixtures", "index.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	brother := model.Host{IP: "192.168.2.10", Alive: true, Online: true, IsPrinter: true, MAC: "00:1B:A9:12:34:56",
+		Snmp: &model.SnmpInfo{SysName: "BRW001BA9123456"},
+		Printer: &model.PrinterInfo{Model: "HL-L2350DW",
+			Supplies: []model.Supply{{Description: "Black Toner", Percent: 15, State: "low"}, {Description: `Drum, "Long Life"`, Percent: -1, State: "unknown"}},
+			Alerts:   []model.Alert{{Severity: "warning", Code: "toner-low", Description: "Toner low, replace soon"}}}}
+	epson := model.Host{IP: "192.168.2.20", Alive: true, Online: true, IsPrinter: true, MAC: "64:EB:8C:20:00:20",
+		Printer: &model.PrinterInfo{Model: "WF-4745",
+			Supplies: []model.Supply{{Description: "Cyan Ink", Percent: 0, State: "empty"}, {Description: "Magenta Ink", Percent: 70, State: "ok"}}}}
+	nas := model.Host{IP: "192.168.2.30", Alive: true, Online: true, MAC: "00:1B:A9:AA:00:30", Conflicts: []string{"c-1"}}
+	c := model.Conflict{ID: "c-1", Kind: model.ConflictMACMultiIP, Severity: "warn", IPs: []string{"192.168.2.30", "192.168.2.31"},
+		MACs: []string{"00:1B:A9:AA:00:30"}}
+	ps := Current(model.ScanResult{Hosts: []model.Host{brother, epson, nas}, Conflicts: []model.Conflict{c}}, store.DefaultSettings())
+	if len(ps) != 4 {
+		t.Fatalf("items: %v", kinds(ps))
+	}
+	for _, p := range ps {
+		want := "key: '" + p.Key + "', kind: '" + p.Kind + "', severity: '" + p.Severity + "', title: '" + p.Title + "'"
+		if !strings.Contains(string(src), want) {
+			t.Errorf("fixtures lack %s", want)
+		}
+		if p.Kind != model.TriggerIPConflict && !strings.Contains(string(src), "detail: '"+p.Detail+"', device: { ") {
+			t.Errorf("fixtures lack the detail %q", p.Detail)
+		}
+	}
+}
+
 func hc(id, status, reason string) model.HealthCheck {
 	c := model.HealthCheck{ID: id, Label: id, Status: status}
 	if reason != "" {

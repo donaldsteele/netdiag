@@ -52,6 +52,11 @@ type Service struct {
 	hooksMu sync.Mutex
 	onSaved []func(model.Settings)
 
+	// healthMu guards lastHealth, the report of the last on-demand health
+	// run (RunHealth).
+	healthMu   sync.Mutex
+	lastHealth *model.HealthReport
+
 	logsMu   sync.Mutex
 	logs     map[string]*EventLog
 	logOrder []string
