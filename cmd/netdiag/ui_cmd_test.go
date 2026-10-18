@@ -156,9 +156,11 @@ func TestSecondLaunchOpensSamePage(t *testing.T) {
 	if strings.Contains(out.String(), info.Token) {
 		t.Fatalf("the token was printed: %s", out)
 	}
-	// The page answers identity with the id in the file.
-	id, err := instance.Probe(context.Background(), p, 2*time.Second)
-	if err != nil || !info.Matches(id) {
+	// The page answers identity with the id in the file and, for a nonce, a
+	// proof made with the token in the file.
+	nonce := instance.NewNonce()
+	id, err := instance.Probe(context.Background(), p, nonce, 2*time.Second)
+	if err != nil || !info.Matches(id) || !info.Proves(nonce, id.Proof) {
 		t.Fatalf("identity %+v %v", id, err)
 	}
 
@@ -174,10 +176,15 @@ func TestSecondLaunchOpensSamePage(t *testing.T) {
 		t.Fatalf("second launch opened %v", got)
 	}
 	// Asking for another port changes nothing: one netdiag per data folder.
+	// With --no-browser it says how to get a page whose buttons work.
 	second.Reset()
 	if c := runUI([]string{"--port", strconv.Itoa(freePort(t)), "--no-browser"}, &second, &second); c != 0 ||
-		!strings.Contains(second.String(), "already running at http://127.0.0.1:"+strconv.Itoa(p)+".") {
+		!strings.Contains(second.String(), "already running at http://127.0.0.1:"+strconv.Itoa(p)+".") ||
+		!strings.Contains(second.String(), openAgain) || strings.Contains(second.String(), info.Token) {
 		t.Fatalf("second launch with --port: %d %q", c, second.String())
+	}
+	if got := opened(); len(got) != 2 {
+		t.Fatalf("--no-browser opened %v", got)
 	}
 	if again, _ := instance.Load(st); again != info {
 		t.Fatalf("the second launch rewrote instance.json: %v", again)
@@ -189,7 +196,8 @@ func TestSecondLaunchOpensSamePage(t *testing.T) {
 	quitUI(t, info, code)
 }
 
-// identityServer answers GET /api/identity on 127.0.0.1 as another netdiag.
+// identityServer answers GET /api/identity on 127.0.0.1 as another netdiag
+// with instanceID, and no proof.
 func identityServer(t *testing.T, instanceID string) int {
 	t.Helper()
 	ln, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -214,12 +222,123 @@ func TestForeignInstanceOnRememberedPort(t *testing.T) {
 	if err := instance.Save(st, instance.Info{Port: theirs, InstanceID: "i-mine", Token: "old"}); err != nil {
 		t.Fatal(err)
 	}
-	code, _ := startUI(t, "--no-browser")
+	code, out := startUI(t, "--no-browser")
 	info := waitInstance(t, st, "i-mine")
 	if info.Port == theirs || info.Port == instance.DefaultPort || info.Token == "old" {
 		t.Fatalf("picked port %d (theirs %d), token %q", info.Port, theirs, info.Token)
 	}
+	// The address alone opens a page whose buttons are off: the console
+	// says how to get one that works, without printing the token.
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(out.String(), openAgain) && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if s := out.String(); !strings.Contains(s, openAgain) || strings.Contains(s, info.Token) {
+		t.Fatalf("--no-browser said %q", s)
+	}
 	quitUI(t, info, code)
+}
+
+// Another OS user read this netdiag's instance id from GET /api/identity
+// (it needs no token), took the remembered port after netdiag quit, and
+// answers with that id. It cannot prove the token in instance.json, so a
+// launch neither opens its page with the old token nor stops: it starts
+// its own netdiag on a random port (v0.6-D33, plan 7.5).
+func TestSpoofedIdentityOnRememberedPort(t *testing.T) {
+	_, st := dataDir(t)
+	opened := browserSpy(t)
+	theirs := identityServer(t, "i-mine")
+	if err := instance.Save(st, instance.Info{Port: theirs, InstanceID: "i-mine", Token: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	code, out := startUI(t)
+	info := waitInstance(t, st, "i-mine")
+	if info.Port == theirs || info.Port == instance.DefaultPort || info.Token == "old" {
+		t.Fatalf("picked port %d (theirs %d), token %q", info.Port, theirs, info.Token)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(opened()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := opened(); len(got) != 1 || got[0] != instance.PageURL(info.Port, info.Token) {
+		t.Fatalf("opened %v, want this netdiag's own page", got)
+	}
+	if strings.Contains(out.String(), "already running") {
+		t.Fatalf("trusted the spoofed identity: %q", out.String())
+	}
+	quitUI(t, info, code)
+}
+
+// A failed write of instance.json is tried again: on Windows replacing the
+// file fails while a second launch (or a virus scanner) has it open, which
+// is exactly when a double-click races this one. Once the reader lets go,
+// the write goes through.
+func TestSaveInstanceRetries(t *testing.T) {
+	_, st := dataDir(t)
+	if err := instance.Save(st, instance.Info{Port: 1, InstanceID: "i-old", Token: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(filepath.Join(st.Dir(), store.FileInstance))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		if err := instance.Save(st, instance.Info{Port: 2, InstanceID: "i-probe", Token: "x"}); err == nil {
+			t.Log("this system replaced instance.json while it was open")
+		}
+	}
+	go func() {
+		time.Sleep(60 * time.Millisecond)
+		f.Close()
+	}()
+	want := instance.Info{Port: 3, PID: 7, InstanceID: "i-new", Token: "new", Version: version}
+	if err := saveInstance(st, want); err != nil {
+		t.Fatalf("save after the reader let go: %v", err)
+	}
+	want.SchemaVersion = 1
+	if got, err := instance.Load(st); err != nil || got != want {
+		t.Fatalf("instance.json = %v %v", got, err)
+	}
+}
+
+// When instance.json cannot be written at all, netdiag still serves the page
+// it opened (with its token), keeps the start lock so no second netdiag
+// serves the folder, and says that opening it again will not find it.
+func TestSaveInstanceFails(t *testing.T) {
+	_, st := dataDir(t)
+	opened := browserSpy(t)
+	var tries int
+	var mu sync.Mutex
+	oldSave, oldDelays := saveInfo, saveDelays
+	saveInfo = func(*store.Store, instance.Info) error {
+		mu.Lock()
+		defer mu.Unlock()
+		tries++
+		return os.ErrPermission
+	}
+	saveDelays = []time.Duration{time.Millisecond, time.Millisecond}
+	t.Cleanup(func() { saveInfo, saveDelays = oldSave, oldDelays })
+	p := freePort(t)
+	code, out := startUI(t, "--port", strconv.Itoa(p))
+	deadline := time.Now().Add(10 * time.Second)
+	for len(opened()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	got := opened()
+	if len(got) != 1 || !strings.HasPrefix(got[0], instance.PageURL(p, "")) {
+		t.Fatalf("opened %v", got)
+	}
+	mu.Lock()
+	n := tries
+	mu.Unlock()
+	if n != 3 || !strings.Contains(out.String(), "could not save instance.json") ||
+		!strings.Contains(out.String(), "opening it again will not find this window until you quit it") {
+		t.Fatalf("%d tries; said %q", n, out.String())
+	}
+	if !instance.Owner(st.Dir()) {
+		t.Fatal("netdiag let go of the start lock")
+	}
+	quitUI(t, instance.Info{Port: p, Token: strings.TrimPrefix(got[0], instance.PageURL(p, ""))}, code)
 }
 
 // A stale instance.json (nothing answers on its port) is the remembered

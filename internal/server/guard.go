@@ -38,10 +38,11 @@ const sessionMessage = "Open netdiag again to use this button."
 // request under /api/ that is not a GET or HEAD, whatever its route (so a
 // route added later is covered by itself), and on the reads that return a
 // secret: GET /api/settings has the SNMP community in clear (v0.6-D14).
-// Other programs and other OS users on this computer can reach 127.0.0.1,
-// but cannot read this user's data folder, where instance.json keeps the
-// token. /mcp is not under /api/: the Agent access switch and the Origin
-// check stay its consent.
+// Other OS users on this computer, and programs that cannot read this
+// user's data folder (where instance.json keeps the token), can reach
+// 127.0.0.1 but not the token. A program running as this user can read the
+// folder anyway, so it is out of scope (v0.6 4.1). /mcp is not under /api/:
+// the Agent access switch and the Origin check stay its consent.
 func (s *Server) sessionGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if needsSession(r) && subtle.ConstantTimeCompare([]byte(r.Header.Get(SessionHeader)), []byte(s.token)) != 1 {

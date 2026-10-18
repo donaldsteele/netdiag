@@ -3,7 +3,8 @@
 // instance id and session token, and the start lock that lets only one
 // netdiag at a time serve a data folder. A second launch reads the file,
 // asks GET /api/identity on the remembered port and, when the same netdiag
-// answers, opens its page instead of starting another one.
+// answers and proves it holds the token in the file, opens its page instead
+// of starting another one.
 //
 // The token is new on every launch. It gates the action routes of the
 // loopback API (X-Netdiag-Session, roadmap 8.3), so it never goes into
@@ -12,7 +13,9 @@ package instance
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -22,6 +25,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -59,25 +63,54 @@ func (i Info) String() string {
 // GoString keeps %#v from printing the token too.
 func (i Info) GoString() string { return i.String() }
 
-// Identity is the answer of GET /api/identity.
+// Identity is the answer of GET /api/identity. Proof is there only when the
+// request carried a nonce (GET /api/identity?nonce=…): Proof(token, nonce)
+// of the answering netdiag's session token.
 type Identity struct {
 	App        string `json:"app"`
 	Version    string `json:"version"`
 	PID        int    `json:"pid"`
 	InstanceID string `json:"instanceId"`
 	StartedAt  string `json:"startedAt"`
+	Proof      string `json:"proof,omitempty"`
 }
 
-// Matches reports whether id is the netdiag that wrote i: it names this app
-// and the instance id in the file.
+// Matches reports whether id names the netdiag that wrote i: this app and
+// the instance id in the file. Anyone on 127.0.0.1 can read an instance id,
+// so a launch also needs the proof (Proves) before it trusts the answer.
 func (i Info) Matches(id Identity) bool {
 	return i.InstanceID != "" && id.App == App && id.InstanceID == i.InstanceID
 }
 
-// Foreign reports whether id is another netdiag than the one that wrote i:
-// another OS user's netdiag, or one with another data folder, now holds the
-// remembered port.
-func (i Info) Foreign(id Identity) bool { return id.App == App && !i.Matches(id) }
+// MaxNonce is the longest nonce GET /api/identity answers with a proof.
+const MaxNonce = 128
+
+// NewNonce returns the nonce for one identity probe: 16 bytes from
+// crypto/rand, base64url without padding.
+func NewNonce() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("instance: crypto/rand: " + err.Error())
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:])
+}
+
+// Proof is what the netdiag holding token answers to nonce: HMAC-SHA256
+// keyed by the token, base64url. It shows that the answer comes from the
+// netdiag whose token is in instance.json without giving the token away, so
+// another OS user who learnt the instance id and took the remembered port
+// cannot pass for it (v0.6-D33).
+func Proof(token, nonce string) string {
+	m := hmac.New(sha256.New, []byte(token))
+	m.Write([]byte("netdiag identity\x00" + nonce))
+	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
+}
+
+// Proves reports whether proof is the answer of the netdiag that wrote i to
+// nonce.
+func (i Info) Proves(nonce, proof string) bool {
+	return i.Token != "" && nonce != "" && hmac.Equal([]byte(proof), []byte(Proof(i.Token, nonce)))
+}
 
 // Load reads instance.json. A missing file gives the zero Info and no
 // error. A file that is not valid JSON is set aside (instance.json.bad-<time>)
@@ -138,16 +171,19 @@ func PageURL(port int, token string) string {
 // answer GET /api/identity.
 const IdentityTimeout = time.Second
 
-// Probe asks GET /api/identity on 127.0.0.1:port. It never goes through a
-// proxy.
-func Probe(ctx context.Context, port int, timeout time.Duration) (Identity, error) {
+// Probe asks GET /api/identity on 127.0.0.1:port, with nonce when it is not
+// empty, so the answer carries a proof. It never goes through a proxy.
+func Probe(ctx context.Context, port int, nonce string, timeout time.Duration) (Identity, error) {
 	if port <= 0 || port > 65535 {
 		return Identity{}, errors.New("instance: no port")
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"http://"+net.JoinHostPort("127.0.0.1", strconv.Itoa(port))+"/api/identity", nil)
+	u := "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) + "/api/identity"
+	if nonce != "" {
+		u += "?nonce=" + url.QueryEscape(nonce)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return Identity{}, err
 	}
@@ -169,16 +205,24 @@ func Probe(ctx context.Context, port int, timeout time.Duration) (Identity, erro
 }
 
 // Running asks the port in i whether the netdiag that wrote i still serves
-// it. ans is what answered, if anything did.
-func Running(ctx context.Context, i Info) (running bool, ans Identity, answered bool) {
+// it: the answer names its instance id and proves, for a new nonce, that it
+// holds the token in i. foreign means another netdiag answered there:
+// another OS user's, one with another data folder, or one that names this
+// id but cannot prove it. Nothing answering, or something that is not
+// netdiag, is neither: the file is stale.
+func Running(ctx context.Context, i Info) (running, foreign bool) {
 	if i.Port == 0 {
-		return false, Identity{}, false
+		return false, false
 	}
-	id, err := Probe(ctx, i.Port, IdentityTimeout)
-	if err != nil {
-		return false, Identity{}, false
+	nonce := NewNonce()
+	id, err := Probe(ctx, i.Port, nonce, IdentityTimeout)
+	if err != nil || id.App != App {
+		return false, false
 	}
-	return i.Matches(id), id, true
+	if i.Matches(id) && i.Proves(nonce, id.Proof) {
+		return true, false
+	}
+	return false, true
 }
 
 // Ports is the order a launch tries ports in (v0.6-D6): --port alone when it

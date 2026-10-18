@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"netdiag/internal/instance"
 )
 
 // GET /api/scans/running is {"scan":null} when nothing runs, and names the
@@ -82,8 +84,21 @@ func TestIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if id.App != "netdiag" || id.Version != "dev" || id.PID != os.Getpid() || id.InstanceID != s.instanceID ||
-		!strings.HasPrefix(id.InstanceID, "i-") || id.StartedAt == "" {
+		!strings.HasPrefix(id.InstanceID, "i-") || id.StartedAt == "" || id.Proof != "" || strings.Contains(b, "proof") {
 		t.Fatalf("identity = %+v", id)
+	}
+	// A second launch sends a nonce: the answer proves this server holds the
+	// session token, without showing it (v0.6-D33). A nonce longer than
+	// MaxNonce gets no proof.
+	_, b = do(t, "GET", u+"/api/identity?nonce=abc", "", "")
+	var proved identity
+	if err := json.Unmarshal([]byte(b), &proved); err != nil || proved.Proof != instance.Proof(testToken, "abc") ||
+		!(instance.Info{Token: testToken}).Proves("abc", proved.Proof) || strings.Contains(b, testToken) {
+		t.Fatalf("identity with a nonce: %s %v", b, err)
+	}
+	_, b = do(t, "GET", u+"/api/identity?nonce="+strings.Repeat("n", instance.MaxNonce+1), "", "")
+	if strings.Contains(b, "proof") {
+		t.Fatalf("identity with a long nonce: %s", b)
 	}
 	if again := New(Config{}); again.instanceID == s.instanceID {
 		t.Fatal("two servers share an instance id")

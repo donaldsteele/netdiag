@@ -73,14 +73,20 @@ func (s *Server) handleRunning(w http.ResponseWriter, r *http.Request) {
 
 // identity is the GET /api/identity answer. The page polls it as a
 // heartbeat: no answer means netdiag has stopped, another instanceId that
-// it was restarted. A second launch asks it too: the same instanceId as in
-// instance.json means this netdiag still serves the data folder.
+// it was restarted. A second launch asks it too, with ?nonce=: the same
+// instanceId as in instance.json, and a proof made with the token in that
+// file, mean this netdiag still serves the data folder (v0.6-D33). The
+// proof does not give the token away.
 type identity = instance.Identity
 
 func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, identity{App: instance.App, Version: s.version(), PID: os.Getpid(),
-		InstanceID: s.instanceID, StartedAt: s.startedAt})
+	id := identity{App: instance.App, Version: s.version(), PID: os.Getpid(),
+		InstanceID: s.instanceID, StartedAt: s.startedAt}
+	if n := r.URL.Query().Get("nonce"); n != "" && len(n) <= instance.MaxNonce {
+		id.Proof = instance.Proof(s.token, n)
+	}
+	writeJSON(w, http.StatusOK, id)
 }
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
