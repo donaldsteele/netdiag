@@ -503,7 +503,7 @@ func Conflict(c model.Conflict, x Ctx) *model.Advice {
 	case model.ConflictMACFlap:
 		if SwapSeen(c, x) {
 			a = adv(fmt.Sprintf("Two devices are taking turns using %s, so both work badly.", orAddress(ip)),
-				steps("Look at the two devices below.",
+				steps("Compare the two devices netdiag shows for this address (Device A and Device B).",
 					"Restart one of them so it gets a new address.",
 					"If it keeps happening, ask whoever looks after the router to reserve an address for one of them."),
 				showDevice(ip)...)

@@ -154,6 +154,11 @@ var wordingRe = regexp.MustCompile(`(?i)\b(events?|venues?|LAN)\b`)
 // technicalRe lists words a Meaning never uses: they belong in Technical.
 var technicalRe = regexp.MustCompile(`(?i)\b(ARP|DHCP|DNS|SNMP|MAC|ICMP|IP address(es)?|subnets?)\b`)
 
+// placeRe lists words that point at a place on one page. The same advice
+// is shown in the drawer, on the Problems right now card, in team chat and
+// to Claude, where nothing is above or below it.
+var placeRe = regexp.MustCompile(`(?i)\b(below|above)\b`)
+
 func TestWordingLint(t *testing.T) {
 	for name, a := range every() {
 		if a == nil {
@@ -166,6 +171,9 @@ func TestWordingLint(t *testing.T) {
 		for _, s := range texts {
 			if m := wordingRe.FindString(strings.ReplaceAll(s, "Wake-on-LAN", "")); m != "" {
 				t.Errorf("%s: %q uses %q", name, s, m)
+			}
+			if m := placeRe.FindString(s); m != "" {
+				t.Errorf("%s: %q says %q, which is not true everywhere the advice is shown", name, s, m)
 			}
 		}
 		if m := technicalRe.FindString(a.Meaning); m != "" {
@@ -184,6 +192,11 @@ func TestWordingLint(t *testing.T) {
 	for _, bad := range []string{"its MAC changed", "the DNS server", "an IP address"} {
 		if !technicalRe.MatchString(bad) {
 			t.Errorf("technical lint misses %q", bad)
+		}
+	}
+	for _, bad := range []string{"Look at the two devices below.", "the steps above"} {
+		if !placeRe.MatchString(bad) {
+			t.Errorf("place lint misses %q", bad)
 		}
 	}
 }

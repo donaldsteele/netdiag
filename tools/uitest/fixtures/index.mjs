@@ -173,7 +173,7 @@ export function flapConflict(alternations = 2) {
   const detail = `${FLAP_IP} keeps alternating between 2 MAC addresses (${FLAP_MACS.join(', ')}); two devices likely share this IP.`;
   const a = alternations >= 2
     ? advice("Two devices are taking turns using 192.168.2.44, so both work badly.",
-      ["Look at the two devices below.", "Restart one of them so it gets a new address.",
+      ["Compare the two devices netdiag shows for this address (Device A and Device B).", "Restart one of them so it gets a new address.",
         "If it keeps happening, ask whoever looks after the router to reserve an address for one of them."], [showDevice(FLAP_IP)], detail)
     : advice("Possible conflict: the device answering at 192.168.2.44 changed.",
       ["If you just replaced a device, this is expected.", "If it happens again, netdiag will show both devices here."], [], detail);
