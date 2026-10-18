@@ -124,6 +124,44 @@
       <template x-for="e in logRecent()" :key="e.id"><span class="tick"><span class="lt" x-text="logTime(e)"></span> <span class="lk" :class="'k-' + e.kind"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + kindIcon(e.kind)"></use></svg><span x-text="e.kind.toUpperCase()"></span></span> <span x-text="e.text"></span></span></template>
     </button>
 
+    <section id="problems-now" class="problems-now" aria-labelledby="pn-h" x-show="view === 'devices'">
+      <h2 id="pn-h" tabindex="-1">Problems right now</h2>
+      <p class="pnfine" id="pn-fine" role="status" x-show="pnState() === 'fine'"><svg class="ico s-ok" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg> <strong>OK</strong> <span x-text="'Everything looks fine (checked ' + pnTime() + ')'"></span></p>
+      <p class="pnnote" id="pn-quiet" role="status" x-show="pnState() === 'quiet'"><svg class="ico s-info" aria-hidden="true" focusable="false"><use href="icons.svg#i-info"></use></svg> <strong>Checking</strong> <span>No problems found so far. The health checks have not finished yet.</span></p>
+      <p class="pnnote" id="pn-none" x-show="pnState() === 'none'"><svg class="ico s-unknown" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-help"></use></svg> <strong>Not checked</strong> <span>netdiag has not looked at the local network yet. Press <strong>Scan</strong> to check it.</span></p>
+      <template x-for="g in pnGroups()" :key="g.id">
+        <div class="pgroup" :id="'pn-' + g.id">
+          <h3 class="pgh" x-show="g.heading" x-text="g.heading"></h3>
+          <ul class="plain pitems" :aria-label="g.label">
+            <template x-for="p in g.items" :key="p.key + (p.fixedAt || '')">
+              <li class="pitem" :class="'ps-' + pnSev(p)">
+                <p class="pline"><span class="psev"><svg class="ico" :class="pnClass(p)" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + pnIcon(p)"></use></svg><strong x-text="pnWord(p)"></strong></span>
+                  <span class="ptitle" x-text="pnTitle(p)"></span> <span class="sub" x-text="pnWhere(p)"></span></p>
+                <p class="pacts">
+                  <button type="button" x-show="pnDevice(p)" @click="showDevice(p.device.ip)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-monitor"></use></svg>Show device<span class="sr" x-text="' ' + p.title"></span></button>
+                  <button type="button" x-show="!p.fixedAt && p.kind === 'healthFailed'" @click="openHealth()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-heart-pulse"></use></svg>Open Health<span class="sr" x-text="' ' + (p.detail || '')"></span></button>
+                  <button type="button" x-show="!!p.fixedAt" @click="pnDismiss(p)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-x"></use></svg>Dismiss<span class="sr" x-text="' ' + p.title"></span></button>
+                </p>
+                <details class="ptry" x-show="!p.fixedAt && p.advice" @keydown.escape="closeDetails($event, $el)">
+                  <summary><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-lightbulb"></use></svg>What to try<span class="sr" x-text="' (' + p.title + ')'"></span></summary>
+                  <template x-if="p.advice">
+                    <div class="advice">
+                      <p><strong>What this means:</strong> <span x-text="p.advice.meaning"></span></p>
+                      <ol class="steps" x-show="(p.advice.steps || []).length">
+                        <template x-for="(s, i) in (p.advice.steps || [])" :key="i"><li x-text="s"></li></template>
+                      </ol>
+                    </div>
+                  </template>
+                </details>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </template>
+      <p class="pmore" x-show="pnTotal() > pnLimit"><button type="button" id="pn-all" :aria-expanded="pnAll" @click="pnAll = !pnAll" x-text="pnAll ? 'Show fewer' : 'Show all ' + pnTotal()"></button></p>
+      <p class="sub pnwatch" id="pn-watch" x-show="pnNotWatching()"><span x-text="pnWatchText()"></span> Tick <strong>Live mode</strong> and press <strong>Scan</strong> to keep watching.</p>
+    </section>
+
     <section class="dash" aria-label="Network summary" x-show="view === 'devices'">
       <div class="tiles" role="group" aria-label="Device counts. Select one to filter the table." x-effect="tweenTiles(tileCounts())">
         <template x-for="t in tileDefs" :key="t.id">

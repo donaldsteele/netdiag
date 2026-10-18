@@ -7,6 +7,7 @@ let session = ''; // this launch's session token, when the browser keeps no stor
 let pairTimer = 0; // next poll of the team chat pairing request
 let wizEpoch = 0; // counts team chat wizard openings and closings
 let pairAsking = 0; // team chat pairing requests on their way
+let pnTimer = 0; // pending re-read of the Problems right now card
 document.addEventListener('alpine:init', () => {
   Alpine.data('app', () => ({
     ifaces: [], ifaceName: '', cidr: '', community: 'public',
@@ -25,6 +26,7 @@ document.addEventListener('alpine:init', () => {
     sessionOff: false, settingsLocked: false,
     chat: null, chatMsg: '', chatBusy: false, wiz: {step: 'closed', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
       code: '', expiresAt: '', adminUrl: '', channels: [], channelId: '', channel: null, testMsg: '', testOk: false, fresh: false, stopped: '', retry: ''},
+    problems: null, pnAll: false, pnLimit: 5, pnDismissed: {},
     watching: null, restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: null, focusAt: 0, starting: false,
     log: [], logSeq: 0, logHidden: {}, logStick: true, logSeen: {},
     logKinds: [{id: 'scan', label: 'Scan'}, {id: 'host', label: 'New host'}, {id: 'offline', label: 'Offline'}, {id: 'online', label: 'Online'},
@@ -111,6 +113,9 @@ document.addEventListener('alpine:init', () => {
       try { const sv = localStorage.getItem('netdiag.view'); if (this.views.includes(sv)) this.view = sv; } catch (e) {}
       if (this.view === 'history') this.loadHistory();
       setInterval(() => { this.nowMs = Date.now(); }, 1000);
+      try { for (const k of JSON.parse(localStorage.getItem('netdiag.fixedDismissed') || '[]')) this.pnDismissed[k] = true; } catch (e) {}
+      this.loadProblems();
+      setInterval(() => this.loadProblems(), 60000);
       // Sticky table headers sit just under the sticky alert banners.
       const bn = document.getElementById('alerts');
       if (bn && window.ResizeObserver) new ResizeObserver(() => document.documentElement.style.setProperty('--stick-top', bn.offsetHeight + 'px')).observe(bn);
@@ -157,7 +162,7 @@ document.addEventListener('alpine:init', () => {
       this.healthBusy = true; this.healthMsg = 'Running checks...';
       try {
         const r = await this.api('POST', '/api/health/run', {interface: this.ifaceName});
-        if (r.ok) { this.health = await r.json(); this.healthMsg = 'Checks updated.'; }
+        if (r.ok) { this.health = await r.json(); this.healthMsg = 'Checks updated.'; this.loadProblems(); }
         else { this.healthMsg = 'Health check failed (HTTP ' + r.status + ').'; }
       } catch (e) { this.healthMsg = 'Health check failed: ' + e.message; }
       this.healthBusy = false;
@@ -183,33 +188,86 @@ document.addEventListener('alpine:init', () => {
         (x.id === 'wifi' || x.id === 'dhcp') && (x.data || {}).reason !== 'timeout';
       return c.length > 0 && c.every(x => x.status !== 'fail' && x.status !== 'warn' && done(x));
     },
-    // The health checks are fine and nothing this page lists is a problem
-    // by the Problems card's rules (4.11), each kept only while its alert
-    // type is on in Settings: a conflict, an offline printer, any offline
-    // device (off by default), a printer alert, a supply at or below the
-    // threshold (v0.6-D27). M8's GET /api/problems takes this over.
-    // A page that may not read the settings does not know the person's
-    // alert types, so it speaks for the health checks alone.
-    everythingFine() {
-      if (!this.healthFine() || this.settingsLocked) return false;
-      const t = (this.settings && this.settings.alerts && this.settings.alerts.triggers) || {};
-      const on = (k, d) => typeof t[k] === 'boolean' ? t[k] : d;
-      if (on('ipConflict', true) && this.conflicts.length) return false;
-      const thr = this.supplyThreshold();
-      return !this.hosts.some(h => {
-        if (this.isOffline(h) && (on('deviceOffline', false) || h.isPrinter && on('printerOffline', true))) return true;
-        const p = h.isPrinter && h.printer;
-        if (!p) return false;
-        if (on('printerAlert', true) && (p.alerts || []).length) return true;
-        return on('supplyLow', true) &&
-          (p.supplies || []).some(s => s.state === 'empty' || s.state === 'low' || (s.percent >= 0 && s.percent <= thr));
-      });
-    },
     // The Health panel's line once the checks are fine: "Everything looks
-    // fine" only when nothing else is wrong either, else it speaks for the
-    // health checks alone.
+    // fine" only when the Problems right now card says so too (GET
+    // /api/problems, which follows the person's alert types), else it
+    // speaks for the health checks alone, so the page never shows two
+    // verdicts that disagree.
     healthFineText() {
-      return (this.everythingFine() ? 'Everything looks fine' : 'All health checks look fine') + ' (checked ' + this.healthTime() + ')';
+      return (this.problems && this.problems.everythingFine ? 'Everything looks fine' : 'All health checks look fine') + ' (checked ' + this.healthTime() + ')';
+    },
+
+    // ---- Problems right now (v0.6 #1) ----
+    // The card reads GET /api/problems when the page loads, every 60 s, and
+    // 2 s after a notice, health, presence or conflict event (one read for a
+    // burst of them), so it shows what netdiag thinks is wrong now.
+    async loadProblems() {
+      clearTimeout(pnTimer); pnTimer = 0;
+      try {
+        const r = await fetch('/api/problems', {cache: 'no-store'});
+        if (r.ok) this.problems = await r.json();
+      } catch (e) {}
+    },
+    problemsSoon() {
+      if (!pnTimer) pnTimer = setTimeout(() => this.loadProblems(), 2000);
+    },
+    // fine: nothing is a warning or worse; quiet: nothing is, but the health
+    // checks have not answered yet; none: netdiag has looked at nothing.
+    pnState() {
+      const p = this.problems;
+      if (!p) return '';
+      if (p.source === 'none') return 'none';
+      if (p.everythingFine) return 'fine';
+      return (p.open || []).some(x => x.severity !== 'info') ? 'problems' : 'quiet';
+    },
+    // Problems first (most urgent first, as the server sends them), then the
+    // notes, then what was fixed today and not dismissed here.
+    pnList() {
+      const p = this.problems || {}, open = p.open || [];
+      return [...open.filter(x => x.severity !== 'info'), ...open.filter(x => x.severity === 'info'),
+        ...(p.fixed || []).filter(f => f.fixedAt && !this.pnDismissed[this.pnFixedID(f)])];
+    },
+    pnTotal() { return this.pnList().length; },
+    // The first pnLimit items unless Show all is on, grouped for the card.
+    pnGroups() {
+      const list = this.pnList(), shown = this.pnAll ? list : list.slice(0, this.pnLimit);
+      return [
+        {id: 'open', heading: '', label: 'Problems', items: shown.filter(x => !x.fixedAt && x.severity !== 'info')},
+        {id: 'notes', heading: 'Also worth knowing', label: 'Also worth knowing', items: shown.filter(x => !x.fixedAt && x.severity === 'info')},
+        {id: 'fixed', heading: 'Fixed today', label: 'Fixed today', items: shown.filter(x => x.fixedAt)},
+      ].filter(g => g.items.length);
+    },
+    // Every item is a shape plus a word: Problem (critical), Warning, Note, Fixed.
+    pnSev(p) { return p.fixedAt ? 'ok' : p.severity === 'critical' || p.severity === 'warning' ? p.severity : 'info'; },
+    pnIcon(p) { return {critical: 'circle-x', warning: 'triangle-alert', info: 'info', ok: 'circle-check'}[this.pnSev(p)]; },
+    pnClass(p) { return {critical: 's-bad', warning: 's-warn', info: 's-info', ok: 's-ok'}[this.pnSev(p)]; },
+    pnWord(p) { return {critical: 'Problem', warning: 'Warning', info: 'Note', ok: 'Fixed'}[this.pnSev(p)]; },
+    // A fixed item reads "Fixed at 10:42 (was down 12 min): Printer back online".
+    pnTitle(p) { return p.fixedAt ? this.fixedText({at: p.fixedAt, openedAt: p.openedAt}).replace(/\.$/, '') + ': ' + p.title : p.title; },
+    // Which one, the device and since when: "Black Toner at 15% · Front Desk (192.168.1.50) · since 10:12".
+    pnWhere(p) {
+      const d = p.device || {};
+      const dev = d.ip ? (d.name ? d.name + ' (' + d.ip + ')' : d.ip) : '';
+      const since = !p.fixedAt && this.clock(p.since) ? 'since ' + this.clock(p.since) : '';
+      const detail = p.fixedAt ? '' : p.detail || '';
+      // A conflict's addresses already name its device.
+      return [detail, d.ip && detail.split(', ').includes(d.ip) ? '' : dev, since].filter(Boolean).join(' · ');
+    },
+    // Show device for an item about a device this page lists.
+    pnDevice(p) { return !p.fixedAt && !!p.device && !!p.device.ip && this.hosts.some(h => h.ip === p.device.ip); },
+    pnTime() { return this.clock(this.problems && this.problems.checkedAt) || 'just now'; },
+    pnNotWatching() { return !!this.problems && this.problems.source !== 'none' && !this.problems.watching; },
+    pnWatchText() { return "netdiag isn't watching right now. This is from the last check at " + this.pnTime() + '.'; },
+    pnFixedID(f) { return f.key + '@' + f.fixedAt; },
+    // Dismiss hides a fixed item in this browser; focus goes to the card's heading.
+    pnDismiss(f) {
+      this.pnDismissed[this.pnFixedID(f)] = true;
+      try { localStorage.setItem('netdiag.fixedDismissed', JSON.stringify(Object.keys(this.pnDismissed).slice(-50))); } catch (e) {}
+      this.$nextTick(() => { const h = document.getElementById('pn-h'); if (h) h.focus(); });
+    },
+    openHealth() {
+      this.showView('health');
+      this.$nextTick(() => this.$refs.healthPanel && this.$refs.healthPanel.focus());
     },
     healthTime() { return this.clock(this.health && this.health.checkedAt) || 'just now'; },
     // "10:42" in local time for an RFC 3339 time, or ''.
@@ -418,6 +476,8 @@ document.addEventListener('alpine:init', () => {
         if (!r.ok) { if (showErr) this.settingsError = j.error || ('Could not save settings (HTTP ' + r.status + ')'); return false; }
         this.settings = j;
         if (j.community) this.community = j.community;
+        // The alert types and the supply threshold decide what the card lists.
+        this.loadProblems();
         return true;
       } catch (e) { if (showErr) this.settingsError = 'Could not save settings: ' + e.message; return false; }
     },
@@ -1317,9 +1377,9 @@ document.addEventListener('alpine:init', () => {
         }
         this.upsert(h);
       });
-      on('health', r => { this.logHealth(this.health, r); this.health = r; });
-      on('conflict', ev => this.onConflict(ev));
-      on('notice', n => this.onNotice(n, id));
+      on('health', r => { this.logHealth(this.health, r); this.health = r; this.problemsSoon(); });
+      on('conflict', ev => { this.onConflict(ev); this.problemsSoon(); });
+      on('notice', n => { this.onNotice(n, id); this.problemsSoon(); });
       on('progress', p => { this.stage = p.stage; this.done = p.done; this.total = p.total; });
       on('stage', s => { this.stage = s.stage; this.done = 0; this.total = 0; this.logPush('scan', 'Stage: ' + s.stage); });
       on('snapshot', r => {
@@ -1342,6 +1402,7 @@ document.addEventListener('alpine:init', () => {
       // Presence events are live-only (never replayed), so a reconnect does
       // not re-announce old transitions.
       on('presence', p => {
+        this.problemsSoon();
         const h = this.hosts.find(x => x.ip === p.ip) || {};
         this.logPush(p.online ? 'online' : 'offline', p.online ? 'Back online: ' + p.ip : ('Went offline: ' + p.ip + ' ' + (h.vendor || '')).trim() + (p.reason ? ' (' + p.reason + ')' : ''), p.ip);
         this.announce = p.online ? 'Device back online: ' + p.ip
@@ -1356,6 +1417,7 @@ document.addEventListener('alpine:init', () => {
         if (r.conflicts) this.conflicts = r.conflicts;
         this.hosts = r.hosts || this.hosts; this.gateway = r.gateway || ''; this.warnings = r.warnings || [];
         this.state = r.state; this.running = false; this.stage = 'finished';
+        this.loadProblems();
         this.logPush('scan', 'Scan ' + (r.state === 'cancelled' ? 'cancelled' : 'finished') + ': ' + this.hosts.length + ' hosts');
         es.close(); this.es = null;
         this.leaveBeeper();
@@ -1441,17 +1503,28 @@ document.addEventListener('alpine:init', () => {
       const t = Number(this.settings && this.settings.alerts && this.settings.alerts.supplyThresholdPct);
       return Number.isFinite(t) && t >= 1 && t <= 100 ? t : 15;
     },
-    isProblem(h) {
-      if (this.isOffline(h)) return true;
-      if (this.hasConflict(h)) return true;
+    // Why a device is on the Problems tab, broader than the Problems right
+    // now card and whatever the alert types: it is offline (phones too), in
+    // a conflict, a printer with alerts or a low supply, or a web page that
+    // failed. Mirrors problems.HostIssues; testdata/problems/hosts.json holds
+    // the cases both are tested against.
+    hostIssues(h) {
+      const out = [];
+      if (this.isOffline(h)) out.push({kind: 'offline'});
+      const c = this.conflictsFor(h);
+      if (c.length) out.push({kind: 'conflict', detail: c[0].kind});
       const p = h.printer;
       if (h.isPrinter && p) {
-        if ((p.alerts || []).length) return true;
+        for (const a of (p.alerts || [])) out.push({kind: 'printerAlert', detail: a.description});
         const thr = this.supplyThreshold();
-        if ((p.supplies || []).some(s => s.state === 'empty' || s.state === 'low' || (s.percent >= 0 && s.percent <= thr))) return true;
+        for (const s of (p.supplies || [])) {
+          if (s.state === 'empty' || s.state === 'low' || (s.percent >= 0 && s.percent <= thr)) out.push({kind: 'supplyLow', detail: s.description});
+        }
       }
-      return (h.web || []).some(w => w.error || !w.status || w.status >= 400);
+      for (const w of (h.web || [])) if (w.error || !w.status || w.status >= 400) out.push({kind: 'web', detail: w.url});
+      return out;
     },
+    isProblem(h) { return this.hostIssues(h).length > 0; },
     matches(h, f) {
       if (f === 'alive') return !!h.alive;
       if (f === 'mdns') return !!h.mdns;

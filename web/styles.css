@@ -364,3 +364,22 @@ details.btry .advice{margin-top:var(--s1)}
 .chanlist label.check{flex-direction:row;align-items:center;gap:var(--s2);color:var(--fg);font-size:15px}
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--line-strong);border-top-color:var(--accent);border-radius:50%;vertical-align:-2px}
 @media (prefers-reduced-motion:no-preference){.spinner{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}}
+/* v0.6 #1 Problems right now: one card above the tiles; the list grows with the page (no inner scroller) */
+.problems-now{margin:var(--s2) 0 var(--s3);padding:var(--s3) var(--s4);background:var(--bg-elev);border:1px solid var(--line-strong);border-radius:var(--radius)}
+.problems-now h2{margin:0 0 var(--s2);font-size:16px}
+.problems-now h3.pgh{margin:var(--s3) 0 var(--s1);font-size:13px;color:var(--fg-muted);font-weight:600}
+.pnfine,.pnnote{margin:var(--s1) 0;font-size:15px;overflow-wrap:anywhere}
+.pnfine>.ico,.pnnote>.ico{vertical-align:-0.2em}
+.pitem{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1) var(--s3);padding:var(--s2) 0 var(--s2) var(--s3);border-top:1px solid var(--line);border-left:4px solid transparent}
+.pitems>.pitem:first-child{border-top:0}
+.pitem.ps-critical{border-left-color:var(--bad)}.pitem.ps-warning{border-left-color:var(--warn)}.pitem.ps-info{border-left-color:var(--info)}.pitem.ps-ok{border-left-color:var(--ok)}
+.pline{flex:1 1 260px;min-width:0;margin:0;overflow-wrap:anywhere}
+.psev{margin-right:6px;white-space:nowrap}
+.psev>.ico{vertical-align:-0.2em;margin-right:4px}
+.ptitle{font-weight:600}
+.pacts{display:flex;flex-wrap:wrap;gap:var(--s2);margin:0}
+details.ptry{flex-basis:100%}
+details.ptry summary{cursor:pointer;font-weight:600;font-size:13px}
+details.ptry .advice{margin-top:var(--s1)}
+.pmore{margin:var(--s2) 0 0}
+.pnwatch{margin:var(--s2) 0 0}

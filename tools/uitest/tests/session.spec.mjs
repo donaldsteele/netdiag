@@ -164,8 +164,10 @@ test('a page with an old token makes no sound for a live notice and leaves the b
   await page.keyboard.press('Escape');
   await expect(dlg).toHaveJSProperty('open', false);
   await expect(open).toBeFocused();
-  // "Everything looks fine" would speak for alert types this page does not know.
-  expect(await app(page, (a) => a.everythingFine())).toBe(false);
+  // The Problems right now card needs no token: netdiag applies the
+  // person's alert types itself (GET /api/problems), so this page shows it.
+  await expect.poll(() => app(page, (a) => !!a.problems)).toBe(true);
+  expect(rec.unauthorized.filter((u) => u.includes('/api/problems'))).toEqual([]);
 
   // A fresh page brings the token: this page reads the settings, still
   // makes no sound (the person muted alerts), and may take the beeping.

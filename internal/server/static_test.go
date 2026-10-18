@@ -131,7 +131,7 @@ func TestOfflineUI(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"{id: 'offline', label: 'Offline'}", "on('presence'", "'Device went offline: '",
-		"'Device back online: '", "' offline'", "if (this.isOffline(h)) return true;"} {
+		"'Device back online: '", "' offline'", "if (this.isOffline(h)) out.push({kind: 'offline'});"} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("app.js missing %q", want)
 		}
@@ -179,7 +179,7 @@ func TestNoticeDedupeScopedToScan(t *testing.T) {
 		"onNotice(n, scanId)",
 		"const key = (scanId || '') + ':' + n.id;",
 		"this.seenNotices[key]",
-		"on('notice', n => this.onNotice(n, id));",
+		"on('notice', n => { this.onNotice(n, id);",
 		"this.seenNotices = {};",
 	} {
 		if !strings.Contains(src, want) {
@@ -231,8 +231,8 @@ func TestFixedBanners(t *testing.T) {
 // no internet" switch, kept per network. Links come only from server data
 // (no URL literal in app.js, TestNoExternalReferences). Only a mac_flap can
 // read "Conflict". Once the health checks are fine, the Health panel's line
-// says "Everything looks fine" only when nothing the page lists is a problem
-// by the Problems card's rules (v0.6-D27); otherwise it speaks for the
+// says "Everything looks fine" only when GET /api/problems says so (v0.6 M8:
+// the page keeps no copy of the card rules); otherwise it speaks for the
 // health checks alone.
 func TestAdviceUI(t *testing.T) {
 	js, _ := readAsset("app.js")
@@ -254,11 +254,49 @@ func TestAdviceUI(t *testing.T) {
 		"/^https?:/i.test(a.target || '')", "noInternetNetworks: 'This network has no internet'",
 		"return this.alternations(hist) >= 2;", "if (c.kind !== 'mac_flap') return false;",
 		"noInternet: 'set-nointernet'", "vendors[mac] ||", "this.health && this.health.network",
-		"'Everything looks fine' : 'All health checks look fine'", "if (!this.healthFine() || this.settingsLocked) return false;",
-		"on('deviceOffline', false)",
+		"this.problems && this.problems.everythingFine ? 'Everything looks fine' : 'All health checks look fine'",
 	} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("app.js missing %q", want)
+		}
+	}
+}
+
+// The Problems right now card (v0.6 #1): its section above the tiles, read
+// from GET /api/problems on load, every 60 s and 2 s after the events that
+// change it, every item a shape plus a word, Show all inline, and the
+// Problems tab built on hostIssues, which mirrors problems.HostIssues. The
+// page keeps no copy of the card rules (everythingFine is gone).
+func TestProblemsCardUI(t *testing.T) {
+	js, _ := readAsset("app.js")
+	html, _ := readAsset("index.html")
+	for _, want := range []string{
+		`<section id="problems-now" class="problems-now" aria-labelledby="pn-h"`, `<h2 id="pn-h" tabindex="-1">Problems right now</h2>`,
+		"'Everything looks fine (checked ' + pnTime() + ')'", `id="pn-all" :aria-expanded="pnAll"`, `id="pn-watch"`,
+		"Tick <strong>Live mode</strong> and press <strong>Scan</strong> to keep watching.",
+		"What to try<span", "Open Health<span", "Dismiss<span",
+	} {
+		if !strings.Contains(string(html), want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	if i, j := strings.Index(string(html), `id="problems-now"`), strings.Index(string(html), `class="dash"`); i < 0 || j < 0 || i > j {
+		t.Errorf("the card is not above the tiles")
+	}
+	for _, want := range []string{
+		"fetch('/api/problems', {cache: 'no-store'})", "setInterval(() => this.loadProblems(), 60000);",
+		"if (!pnTimer) pnTimer = setTimeout(() => this.loadProblems(), 2000);",
+		"{critical: 'Problem', warning: 'Warning', info: 'Note', ok: 'Fixed'}",
+		"{critical: 'circle-x', warning: 'triangle-alert', info: 'info', ok: 'circle-check'}",
+		"isProblem(h) { return this.hostIssues(h).length > 0; },",
+	} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+	for _, gone := range []string{"everythingFine() {", "this.everythingFine()"} {
+		if strings.Contains(string(js), gone) {
+			t.Errorf("app.js still has %q", gone)
 		}
 	}
 }

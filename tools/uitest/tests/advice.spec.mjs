@@ -152,41 +152,40 @@ const switchOn = (triggers = {}) => {
 const fineLine = /OK Everything looks fine \(checked \d\d:\d\d\)/;
 const healthOnlyLine = /OK All health checks look fine \(checked \d\d:\d\d\)/;
 
+// Since v0.6 M8 the page keeps no copy of the card rules: the Health
+// panel's line says "Everything looks fine" only when GET /api/problems
+// does (which rules count is problems.Current's, tested in Go:
+// TestCurrentRules, TestEverythingFine), so it never disagrees with the
+// Problems right now card.
 test('Everything looks fine waits for printer alerts, low supplies and conflicts', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { settings: switchOn(), health: 'offline', frames: quietScan(fx.hosts(), [fx.conflict()]) });
   await page.goto(HOME);
   await scanToFinish(page);
-  await page.locator('#tab-health').click();
   // The health checks are fine, but a printer has an alert and a low
   // supply, and two addresses share a MAC: the line speaks for the checks.
+  await expect(page.locator('#problems-now .pitem')).toHaveCount(4);
+  await page.locator('#tab-health').click();
   const line = page.locator('#health-fine');
   await expect(line).toContainText(healthOnlyLine);
   await expect(line).not.toContainText('Everything');
   expect(rec.unmatched).toEqual([]);
 });
 
-// Printers with nothing wrong and no conflict; one device (not a printer)
-// has gone offline.
-function quietHosts() {
-  return fx.hosts().map((h) => {
-    if (h.isPrinter) h.printer = { ...h.printer, alerts: [], supplies: [] };
-    if (h.ip === '192.168.2.100') Object.assign(h, { online: false, offlineSince: new Date().toISOString(), missedChecks: 2 });
-    return h;
-  });
-}
-
-for (const deviceOffline of [false, true]) {
-  test(`an offline device ${deviceOffline ? 'counts' : 'does not count'} with "Any device goes offline" ${deviceOffline ? 'on' : 'off'}`, async ({ page }) => {
-    await initStorage(page, { theme: 'light', live: false });
-    const rec = await installMocks(page, { settings: switchOn({ deviceOffline }), health: 'offline', frames: quietScan(quietHosts()) });
-    await page.goto(HOME);
-    await scanToFinish(page);
-    await page.locator('#tab-health').click();
-    await expect(page.locator('#health-fine')).toContainText(deviceOffline ? healthOnlyLine : fineLine);
-    expect(rec.unmatched).toEqual([]);
-  });
-}
+test('the Health panel line follows the Problems right now card', async ({ page }) => {
+  await initStorage(page, { theme: 'light', live: false });
+  const rec = await installMocks(page, { settings: switchOn(), health: 'offline', problems: 'fine', frames: quietScan(fx.hosts(), [fx.conflict()]) });
+  await page.goto(HOME);
+  await scanToFinish(page);
+  await expect(page.locator('#pn-fine')).toContainText(fineLine);
+  await page.locator('#tab-health').click();
+  await expect(page.locator('#health-fine')).toContainText(fineLine);
+  // The card's answer changes (Check again reads it once more): so does the line.
+  rec.problems = 'some';
+  await page.locator('#health').getByRole('button', { name: 'Recheck', exact: true }).click();
+  await expect(page.locator('#health-fine')).toContainText(healthOnlyLine);
+  expect(rec.unmatched).toEqual([]);
+});
 
 // Serve GET /api/health with edit(report) applied to the 'offline' report.
 async function healthReport(page, noInternet, edit) {
