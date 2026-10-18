@@ -190,8 +190,13 @@ for (const width of [360, 390, 768, 1100, 1440]) for (const theme of ['dark', 'l
       await page.goto('about:blank');
       await page.goto(HOME);
       // The held status comes after the whole replayed scan, which takes the
-      // page 2 to 6 s to draw when several workers run at once.
-      await expect(page.locator('.livepill.held svg.ico')).toBeVisible({ timeout: 20_000 });
+      // page 2 to 6 s to draw when several workers run at once. As in
+      // held.spec's liveWith: wait until x-show shows the pill, then for
+      // the held class, then for its triangle.
+      const pill = page.locator('.livepill');
+      await expect(pill).toBeVisible({ timeout: 20_000 });
+      await expect(pill).toHaveClass(/held/, { timeout: 20_000 });
+      await expect(pill.locator('svg.ico')).toBeVisible({ timeout: 20_000 });
       const b = page.locator('#alerts div.banner:not(.more)').filter({ hasText: fx.linkNotice(reason).title });
       await expect(b).toHaveCount(1);
       if (reason === 'network_changed') await expect(b.locator('button.brestart')).toBeVisible();
