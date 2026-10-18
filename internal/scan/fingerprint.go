@@ -42,12 +42,14 @@ func NewFingerprint(cidr, gateway, gatewayMAC string) Fingerprint {
 	return fp
 }
 
-// sameNetwork reports whether cidr and gatewayMAC, read in a live cycle,
-// still match fp. A part either side does not know matches.
-func (fp Fingerprint) sameNetwork(cidr, gatewayMAC string) bool {
-	if cidr != "" && fp.CIDR != "" && maskedPrefix(cidr) != maskedPrefix(fp.CIDR) {
-		return false
-	}
+// samePrefix and sameRouter report whether this computer's address prefix
+// and the router's MAC, read in a live cycle, still match fp. A part either
+// side does not know matches.
+func (fp Fingerprint) samePrefix(cidr string) bool {
+	return cidr == "" || fp.CIDR == "" || maskedPrefix(cidr) == maskedPrefix(fp.CIDR)
+}
+
+func (fp Fingerprint) sameRouter(gatewayMAC string) bool {
 	return gatewayMAC == "" || fp.GatewayMAC == "" || strings.EqualFold(gatewayMAC, fp.GatewayMAC)
 }
 

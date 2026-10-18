@@ -74,18 +74,26 @@ func (r *runner) live(ctx context.Context, targets []netip.Addr) {
 			return
 		case <-timer.C:
 		}
-		r.guardStart(interval)
-		found, unseen := r.liveCycle(ctx, targets)
-		if ctx.Err() != nil {
-			return
+		// On another network (the storm guard's network_changed) there is
+		// nothing left to check until Restart watching; the status still
+		// says why.
+		if !r.guard.left() {
+			r.guardStart(interval)
 		}
-		r.guardEnd()
+		checked := !r.guard.left()
+		if checked {
+			found, unseen := r.liveCycle(ctx, targets)
+			if ctx.Err() != nil {
+				return
+			}
+			r.guardEnd()
+			status.NewHosts += found
+			status.Unseen = unseen
+		}
 		status.Cycle++
-		status.NewHosts += found
-		status.Unseen = unseen
 		status.Online, status.Offline = presenceCounts(r.st.snapshot())
 		r.guardStatus(&status)
-		r.publishLive(&status, interval, true)
+		r.publishLive(&status, interval, checked)
 		if time.Since(lastCP) >= cpEvery {
 			r.checkpoint()
 			lastCP = time.Now()
@@ -251,7 +259,7 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 		}
 	}
 	r.st.observeMACs(seen)
-	r.guardNetwork(gatewayMAC(entries, r.gateway))
+	r.guardNetwork(entries, byIP)
 	for _, e := range entries {
 		if !r.inRange[e.IP] {
 			continue
@@ -590,7 +598,7 @@ func (r *runner) startStatusPoll(ctx context.Context) (wait func()) {
 			}
 			timer.Reset(r.statusEvery()) // picks up Settings changes
 			targets := r.statusTargets()
-			if len(targets) == 0 {
+			if len(targets) == 0 || r.stopped.Load() {
 				continue
 			}
 			for _, h := range r.st.snapshot() {

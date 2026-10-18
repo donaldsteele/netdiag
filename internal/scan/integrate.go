@@ -360,10 +360,11 @@ func (r *runner) applySettings(set model.Settings) bool {
 }
 
 // checkpoint saves the current live snapshot to history and notes the
-// network in network-profile.json, asynchronously; a failure becomes a
-// warning.
+// network in network-profile.json (not while the storm guard sees this
+// computer on another network), asynchronously; a failure becomes a
+// warning. Live goroutine only.
 func (r *runner) checkpoint() {
-	if r.d.Profiles != nil {
+	if r.d.Profiles != nil && r.guard.away == 0 && !r.guard.left() {
 		fp := r.fp
 		r.cpWG.Add(1)
 		go func() {

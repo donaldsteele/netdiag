@@ -34,10 +34,12 @@ type state struct {
 	notices   []model.Notice
 	obs       map[string][]model.MACObservation
 	// ledger records every notice once the first pass is reconciled, under
-	// network, the fingerprint id (nil: no ledger).
+	// network, the fingerprint id (nil: no ledger), except while away: the
+	// storm guard saw this computer on another network (setAway).
 	ledger     ProblemLedger
 	network    string
 	reconciled bool
+	away       bool
 	// onChange mirrors health/conflicts/notices to the scan header. The
 	// slices passed are never mutated afterwards.
 	onChange func(*model.HealthReport, []model.Conflict, []model.Notice)

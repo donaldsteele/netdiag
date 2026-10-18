@@ -30,7 +30,7 @@ func (s *state) addNotices(hosts map[string]*model.Host, ns []model.Notice) {
 		return
 	}
 	s.advise(hosts, ns)
-	if s.ledger != nil && s.reconciled {
+	if s.recording() {
 		s.ledger.Apply(s.network, ns)
 	}
 	all := make([]model.Notice, 0, len(s.notices)+len(ns))
@@ -151,10 +151,21 @@ func (s *state) observeMACs(seen map[string]string) {
 func (s *state) analyze() {
 	s.ops <- func(hosts map[string]*model.Host) {
 		s.analyzeOp(hosts, true)
-		if s.ledger != nil && s.reconciled {
+		if s.recording() {
 			s.ledger.Apply(s.network, nil)
 		}
 	}
+}
+
+// recording reports whether notices go into the ledger: once the first
+// pass is reconciled, and not while this computer may be on another network.
+func (s *state) recording() bool { return s.ledger != nil && s.reconciled && !s.away }
+
+// setAway tells the state whether the storm guard saw this computer on
+// another network: the ledger hears nothing under this network's id while
+// it did.
+func (s *state) setAway(on bool) {
+	s.ops <- func(map[string]*model.Host) { s.away = on }
 }
 
 // reconcile ends the first pass (finishFirstPass): it seeds the alert engine

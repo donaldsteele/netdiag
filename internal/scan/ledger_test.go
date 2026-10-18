@@ -2,8 +2,10 @@ package scan
 
 import (
 	"context"
+	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -175,6 +177,45 @@ func TestReconcileOnceAndApplyEvery(t *testing.T) {
 	}
 }
 
+// latePinger answers the first sweep ping of late with no reply and every
+// other ping of it: the device is off during the first pass and back for
+// the live cycles.
+type latePinger struct {
+	late string
+	n    atomic.Int32
+}
+
+func (p *latePinger) Ping(_ context.Context, ip netip.Addr, timeout time.Duration) (time.Duration, bool, error) {
+	if ip.String() != p.late {
+		return 0, false, nil
+	}
+	if timeout != PresencePingTimeout && p.n.Add(1) == 1 {
+		return 0, false, nil
+	}
+	return time.Millisecond, true, nil
+}
+
+// A printer offline when netdiag last ran (kept under its MAC) is not found
+// by the first pass and answers the sweep of a later live cycle, before the
+// ARP read has its MAC: it gets its OK at once, and no "New device".
+func TestSeededOfflineBackInLiveCycle(t *testing.T) {
+	const key = "printerOffline|3C:52:82:11:22:33|"
+	rl := &recLedger{open: []notify.OpenFault{{Key: key, Trigger: model.TriggerPrinterOffline, IP: "10.0.0.10",
+		MAC: "3C:52:82:11:22:33", Name: "ZD621", Title: "Printer offline"}}}
+	d := presenceDeps()
+	d.Pinger = &latePinger{late: "10.0.0.10"}
+	d.ARP = fakeARP{{IP: "10.0.0.1", MAC: gwMAC}}
+	d.Ledger = rl
+	_, res := runCycles(t, d, "10.0.0.0/28", 2)
+	if n := notices(res, model.TriggerNewDevice); len(n) != 0 {
+		t.Fatalf("new device: %+v", n)
+	}
+	n := notices(res, model.TriggerPrinterOffline)
+	if len(n) != 1 || !n[0].OK || n[0].Key != key || n[0].Title != "Printer back online" {
+		t.Fatalf("offline notices: %+v", n)
+	}
+}
+
 // selfEnv is fakeEnv with this computer's address prefix.
 type selfEnv struct{ cidr string }
 
@@ -253,7 +294,7 @@ func TestNewFingerprint(t *testing.T) {
 		{"10.0.1.0/24", gwMAC, false},
 		{"10.0.0.0/24", "00:11:22:33:44:02", false},
 	} {
-		if got := fp.sameNetwork(tc.cidr, tc.mac); got != tc.same {
+		if got := fp.samePrefix(tc.cidr) && fp.sameRouter(tc.mac); got != tc.same {
 			t.Errorf("sameNetwork(%q, %q) = %v", tc.cidr, tc.mac, got)
 		}
 	}

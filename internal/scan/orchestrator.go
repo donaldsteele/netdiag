@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"netdiag/internal/arp"
@@ -524,6 +525,9 @@ type runner struct {
 	fp          Fingerprint
 	selfInRange bool
 	guard       stormGuard
+	// stopped is set when the storm guard found this computer on another
+	// network (guard.go leave): the printer status loop polls no more.
+	stopped atomic.Bool
 }
 
 func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, targets []netip.Addr) {
