@@ -91,7 +91,7 @@ test('reload while live brings back the table, health, banners and live pill wit
   await expect(page.locator('#hosts tbody tr.host')).toHaveCount(fx.TOTAL_HOSTS, { timeout: 15_000 });
   await expect(page.locator('#hosts tr.host').filter({ hasText: '192.168.2.200' }).locator('.badge.offline')).toBeVisible();
   await expect(page.locator('.hstrip .hpill')).toHaveCount(6);
-  await expect(page.locator('#hp-wifi')).toHaveClass(/hs-warn/);
+  await expect(page.locator('#hp-wifi')).toHaveClass(/hs-info/);
   const banners = page.locator('#alerts div.banner:not(.more)');
   await expect(banners).toHaveCount(2);
   await expect(banners.first()).toContainText('Device offline');

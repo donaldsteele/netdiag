@@ -85,7 +85,7 @@ test('"This network has no internet" makes Everything looks fine reachable, for 
   await page.goto(HOME);
   await page.locator('#tab-health').click();
   const dns = card(page, 'Name lookup (DNS)');
-  await expect(dns.locator('.hs')).toContainText('Warning');
+  await expect(dns.locator('.hs')).toContainText('Note');
   await expect(dns).toContainText('If this network has no internet on purpose, turn on "This network has no internet" in Settings.');
   await expect(page.locator('#health-fine')).toBeHidden();
 
@@ -126,7 +126,7 @@ test('"This network has no internet" makes Everything looks fine reachable, for 
   await expect(dialog).toHaveJSProperty('open', false);
   expect(JSON.parse(settingsPuts(rec).at(-1).body).noInternetNetworks).toEqual([OTHER_NETWORK]);
   await expect.poll(() => posts(rec, '/api/health/run').length).toBe(2);
-  await expect(dns.locator('.hs')).toContainText('Warning');
+  await expect(dns.locator('.hs')).toContainText('Note');
   expect(rec.unmatched).toEqual([]);
 });
 

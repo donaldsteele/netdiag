@@ -102,9 +102,17 @@ test('a page with an old token shows the buttons-off banner and keeps the view; 
   // differently worded error: the banner already says what to do.
   const scan = page.getByRole('button', { name: 'Scan', exact: true });
   await expect(scan).toHaveAttribute('aria-disabled', 'true');
-  // Quit and the Health view's Check again look off the same way.
   await expect(page.getByRole('button', { name: 'Quit', exact: true })).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.locator('#health-run')).toHaveAttribute('aria-disabled', 'true');
+  // The page's own buttons are off too: Check again in the Health view and
+  // on each card (they share the name), and Delete in History.
+  await page.locator('#tab-health').click();
+  await expect(page.locator('#health-run')).toBeDisabled();
+  const cardCheck = page.locator('#health .hcard .aacts button', { hasText: 'Check again' });
+  await expect(cardCheck.first()).toBeVisible();
+  for (const b of await cardCheck.all()) await expect(b).toBeDisabled();
+  await page.locator('#tab-history').click();
+  await expect(page.locator('#history table tbody tr').first().getByRole('button', { name: /Delete/ })).toBeDisabled();
+  await page.locator('#tab-devices').click();
   await scan.click({ force: true });
   await expect.poll(() => rec.unauthorized.some((u) => u.startsWith('POST /api/scans'))).toBe(true);
   await expect(banner).toBeVisible();
@@ -140,7 +148,7 @@ test('a page with an old token shows the buttons-off banner and keeps the view; 
   await expect(banner).toBeHidden();
   await expect(page.getByRole('button', { name: 'Quit', exact: true })).toBeEnabled();
   await expect(scan).not.toHaveAttribute('aria-disabled', 'true');
-  await expect(page.locator('#health-run')).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(page.locator('#health-run')).toBeEnabled();
   await expect.poll(() => app(page, (a) => a.settings && a.settings.community)).toBe('site-c0mm');
   expect(await app(page, (a) => [a.settingsLocked, a.community])).toEqual([false, 'site-c0mm']);
   await expect(page.getByRole('button', { name: 'Mute alerts' })).toBeEnabled();
@@ -155,6 +163,48 @@ test('a page with an old token shows the buttons-off banner and keeps the view; 
   await expect(dlg.getByLabel('SNMP community')).toHaveValue('site-c0mm');
   await page.keyboard.press('Escape');
   await expect(dlg).toHaveJSProperty('open', false);
+  expect(rec.unmatched).toEqual([]);
+});
+
+test('locked Settings left open show the form in the same dialog once a fresh page brings the token', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { scenario: 'scan', settings: mutedSettings(), session: 'new-token', stale: true });
+  await page.goto(HOME);
+  await expect(page.locator('#session-off')).toBeVisible();
+  const settingsBtn = page.getByRole('button', { name: 'Settings', exact: true });
+  await settingsBtn.click();
+  const dlg = page.locator('#settings-dialog');
+  await expect(dlg).toHaveJSProperty('open', true);
+  await expect(dlg.getByRole('alert')).toBeVisible();
+  await expect(dlg.locator('fieldset')).toHaveCount(0);
+  const close = dlg.locator('#settings-close');
+  await expect(close).toHaveText('Close');
+  await close.focus();
+  // Each showModal() is counted: the dialog must not be opened twice.
+  await page.evaluate(() => {
+    const d = document.getElementById('settings-dialog'), real = d.showModal.bind(d);
+    window.__modals = 0;
+    d.showModal = () => { window.__modals++; real(); };
+  });
+
+  // The dialog stays open while netdiag opens a fresh page.
+  const fresh = await page.context().newPage();
+  await installMocks(fresh, { scenario: 'scan', settings: mutedSettings(), session: 'new-token' });
+  await fresh.goto('/#s=new-token');
+  await expect(page.locator('#session-off')).toBeHidden();
+  await expect(dlg).toHaveJSProperty('open', true);
+  await expect(dlg.getByRole('alert')).toBeHidden();
+  await expect(dlg.locator('fieldset').first()).toBeVisible();
+  await expect(dlg.getByLabel('SNMP community')).toHaveValue('site-c0mm');
+  await expect(dlg.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  // Focus stays where it was, on the button that now reads Cancel.
+  await expect(close).toHaveText('Cancel');
+  await expect(close).toBeFocused();
+  expect(await page.evaluate(() => window.__modals)).toBe(0);
+  await page.keyboard.press('Escape');
+  await expect(dlg).toHaveJSProperty('open', false);
+  await expect(settingsBtn).toBeFocused();
+  await fresh.close();
   expect(rec.unmatched).toEqual([]);
 });
 

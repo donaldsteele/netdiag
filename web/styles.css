@@ -394,7 +394,7 @@ details.ptry .advice{margin-top:var(--s1)}
    triangle icon, inside the text (never a glyph alone on its own line); buttons a stale page turned off look off */
 .alert.iconalert::before{content:none}
 .alert.iconalert .ico{vertical-align:-0.2em}
-.controls button[aria-disabled=true],.pacts button[aria-disabled=true],.bacts button[aria-disabled=true],#health-run[aria-disabled=true]{opacity:.55;cursor:not-allowed}
+.controls button[aria-disabled=true],.pacts button[aria-disabled=true],.bacts button[aria-disabled=true]{opacity:.55;cursor:not-allowed}
 /* Phones: the alert banners scroll with the page (three pinned banners with What to try covered half the screen),
    and the live pill gets a row of its own, so its whole text wraps across the width */
 @media (max-width:759px){

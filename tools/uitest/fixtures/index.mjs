@@ -264,11 +264,35 @@ function wifiWeak(pct = 48) {
 // state: 'default' (Wi-Fi weak, the rest fine); 'all' (every check has
 // something to say, each with its advice); 'offline' (a local network
 // without internet), where noInternet says whether the "This network has
-// no internet" switch (v0.6-D15) was on for NETWORK when the checks ran.
+// no internet" switch (v0.6-D15) was on for NETWORK when the checks ran;
+// 'dns' (only the name check fails); 'nogateway' (no router is known, so
+// that check could not run); 'location' (Windows hides the Wi-Fi details).
 // Every report names the network it checked (NETWORK).
 export function health({ web = 'unset', webURL = WEB_URL, state = 'default', noInternet = false } = {}) {
   if (state === 'all') return healthAll();
   if (state === 'offline') return healthOffline(noInternet);
+  if (state === 'dns') {
+    // Only the name check fails (a warning on the card, not urgent), and
+    // Wi-Fi is fine.
+    const h = health({ web, webURL });
+    const detail = 'DNS server 192.168.2.1 did not answer (i/o timeout)';
+    h.checks[2] = { id: 'dns', label: 'Name lookup (DNS)', status: 'fail', detail, latencyMs: 0, data: { reason: 'no_reply' },
+      advice: advice("No name server answers, so this computer can't look up names.",
+        ["Restart the router.", "If you use a VPN, disconnect it and check again."], [RECHECK], detail) };
+    h.checks[5] = { id: 'wifi', label: 'Wi-Fi', status: 'ok', detail: 'ShopFloor, signal 82%, channel 36 (5 GHz)', latencyMs: 0 };
+    return h;
+  }
+  if (state === 'nogateway') {
+    // No router is known for the adapter: the check could not run, a
+    // warning on the card. Wi-Fi is fine.
+    const h = health({ web, webURL });
+    const detail = 'no router is known for this network adapter (Ethernet)';
+    h.checks[0] = { id: 'gateway', label: 'Router', status: 'unavailable', detail, latencyMs: 0, data: { reason: 'no_gateway' },
+      advice: advice("netdiag doesn't know the router of this network, so it can't check it.",
+        ["Check that this computer is connected to the network.", "If it is, check again in a minute."], [RECHECK], detail) };
+    h.checks[5] = { id: 'wifi', label: 'Wi-Fi', status: 'ok', detail: 'ShopFloor, signal 82%, channel 36 (5 GHz)', latencyMs: 0 };
+    return h;
+  }
   if (state === 'location') {
     // Windows hides Wi-Fi details until Location is on.
     const h = health({ web, webURL });
@@ -421,13 +445,14 @@ export function healthProblems(report) {
   return out;
 }
 // fixedItems(): problems the ledger saw fixed today: the device of
-// notice(2), back after 12 minutes, and the DNS check.
+// notice(2), back after 12 minutes, and the DNS check. Each keeps the open
+// problem's title, as Ledger.Apply does: what was fixed.
 export function fixedItems() {
   const at = Date.now() - 60000;
   return [
-    { key: 'deviceOffline|00:50:56:AB:CD:EF|', kind: 'deviceOffline', title: 'Device back online', device: { ip: ip(200) },
+    { key: 'deviceOffline|00:50:56:AB:CD:EF|', kind: 'deviceOffline', title: 'Device offline', device: { ip: ip(200) },
       openedAt: new Date(at - 12 * 60000).toISOString(), fixedAt: new Date(at).toISOString(), downForSec: 720 },
-    { key: 'healthFailed||dns', kind: 'healthFailed', title: 'Health check OK again', detail: 'Name lookup (DNS)',
+    { key: 'healthFailed||dns', kind: 'healthFailed', title: 'Health check failed', detail: 'Name lookup (DNS)',
       openedAt: new Date(at - 47 * 60000).toISOString(), fixedAt: new Date(at - 40 * 60000).toISOString(), downForSec: 420 },
   ];
 }

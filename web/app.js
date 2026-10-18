@@ -96,9 +96,9 @@ document.addEventListener('alpine:init', () => {
       const ids = [['gateway', 'Router'], ['dhcp', 'DHCP'], ['dns', 'DNS'], ['internet', 'Internet'], ['wifi', 'Wi-Fi'], ['webserver', 'Web server']];
       return ids.map(([id, label]) => {
         const c = by[id];
-        if (!c) return {id, label, icon: this.checkIcon(id), status: 'unavailable', value: 'not checked'};
+        if (!c) return {id, label, icon: this.checkIcon(id), mark: 'unavailable', value: 'not checked'};
         const lat = this.healthLatency(c);
-        return {id, label, icon: this.checkIcon(id), status: c.status, value: this.healthStatusText(c.status) + (lat ? ' ' + lat : '')};
+        return {id, label, icon: this.checkIcon(id), mark: this.healthMark(c), value: this.healthStatusText(c.status) + (lat ? ' ' + lat : '')};
       });
     },
     tabs: [{id: 'all', label: 'All'}, {id: 'printers', label: 'Printers'},
@@ -169,31 +169,56 @@ document.addEventListener('alpine:init', () => {
       this.healthBusy = false;
     },
     healthIcon(s) { return {ok: '✔', warn: '▲', fail: '✖', info: 'ℹ'}[s] || '–'; },
-    healthStatusText(s) { return {ok: 'OK', warn: 'Warning', fail: 'Failed', info: 'Info', unavailable: 'Unavailable'}[s] || s; },
-    // The header chip says what the Problems right now card says of the
-    // checks: a failed check is a problem, a warning one only a note.
+    healthStatusText(s) { return {ok: 'OK', warn: 'Note', fail: 'Failed', info: 'Info', unavailable: 'Could not run'}[s] || s; },
+    // A check finished unless it is unavailable: a timeout, or the router
+    // or the name and web checks could not run. Wi-Fi and DHCP details this
+    // computer doesn't share count as done (problems.checkDone).
+    checkDone(c) {
+      return c.status !== 'unavailable' || (c.id === 'wifi' || c.id === 'dhcp') && (c.data || {}).reason !== 'timeout';
+    },
+    // What the Problems right now card makes of check c (problems.Current),
+    // as the shape the header chip, the health strip and the Health panel
+    // show for it: a failed router check is urgent ('fail'), another failed
+    // check or one that could not finish a warning ('warn'), a warning check
+    // or details this computer doesn't share a note ('info', as info is).
+    healthMark(c) {
+      if (c.status === 'fail') return c.id === 'gateway' ? 'fail' : 'warn';
+      if (c.status === 'unavailable') return this.checkDone(c) ? 'info' : 'warn';
+      if (c.status === 'warn') return 'info';
+      return c.status;
+    },
+    // The header chip says what the card says of the checks: how many
+    // failed, how many could not run (warnings) and how many are notes.
+    healthCounts() {
+      const n = {failing: 0, notRun: 0, notes: 0, urgent: false};
+      for (const c of (this.health && this.health.checks) || []) {
+        if (c.status === 'fail') { n.failing++; n.urgent = n.urgent || c.id === 'gateway'; }
+        else if (!this.checkDone(c)) n.notRun++;
+        else if (c.status === 'warn' || c.status === 'unavailable') n.notes++;
+      }
+      return n;
+    },
     healthSummary() {
       if (!this.health) return 'Health: not checked';
-      const c = this.health.checks || [];
-      const f = c.filter(x => x.status === 'fail').length, w = c.filter(x => x.status === 'warn').length;
-      if (!f && !w) return 'Health: OK';
-      return 'Health: ' + [f ? f + ' failing' : '', w ? w + (w === 1 ? ' note' : ' notes') : ''].filter(Boolean).join(', ');
+      const n = this.healthCounts();
+      const parts = [n.failing ? n.failing + ' failing' : '', n.notRun ? n.notRun + ' could not run' : '',
+        n.notes ? n.notes + (n.notes === 1 ? ' note' : ' notes') : ''].filter(Boolean);
+      return 'Health: ' + (parts.length ? parts.join(', ') : 'OK');
     },
+    // fail (urgent), warn, note or ok: the chip's shape, as the card's.
     healthLevel() {
-      const c = (this.health && this.health.checks) || [];
-      return c.some(x => x.status === 'fail') ? 'fail' : c.some(x => x.status === 'warn') ? 'note' : 'ok';
+      const n = this.healthCounts();
+      return n.urgent ? 'fail' : n.failing || n.notRun ? 'warn' : n.notes ? 'note' : 'ok';
     },
+    healthLevelShape() { return {fail: 'circle-x', warn: 'triangle-alert', note: 'info', ok: 'circle-check'}[this.healthLevel()]; },
+    healthLevelClass() { return {fail: 's-bad', warn: 's-warn', note: 's-info', ok: 's-ok'}[this.healthLevel()]; },
     healthLatency(c) { return c.latencyMs > 0 ? c.latencyMs.toFixed(1) + ' ms' : ''; },
     // Every health check came back fine: none failed or warned, and none
-    // could not finish (a timeout, or the router or the name and web
-    // checks could not run). Wi-Fi and DHCP details this computer doesn't
-    // share don't count. A network without internet on purpose gets here
-    // too once Settings says so (v0.6-D15).
+    // could not finish (checkDone). A network without internet on purpose
+    // gets here too once Settings says so (v0.6-D15).
     healthFine() {
       const c = (this.health && this.health.checks) || [];
-      const done = x => x.status !== 'unavailable' ||
-        (x.id === 'wifi' || x.id === 'dhcp') && (x.data || {}).reason !== 'timeout';
-      return c.length > 0 && c.every(x => x.status !== 'fail' && x.status !== 'warn' && done(x));
+      return c.length > 0 && c.every(x => x.status !== 'fail' && x.status !== 'warn' && this.checkDone(x));
     },
     // The Health panel's line once the checks are fine: "Everything looks
     // fine" only when the Problems right now card says so too (GET
@@ -358,6 +383,12 @@ document.addEventListener('alpine:init', () => {
       return /^win/i.test(p);
     },
     actionIcon(a) { return {recheck: 'refresh-cw', openSettings: 'settings', showDevice: 'monitor', osSettings: 'map-pin'}[a.kind] || 'external-link'; },
+    // Check again waits for a run in progress. The buttons that ask netdiag
+    // to do something (Check again, Open Location settings) are off on a
+    // page whose session is out of date, like Scan and Quit.
+    actionOff(a) {
+      return a.kind === 'recheck' && this.healthBusy || this.sessionOff && (a.kind === 'recheck' || a.kind === 'osSettings');
+    },
     async runAction(a) {
       if (a.kind === 'recheck') return this.recheck();
       if (a.kind === 'openSettings') return this.openSettings(a.target);
@@ -686,6 +717,12 @@ document.addEventListener('alpine:init', () => {
       if (this.chatPaused()) return 'Chat: sending off';
       return {unreachable: "Chat: can't reach", no_channel: 'Chat: no channel', needs_reconnect: 'Chat: reconnect',
         identity_changed: 'Chat: stopped'}[this.chatState()] || '';
+    },
+    // The button's name starts with the word it shows, so "click Chat
+    // reconnect" works for voice control too, then says the state in full.
+    chatToolName() {
+      const w = this.chatToolWord();
+      return (w ? w + '. ' : '') + this.chatTitle();
     },
     // The status word's level matches its box: yellow for what Reconnect,
     // Change channel or Try now puts right, red only for the identity

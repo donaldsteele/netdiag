@@ -38,7 +38,9 @@ test('health strip has 6 pills and opens the Health view', async ({ page }) => {
   await page.goto(HOME);
   const pills = page.locator('.hstrip .hpill');
   await expect(pills).toHaveCount(6);
-  await expect(page.locator('#hp-wifi')).toContainText('Warning');
+  // A warning check is a note, as on the Problems right now card.
+  await expect(page.locator('#hp-wifi')).toContainText('Note');
+  await expect(page.locator('#hp-wifi')).toHaveClass(/hs-info/);
   await expect(page.locator('#hp-dns')).toContainText('OK');
   await page.locator('#hp-dns').click();
   await expect(page.locator('#health')).toBeVisible();

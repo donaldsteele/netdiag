@@ -62,9 +62,9 @@
     <div class="hdrtools">
       <span class="livepill" :class="{held: liveStatus && liveStatus.held}" x-show="state === 'live' && !gone()" :title="liveText()"><template x-if="liveStatus && liveStatus.held"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg></template><span x-text="liveText()"></span></span>
       <button type="button" class="chipbtn" :class="'h-' + healthLevel()"
-              @click="showView('health'); $nextTick(() => $refs.healthPanel && $refs.healthPanel.focus())" ><svg class="ico" :class="{fail: 's-bad', note: 's-info', ok: 's-ok'}[healthLevel()]" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + {fail: 'circle-x', note: 'info', ok: 'circle-check'}[healthLevel()]"></use></svg><span x-text="healthSummary()"></span></button>
+              @click="showView('health'); $nextTick(() => $refs.healthPanel && $refs.healthPanel.focus())" ><svg class="ico" :class="healthLevelClass()" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + healthLevelShape()"></use></svg><span x-text="healthSummary()"></span></button>
       <button type="button" class="iconbtn tool chattool" id="chat-tool" x-show="chatShown()" :class="[chatToolClass(), chatToolWord() ? 'worded' : '']" @click="openSettings('chat')" :title="chatTitle()">
-        <svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + chatIcon()"></use></svg><span class="ctword" aria-hidden="true" x-show="chatToolWord()" x-text="chatToolWord()"></span><span class="sr" x-text="chatTitle()"></span></button>
+        <svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + chatIcon()"></use></svg><span class="ctword" aria-hidden="true" x-show="chatToolWord()" x-text="chatToolWord()"></span><span class="sr" x-text="chatToolName()"></span></button>
       <button type="button" class="iconbtn tool" :aria-pressed="!soundOn()" @click="toggleSound()" :disabled="!settings" title="Mute alerts">
         <svg class="ico" aria-hidden="true" focusable="false"><use :href="soundOn() ? 'icons.svg#i-bell' : 'icons.svg#i-bell-off'"></use></svg><span class="sr">Mute alerts</span></button>
       <button type="button" class="iconbtn tool" @click="enableDesktop()" x-show="desktopState() !== 'granted'" title="Enable desktop alerts">
@@ -185,9 +185,9 @@
       <ul class="hstrip plain" aria-label="Network health">
         <template x-for="p in healthStrip()" :key="p.id">
           <li>
-            <button type="button" class="hpill" :class="'hs-' + p.status" :id="'hp-' + p.id" @click="showView('health')">
+            <button type="button" class="hpill" :class="'hs-' + p.mark" :id="'hp-' + p.id" @click="showView('health')">
               <svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + p.icon"></use></svg>
-              <svg class="ico" :class="statusShapeClass(p.status)" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusShape(p.status)"></use></svg>
+              <svg class="ico" :class="statusShapeClass(p.mark)" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusShape(p.mark)"></use></svg>
               <span class="hl" x-text="p.label"></span>
               <span class="hv mono" x-text="p.value"></span>
             </button>
@@ -211,9 +211,9 @@
         <p class="hfine" id="health-fine" role="status" x-show="healthFine()"><svg class="ico s-ok" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg> <strong>OK</strong> <span x-text="healthFineText()"></span></p>
         <ul class="plain hcards" x-show="health && (health.checks || []).length" aria-label="Network health checks">
           <template x-for="c in (health ? health.checks || [] : [])" :key="c.id">
-            <li class="hcard" :class="'hc-' + c.status">
+            <li class="hcard" :class="'hc-' + healthMark(c)">
               <div class="hchead"><h3><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + checkIcon(c.id)"></use></svg> <span x-text="c.label"></span></h3>
-                <span class="hs" :class="'hs-' + c.status"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusShape(c.status)"></use></svg> <span x-text="healthStatusText(c.status)"></span></span></div>
+                <span class="hs" :class="'hs-' + healthMark(c)"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusShape(healthMark(c))"></use></svg> <span x-text="healthStatusText(c.status)"></span></span></div>
               <template x-if="c.advice">
                 <div class="advice">
                   <p class="meaning"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-lightbulb"></use></svg> <strong>What this means:</strong> <span x-text="c.advice.meaning"></span></p>
@@ -222,7 +222,7 @@
                   </ol>
                   <p class="aacts" x-show="adviceActions(c.advice).length">
                     <template x-for="a in adviceActions(c.advice)" :key="a.kind + ':' + (a.target || '')">
-                      <span class="aact"><a class="btnlink" x-show="linkAction(a)" :href="linkAction(a) ? a.target : null" target="_blank" rel="noopener noreferrer"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-external-link"></use></svg><span x-text="a.label"></span><span class="sr"> (opens in a new tab)</span></a><button type="button" x-show="!linkAction(a)" @click="runAction(a)" :disabled="a.kind === 'recheck' && healthBusy"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + actionIcon(a)"></use></svg><span x-text="a.label"></span><span class="sr" x-text="' (' + c.label + ')'"></span></button></span>
+                      <span class="aact"><a class="btnlink" x-show="linkAction(a)" :href="linkAction(a) ? a.target : null" target="_blank" rel="noopener noreferrer"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-external-link"></use></svg><span x-text="a.label"></span><span class="sr"> (opens in a new tab)</span></a><button type="button" x-show="!linkAction(a)" @click="runAction(a)" :disabled="actionOff(a)"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + actionIcon(a)"></use></svg><span x-text="a.label"></span><span class="sr" x-text="' (' + c.label + ')'"></span></button></span>
                     </template>
                   </p>
                   <details class="tech" @keydown.escape="closeDetails($event, $el)"><summary>Technical details</summary><p class="hdetail mono" x-text="c.detail"></p></details>
@@ -230,14 +230,14 @@
               </template>
               <p class="hdetail mono" x-show="!c.advice"><span x-text="c.detail"></span>
                 <a href="#" class="setweb" x-show="webUnset(c)" @click.prevent="openSettings()">Set the web server URL in Settings</a></p>
-              <p class="hact" x-show="canTrust(c)"><button type="button" class="trustbtn" @click="trustCert(c)">Trust this certificate</button></p>
+              <p class="hact" x-show="canTrust(c)"><button type="button" class="trustbtn" @click="trustCert(c)" :disabled="sessionOff">Trust this certificate</button></p>
               <p class="hlat mono" x-text="healthLatency(c)"></p>
             </li>
           </template>
         </ul>
         <p class="empty" x-show="!health || !(health.checks || []).length">&gt; no health report yet - press Check again</p>
         <p>
-          <button type="button" id="health-run" @click="recheck()" :disabled="healthBusy" :aria-disabled="sessionOff ? 'true' : null"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Check again</button>
+          <button type="button" id="health-run" @click="recheck()" :disabled="healthBusy || sessionOff"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Check again</button>
           <a href="#" @click.prevent="openSettings()">Settings</a>
           <span class="sub" role="status" x-text="healthMsg"></span>
         </p>
@@ -426,7 +426,7 @@
                 <p class="sub">IPs: <span class="mono" x-text="(c.ips || []).join(', ')"></span> - MACs: <span class="mono" x-text="(c.macs || []).join(', ')"></span><span x-show="c.name"> - name <span x-text="c.name"></span></span></p>
                 <p class="sub" x-show="c.kind === 'mac_multi_ip' && !c.advice">Hint: a WiFi range extender or mesh node commonly shows one MAC for many IPs. If that is expected, ignore the MAC.</p>
                 <template x-for="m in (c.macs || [])" :key="m">
-                  <button type="button" @click="ignoreMac(m)">Ignore this MAC <span x-text="m"></span></button>
+                  <button type="button" @click="ignoreMac(m)" :disabled="sessionOff">Ignore this MAC <span x-text="m"></span></button>
                 </template>
               </div>
             </template>
@@ -465,7 +465,7 @@
                   <div><strong x-text="r.label"></strong> <span class="sub" x-text="'port ' + r.port"></span></div>
                   <p class="sub" x-text="r.help"></p>
                   <div class="ractions">
-                    <button type="button" x-show="r.canOpen" @click="openRemote(h, r)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-monitor"></use></svg><span x-text="r.openLabel"></span></button>
+                    <button type="button" x-show="r.canOpen" @click="openRemote(h, r)" :disabled="sessionOff"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-monitor"></use></svg><span x-text="r.openLabel"></span></button>
                     <button type="button" @click="copy(r.copy, r.copyWhat)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-copy"></use></svg><span x-text="r.copyLabel"></span></button>
                     <a x-show="r.kind === 'rdp' && r.local && !h.isSelf" :href="rdpFileURL(h)" download>Download connection file</a>
                   </div>
@@ -521,7 +521,7 @@
               <td x-text="h.cidr"></td>
               <td x-text="h.error ? 'Unreadable file - delete it' : statsText(h.stats) + ' (' + h.state + ')'"></td>
               <td><span class="badge" x-show="h.live">LIVE</span></td>
-              <td><button type="button" class="danger" @click="deleteHistory(h.id)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-trash-2"></use></svg>Delete<span class="sr" x-text="' scan ' + (h.startedAt || h.id)"></span></button></td>
+              <td><button type="button" class="danger" @click="deleteHistory(h.id)" :disabled="sessionOff"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-trash-2"></use></svg>Delete<span class="sr" x-text="' scan ' + (h.startedAt || h.id)"></span></button></td>
             </tr>
           </template>
         </tbody>

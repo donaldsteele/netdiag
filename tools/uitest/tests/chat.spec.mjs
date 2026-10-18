@@ -13,6 +13,8 @@ import path from 'node:path';
 const settingsDlg = (page) => page.locator('#settings-dialog');
 const wizard = (page) => page.locator('#chat-dialog');
 const puts = (rec) => rec.requests.filter((r) => r.method === 'PUT' && r.path === '/api/settings');
+// esc makes text a literal part of a RegExp.
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function watchErrors(page) {
   const errors = [];
@@ -360,10 +362,13 @@ for (const st of STATES) {
     const tool = page.locator('#chat-tool');
     await expect(tool).toBeVisible();
     await expect(tool).toHaveAttribute('title', st.title);
-    await expect(tool.locator('.sr')).toHaveText(st.title);
     await expect(tool.locator('use')).toHaveAttribute('href', 'icons.svg#i-' + st.icon);
     await expect(tool).toHaveClass(new RegExp('\\b' + st.tool + '\\b'));
     const box = await tool.boundingBox();
+    // The accessible name starts with the word the button shows (label in
+    // name, so voice control finds it), then says the state in full.
+    const full = typeof st.title === 'string' ? esc(st.title) : st.title.source.replace(/^\^|\$$/g, '');
+    await expect(tool).toHaveAccessibleName(new RegExp('^' + (st.ctword ? esc(st.ctword) + '\\. ' : '') + full + '$'));
     if (st.ctword) {
       await expect(tool.locator('.ctword')).toBeVisible();
       await expect(tool.locator('.ctword')).toHaveText(st.ctword);

@@ -206,11 +206,12 @@ test('an OK notice brings a Fixed item; Dismiss removes it', async ({ page }) =>
   await expect(first.locator('.psev')).toHaveText('Fixed');
   await expect(first.locator('.psev use')).toHaveAttribute('href', 'icons.svg#i-circle-check');
   // A minute ago: today, or yesterday just after midnight.
-  await expect(first).toContainText(/Fixed\s+at (?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) )?\d\d:\d\d \(lasted 12 min\): Device back online/);
+  await expect(first).toContainText(/Fixed\s+at (?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) )?\d\d:\d\d \(lasted 12 min\): Device offline/);
   await expect(first).toContainText('192.168.2.200');
-  // A fixed health check says which check it was, as an open one does.
+  // A fixed health check says which check it was, as an open one does,
+  // under the problem's own title (what was fixed, as the ledger keeps it).
   const dns = fixed.locator('.pitem').nth(1);
-  await expect(dns.locator('.ptitle')).toHaveText(/\(lasted 7 min\): Health check OK again$/);
+  await expect(dns.locator('.ptitle')).toHaveText(/\(lasted 7 min\): Health check failed$/);
   await expect(dns.locator('.pline .sub')).toHaveText('Name lookup (DNS)');
   // netdiag is watching: no "isn't watching" line.
   await expect(card(page).locator('#pn-watch')).toBeHidden();
@@ -366,7 +367,7 @@ test('times of an earlier day name the day', async ({ page }) => {
   await expect(items(page).first()).toContainText('since ' + want.yesterday);
   const fixedGroup = card(page).locator('#pn-fixed');
   await expect(fixedGroup.getByRole('heading', { name: 'Fixed in the last day' })).toBeVisible();
-  await expect(fixedGroup.locator('.pitem')).toContainText('Fixed at ' + want.yesterday + ' (lasted 12 min): Device back online');
+  await expect(fixedGroup.locator('.pitem')).toContainText('Fixed at ' + want.yesterday + ' (lasted 12 min): Device offline');
 });
 
 // Ignore this MAC: the card reads again, so a conflict the person ignored

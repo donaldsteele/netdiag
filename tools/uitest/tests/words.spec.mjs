@@ -52,6 +52,57 @@ test('the header chip says a warning check is a note, as the card does', async (
   await expect(chip.locator('use')).toHaveAttribute('href', 'icons.svg#i-info');
   // The card lists the Wi-Fi item as a note, never as a warning.
   await expect(page.locator('#problems-now .pitem', { hasText: 'Health check warning' }).locator('.psev')).toHaveText('Note');
+  // So do the health strip and the Health panel, under the chip.
+  await expect(page.locator('#hp-wifi')).toHaveClass(/hs-info/);
+  await expect(page.locator('#hp-wifi')).toContainText('Note');
+  await page.locator('#tab-health').click();
+  await expect(page.locator('#health-h .sub')).toHaveText('Health: 1 note');
+  const wifi = page.locator('#health .hcard', { hasText: 'Wi-Fi' });
+  await expect(wifi.locator('.hs')).toHaveText('Note');
+  await expect(wifi.locator('.hs')).toHaveClass(/hs-info/);
+  await expect(wifi.locator('.hs use')).toHaveAttribute('href', 'icons.svg#i-info');
+  await expect(page.locator('#health')).not.toContainText('Warning');
+  expect(rec.unmatched).toEqual([]);
+});
+
+// One check, the same shape and word in the four places that show it: the
+// header chip, the health strip, the Health panel and the Problems right
+// now card (problems.Current decides; the page follows it).
+async function expectCheckEverywhere(page, { id, label, chip, level, shape, mark, word, cardTitle, cardWord }) {
+  const c = page.locator('.hdrtools .chipbtn');
+  await expect(c).toHaveText(chip);
+  await expect(c).toHaveClass(new RegExp('h-' + level));
+  await expect(c.locator('use')).toHaveAttribute('href', 'icons.svg#i-' + shape);
+  const item = page.locator('#problems-now .pitem', { hasText: cardTitle }).filter({ hasText: label });
+  await expect(item.locator('.psev')).toHaveText(cardWord);
+  await expect(item.locator('.psev use')).toHaveAttribute('href', 'icons.svg#i-' + shape);
+  await expect(page.locator('#hp-' + id)).toHaveClass(new RegExp('hs-' + mark));
+  await expect(page.locator('#hp-' + id + ' use').last()).toHaveAttribute('href', 'icons.svg#i-' + shape);
+  await page.locator('#tab-health').click();
+  await expect(page.locator('#health-h .sub')).toHaveText(chip);
+  const card = page.locator('#health .hcard', { hasText: label });
+  await expect(card).toHaveClass(new RegExp('hc-' + mark));
+  await expect(card.locator('.hs')).toHaveText(word);
+  await expect(card.locator('.hs use')).toHaveAttribute('href', 'icons.svg#i-' + shape);
+}
+
+test('a failed name check alone is a warning, not urgent, in the chip, the strip, the Health panel and the card', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { health: 'dns' });
+  await page.goto(HOME);
+  await expectCheckEverywhere(page, { id: 'dns', label: 'Name lookup (DNS)', chip: 'Health: 1 failing', level: 'warn', shape: 'triangle-alert',
+    mark: 'warn', word: 'Failed', cardTitle: 'Health check failed', cardWord: 'Warning' });
+  expect(rec.unmatched).toEqual([]);
+});
+
+test('a check that could not run is a warning in the chip too, never Health: OK', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  // No router is known for the adapter, so the router check could not run.
+  const rec = await installMocks(page, { health: 'nogateway' });
+  await page.goto(HOME);
+  await expectCheckEverywhere(page, { id: 'gateway', label: 'Router', chip: 'Health: 1 could not run', level: 'warn', shape: 'triangle-alert',
+    mark: 'warn', word: 'Could not run', cardTitle: 'Health check could not run', cardWord: 'Warning' });
+  await expect(page.locator('#health-fine')).toBeHidden();
   expect(rec.unmatched).toEqual([]);
 });
 
