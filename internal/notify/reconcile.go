@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 
 	"netdiag/internal/model"
 )
@@ -47,8 +48,11 @@ func (e *Engine) Stop() {
 
 // Seed adopts the ledger's open problems for this network. A problem this
 // run already found (its notice held back by Defer) is the same problem:
-// it keeps the ledger's OpenedAt, and Reconcile drops its held notice. The
-// others are open again as they were, for Reconcile to check.
+// it keeps the ledger's OpenedAt, and Reconcile drops its held notice. That
+// holds under the device's other key too (rekey): a problem opened under
+// the "ip:" key before the MAC was known is the same as the one under the
+// MAC key, and it keeps the ledger's key. The others are open again as they
+// were, for Reconcile to check.
 func (e *Engine) Seed(open []OpenFault) { e.seed(open, true) }
 
 // Adopt is Seed for problems the first pass could not tell about (a scan
@@ -63,7 +67,11 @@ func (e *Engine) seed(open []OpenFault, check bool) {
 		if o.Key == "" {
 			continue
 		}
-		if f := e.open[o.Key]; f != nil {
+		f := e.open[o.Key]
+		if f == nil {
+			f = e.rekey(o)
+		}
+		if f != nil {
 			if !o.OpenedAt.IsZero() {
 				f.OpenedAt = o.OpenedAt
 			}
@@ -72,6 +80,82 @@ func (e *Engine) seed(open []OpenFault, check bool) {
 		}
 		e.open[o.Key] = &fault{OpenFault: o, seeded: check, outside: !check}
 	}
+}
+
+// Adopted lists the keys of the open problems adopted without a check
+// (Adopt) that this run did not find itself, sorted: the problems of
+// devices outside the scan's target, which the scan does not watch.
+func (e *Engine) Adopted() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var out []string
+	for k, f := range e.open {
+		if f.outside {
+			out = append(out, k)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// rekey finds the problem this run found while deferred that is the
+// ledger's open problem o under the device's other key: the same trigger
+// and key part on the device at o's address (its MAC, where both know it,
+// the same), opened under the "ip:" key while the run did not know the MAC
+// yet, or under the MAC key where the earlier run opened o under the "ip:"
+// key. It moves that problem and its held-back notice to o's key, the one
+// the ledger and team chat have, and returns it; nil when there is none. A
+// shortened key (keyFor's hash, over 200 characters) matches only itself.
+func (e *Engine) rekey(o OpenFault) *fault {
+	rest, ok := strings.CutPrefix(o.Key, o.Trigger+"|")
+	if !ok || !hostTrigger(o.Trigger) || o.IP == "" {
+		return nil
+	}
+	id, part, ok := strings.Cut(rest, "|")
+	if !ok {
+		return nil
+	}
+	for i, n := range e.waiting {
+		f := e.open[n.Key]
+		if n.OK || f == nil || f.again || f.seeded || f.outside || f.Trigger != o.Trigger || f.IP != o.IP ||
+			(f.MAC != "" && o.MAC != "" && !strings.EqualFold(f.MAC, o.MAC)) {
+			continue
+		}
+		fid, fpart, ok := strings.Cut(strings.TrimPrefix(f.Key, f.Trigger+"|"), "|")
+		if !ok || fpart != part || fid == id || !otherID(fid, id, o.IP) {
+			continue
+		}
+		delete(e.open, f.Key)
+		if t, ok := e.last[f.Key]; ok {
+			delete(e.last, f.Key)
+			e.last[o.Key] = t
+		}
+		e.waiting[i].Key = o.Key // Reconcile drops it with the problem's again
+		f.Key = o.Key
+		if f.MAC == "" {
+			f.MAC = o.MAC
+		}
+		e.open[o.Key] = f
+		return f
+	}
+	return nil
+}
+
+// hostTrigger reports whether trigger's problems are about one device,
+// under its MAC or "ip:" key (Key).
+func hostTrigger(trigger string) bool {
+	switch trigger {
+	case model.TriggerPrinterOffline, model.TriggerDeviceOffline, model.TriggerPrinterAlert, model.TriggerSupplyLow:
+		return true
+	}
+	return false
+}
+
+// otherID reports whether the key ids a and b are one device's two ids at
+// ip: its MAC and "ip:"+ip, either way round.
+func otherID(a, b, ip string) bool {
+	ipID := "ip:" + ip
+	return a == ipID && !strings.HasPrefix(b, "ip:") || b == ipID && !strings.HasPrefix(a, "ip:")
 }
 
 // Reconcile ends the deferred first pass. Each seeded problem whose

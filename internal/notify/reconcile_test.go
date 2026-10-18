@@ -1,6 +1,8 @@
 package notify
 
 import (
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -80,6 +82,90 @@ func TestReconcileStillOpen(t *testing.T) {
 	n := e.Observe(cur, printer(true, 50))
 	if len(n) != 1 || !n[0].OK || n[0].Key != seed[0].Key || n[0].OpenedAt != seed[0].OpenedAt.UTC().Format(time.RFC3339) {
 		t.Fatalf("closed later: %v", n)
+	}
+}
+
+// Restarted with the cover still open, when one of the two runs learned the
+// printer's MAC only after its cover alert (the ARP read came after the SNMP
+// answer): the problem opened under the "ip:" key in one run and under the
+// MAC key in the other is still one problem. The first pass gives no notice,
+// the problem keeps the ledger's key and OpenedAt, and it closes under that
+// key later. A printer at another address is another problem.
+func TestReconcileStillOpenUnderTheOtherKey(t *testing.T) {
+	noMAC := func(h model.Host) model.Host { h.MAC = ""; return h }
+	cur := printer(true, 50, door, off)
+	for _, tc := range []struct {
+		name      string
+		last, now model.Host // the cover alert's first reading in each run
+	}{
+		{"ip: key before, MAC key now", noMAC(cur), cur},
+		{"MAC key before, ip: key now", cur, noMAC(cur)},
+	} {
+		e, _ := newEng()
+		firstPass(e, tc.last)
+		seed := e.Open()
+		e, c := newEng()
+		c.t = c.t.Add(time.Hour)
+		e.Defer()
+		if n := firstPass(e, tc.now); len(n) != 0 {
+			t.Fatalf("%s: first pass: %v", tc.name, n)
+		}
+		if seed[0].Key == e.Open()[0].Key {
+			t.Fatalf("%s: both runs opened %s", tc.name, seed[0].Key)
+		}
+		e.Seed(seed)
+		if n := e.Reconcile([]model.Host{cur}, nil, nil); len(n) != 0 {
+			t.Fatalf("%s: reconcile: %v", tc.name, n)
+		}
+		open := e.Open()
+		if len(open) != 1 || open[0].Key != seed[0].Key || !open[0].OpenedAt.Equal(seed[0].OpenedAt) || open[0].MAC != prMAC {
+			t.Fatalf("%s: open %v, seeded %v", tc.name, open, seed)
+		}
+		if n := e.Observe(cur, cur); len(n) != 0 {
+			t.Fatalf("%s: same reading: %v", tc.name, n)
+		}
+		n := e.Observe(cur, printer(true, 50))
+		if len(n) != 1 || !n[0].OK || n[0].Key != seed[0].Key {
+			t.Fatalf("%s: closed later: %v", tc.name, n)
+		}
+	}
+
+	// The ledger's cover alert of a printer at another address is not this
+	// one: this one's notice goes out.
+	e, _ := newEng()
+	other := noMAC(cur)
+	other.IP = "10.0.0.6"
+	firstPass(e, other)
+	seed := e.Open()
+	e, _ = newEng()
+	e.Defer()
+	firstPass(e, cur)
+	e.Seed(seed)
+	if n := e.Reconcile([]model.Host{cur}, nil, nil); len(n) != 1 || n[0].OK || n[0].Key == seed[0].Key {
+		t.Fatalf("another printer: %v", n)
+	}
+	if len(e.Open()) != 2 {
+		t.Fatalf("another printer: open %v", e.Open())
+	}
+}
+
+// Adopted lists the problems adopted without a check that the run did not
+// find itself: one the run found under the device's other key is the run's.
+func TestAdopted(t *testing.T) {
+	e, _ := newEng()
+	firstPass(e, printer(true, 50, door))
+	cover := e.Open()[0]
+	cover.Key = strings.Replace(cover.Key, prMAC, "ip:10.0.0.5", 1)
+	away := OpenFault{Key: "printerOffline|ip:10.0.0.99|", Trigger: model.TriggerPrinterOffline, IP: "10.0.0.99"}
+	e, _ = newEng()
+	e.Defer()
+	firstPass(e, printer(true, 50, door))
+	e.Adopt([]OpenFault{cover, away})
+	if got := e.Adopted(); !slices.Equal(got, []string{away.Key}) {
+		t.Fatalf("adopted %v", got)
+	}
+	if n := e.Reconcile([]model.Host{printer(true, 50, door)}, nil, nil); len(n) != 0 {
+		t.Fatalf("reconcile: %v", n)
 	}
 }
 
