@@ -32,6 +32,9 @@ test('the page and problems.HostIssues agree on every golden case', async ({ pag
   await installMocks(page);
   await page.goto(HOME);
   await expect(card(page).locator('#pn-fine')).toBeVisible();
+  // The card loads before the settings (init reads the interfaces and
+  // reattaches first), and the cases below change the loaded settings.
+  await expect.poll(() => page.evaluate(() => !!window.Alpine.$data(document.querySelector('.shell')).settings)).toBe(true);
   for (const c of GOLDEN.cases) {
     const got = await page.evaluate(({ hosts, conflicts, pct, ignored }) => {
       const a = window.Alpine.$data(document.querySelector('.shell'));
