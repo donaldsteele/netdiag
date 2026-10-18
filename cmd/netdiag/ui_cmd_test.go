@@ -150,6 +150,11 @@ func TestSecondLaunchOpensSamePage(t *testing.T) {
 	if info.Port != p || info.PID != os.Getpid() || info.Token == "" || !strings.HasPrefix(info.InstanceID, "i-") || info.Version != version {
 		t.Fatalf("instance.json = %v (port %d)", info, info.Port)
 	}
+	// runUI writes instance.json before it opens the browser.
+	deadline := time.Now().Add(5 * time.Second)
+	for len(opened()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
 	if got := opened(); len(got) != 1 || got[0] != instance.PageURL(p, info.Token) {
 		t.Fatalf("first launch opened %v", got)
 	}
