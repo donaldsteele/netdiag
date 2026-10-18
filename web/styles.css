@@ -358,7 +358,7 @@ details.btry .advice{margin-top:var(--s1)}
 .chatcard{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--s2);border:1px solid var(--line-strong);border-radius:var(--radius);padding:var(--s2) var(--s3);background:var(--bg-elev);overflow-wrap:anywhere}
 .chatcard p{margin:var(--s1) 0}
 #wiz-tray{margin:var(--s2) 0}
-#wiz-admin{white-space:normal;max-width:100%}
+#wiz-admin{white-space:normal;max-width:100%;align-items:flex-start}
 .fpbig{font-size:24px;font-weight:700;letter-spacing:.04em;margin:var(--s3) 0 var(--s1);overflow-wrap:anywhere}
 .fprest{font-size:13px;color:var(--fg-muted);overflow-wrap:anywhere}
 .paircode{font-size:32px;font-weight:700;letter-spacing:.08em;margin:var(--s3) 0}
