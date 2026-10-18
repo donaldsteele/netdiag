@@ -569,16 +569,23 @@ func TestFollowsServerAddress(t *testing.T) {
 	if d := time.Since(moveAt); d > 3*time.Second {
 		t.Fatalf("took %v", d)
 	}
-	s := m.Status()
-	if s.State != StateConnected || s.Server == nil || s.Server.Port != newPort {
+	// The fake records the post before netdiag reads its answer, and the
+	// sender may post at the new address before the move's Activity note is
+	// added: wait for the status to show all of it.
+	moveNoted := func(s Status) bool {
+		for _, n := range s.Activity {
+			if n.Text == "Team chat server moved to 127.0.0.1." {
+				return true
+			}
+		}
+		return false
+	}
+	waitFor(t, "connected at the new address, nothing waiting, the move noted", func() bool {
+		s := m.Status()
+		return s.State == StateConnected && s.Waiting == 0 && moveNoted(s)
+	})
+	if s := m.Status(); s.Server == nil || s.Server.Port != newPort {
 		t.Fatalf("status %+v", s)
-	}
-	found := false
-	for _, n := range s.Activity {
-		found = found || n.Text == "Team chat server moved to 127.0.0.1."
-	}
-	if !found {
-		t.Fatalf("activity %+v", s.Activity)
 	}
 	saved := readFile(t, dir)
 	if saved.Server.BaseURL != moved.URL || saved.Server.BaseURL == oldURL || saved.Server.CAFingerprint != f.CAFingerprint {
