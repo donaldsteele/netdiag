@@ -1204,7 +1204,7 @@ All five prompts already carry the device-text rule (`a3cfd51`).
 | Version | What netdiag does with bubbles | Scopes |
 |---|---|---|
 | v0.5.8 | Align the severity table in bubbles `docs/netdiag.md:43-51` with what netdiag sends | none |
-| v0.6 | A built-in client copied from bubbles v0.2.0, with Apache headers and a NOTICE line: stdlib only, no queue, dnssd or WebSocket. The pairing wizard. Alerts posted and resolved by `dedupe_key`, with `renotify_after_s: 0`. A persistent outbox. On a 409 after **Change channel**, resolve the old card and post once in the new channel. Follows the server's address through `_bubbles._tcp` and its TXT `fp`. On first connect, at most 10 alerts plus one message. Release step 14 writes the v0.6 severity map into `docs/netdiag.md` | `alerts:write`, `channels:read`, `messages:write`, `files:write` (v0.6-D2; no `messages:read`) |
+| v0.6 | A built-in client copied from bubbles v0.2.0, with Apache headers and a NOTICE line: stdlib only, no queue, dnssd or WebSocket. The pairing wizard. Alerts posted and resolved by `dedupe_key`, with `renotify_after_s: 0`. A persistent outbox. On a 409 after **Change channel**, resolve the old card and post once in the new channel. Follows the server's address through `_bubbles._tcp` and its TXT `fp`. On first connect, at most 10 alerts plus one message. v0.6 release step 18 (v0.6 §11) writes the v0.6 severity map into `docs/netdiag.md` | `alerts:write`, `channels:read`, `messages:write`, `files:write` (v0.6-D2; no `messages:read`) |
 | v0.7 | **Send to chat** with a preview (kinds `summary`, `device`, `health`, `log`). A CSV goes through `UploadFile`, copied from bubbles `pkg/bubblesclient/files.go:18` and `pkg/protocol/file.go`. The posts go to the alerts channel chosen at pairing (V7-D7) | no new scopes |
 | v0.8 | `expectedMissing` alerts (Important is critical). Reminders: re-post with the same key and severity, with `renotify_after_s = interval - 60` on every post. Holding, then one "While you were away" message. An optional "started/stopped watching" note (off by default). Share kinds `diff` and `report` | no new scopes |
 | v0.9 | The `unknownDevice` alert (info), closed by "Marked as ours". Share kinds `reach`, `dropping`, `localPrinters`, `unknownDevice` and `newDevice`. Welcome step 3 offers pairing when `_bubbles._tcp` is found | no new scopes |
@@ -1469,28 +1469,30 @@ Plan: [v0.9 §13.6][v09-136] and [signing-and-store.md](signing-and-store.md) se
 2. **Go checks:**
    - `go test ./...` and `GOOS=darwin go vet ./...`;
    - `go test -race` on every package the release touched;
-   - `gofmt -l cmd internal tools web` prints nothing;
+   - `gofmt -l $(git ls-files '*.go')` prints nothing (CI runs `gofmt -l cmd internal tools web`, the same files);
    - `go run ./tools/licenses -check` passes.
 3. **UI suite.** In `tools/uitest`, run `npx playwright test`: the full suite, including align, scroll, responsive, tiles, vision, motion, drawer, flow, mcp-settings, icons, views, activity and the axe checks. Look through the screenshots for alignment and double scrollbars.
-4. **CI.** It is green on the release commit: Windows and macOS Go jobs, the race test on macOS, the release build, and the Playwright suite with axe on Linux.
+4. **CI.** It is green on the release branch's head: Windows and macOS Go jobs, the race test on macOS, the release build, and the Playwright suite with axe on Linux. Step 10 checks it again on the release commit.
 5. **Sprite.** Rebuild it (`node build-sprite.mjs` in `tools/icons`) and check that it is at most 40,960 bytes.
 6. **Screenshots.** Retake them:
    - `docs-shots.spec` → `docs/img`;
    - `site-shots.spec` → `docs/assets/shots`;
    - the `real-zebra-*` captures on the ZD621 when the release changes them, asking the user to open and close the cover.
 7. **Field checklist.** Work through the release's section of `docs/field-checklist.md` on a standard-user Windows 11 PC (firewall on) and on macOS 15. Record the results.
-8. **Docs.** Update README, `docs/mcp.md` and HOW-TO-OPEN.txt. Bump the version pill (`<p class="pill">` in `docs/index.html`, §8.13). Tick the release's features in the [Feature index](#7-feature-index) (only now: a feature counts as shipped with its tag, after its field checks). Commit.
-9. **Tag.** Create an annotated tag `vX.Y.Z` **before building**, because the version comes from `git describe`.
-10. **Build.** Run `scripts/build.ps1`. It refuses a stale licence file, then builds 4 zips (windows and darwin, amd64 and arm64), each with `LICENSE`, `NOTICE` and `THIRD_PARTY_LICENSES.txt`.
-11. **Smoke test.** Unzip windows-amd64 into a scratch folder and run `netdiag.exe version`. Run it with `NETDIAG_DATA_DIR` set to a scratch folder, then stop only that netdiag, by its path.
-12. **Defender.** Run a custom scan on the built exe (`MpCmdRun.exe -Scan -ScanType 3 -File …`). v0.8 also needs the 2-hour clean-VM gate with Keep watching on.
-13. **Publish.** Run `gh release create vX.Y.Z dist/*.zip --latest` with plain-language notes: what's new, fixes, "Good to know", and the SmartScreen line.
-14. **Pages.** Confirm that GitHub Pages shows the new version and that the download buttons fetch the new zips.
-15. **False positive.** Submit the release exe to Microsoft as a false positive, until signing lands.
-16. **bubbles (optional).** Open the bubbles-repo PRs listed for this version (10.2).
-17. **Memory note.** Update the release-workflow memory note to name the latest version.
+8. **Docs.** Update README, `docs/mcp.md` and HOW-TO-OPEN.txt. Bump the version pill (`<p class="pill">` in `docs/index.html`, §8.13). Tick the release's features in the [Feature index](#7-feature-index) (only now: a feature counts as shipped with its tag, after its field checks). Commit on the release branch (for v0.6, `v0.6`).
+9. **Master.** Fast-forward `master` to the release branch and push both, **before tagging**: `git switch master`, `git merge --ff-only <release branch>`, `git push origin master <release branch>`. GitHub Pages serves `/docs` from `master`, so the site changes only from here, and the tag must be on `master`. If it is not a fast-forward, stop: rebase the release branch on `master` and run steps 2 and 3 again. (A release cut on `master` itself, as v0.5.8 was, just pushes `master`.)
+10. **CI on the release commit.** Wait until CI is green on the `master` head just pushed (`gh run list --branch master --limit 1`, `gh run watch`), the same jobs as step 4. If it is red, fix it on the release branch and go back to step 8.
+11. **Tag.** Create an annotated tag `vX.Y.Z` on that commit and push it (`git push origin vX.Y.Z`), **before building**, because the version comes from `git describe`.
+12. **Build.** Run `scripts/build.ps1`. It refuses a stale licence file, then builds 4 zips (windows and darwin, amd64 and arm64), each with `LICENSE`, `NOTICE` and `THIRD_PARTY_LICENSES.txt`.
+13. **Smoke test.** Unzip windows-amd64 into a new scratch folder and run `netdiag.exe version`: it prints `netdiag vX.Y.Z`. Then run `netdiag.exe ui --port <free port> --no-browser` with `NETDIAG_DATA_DIR` set to a new, empty temp folder (never the real data folder), open `http://127.0.0.1:<that port>/` and check that the page loads, then stop only that netdiag, by its process ID or its path, never by its name.
+14. **Defender.** Run a custom scan on the built exe (`MpCmdRun.exe -Scan -ScanType 3 -File …`). v0.8 also needs the 2-hour clean-VM gate with Keep watching on.
+15. **Publish.** Run `gh release create vX.Y.Z dist/*.zip --latest` with plain-language notes: what's new, fixes, "Good to know", and the SmartScreen line.
+16. **Pages.** Confirm that GitHub Pages shows the new version and that the download buttons fetch the new zips.
+17. **False positive.** Submit the release exe to Microsoft as a false positive, until signing lands.
+18. **bubbles (optional).** Open the bubbles-repo PRs listed for this version (10.2).
+19. **Memory note.** Update the release-workflow memory note to name the latest version.
 
-**Once signing is configured (ST-2).** `build.ps1 -RequireSigning` signs both Windows exes after `go build` and before zipping, with a timestamp. `signtool verify /pa` and `Get-AuthenticodeSignature` must both pass, and checksums are computed after signing. A `release.yml` workflow, run on a `v*` tag in the `release` environment, can do this and upload to a draft release. Step 15 still applies.
+**Once signing is configured (ST-2).** `build.ps1 -RequireSigning` signs both Windows exes after `go build` and before zipping, with a timestamp. `signtool verify /pa` and `Get-AuthenticodeSignature` must both pass, and checksums are computed after signing. A `release.yml` workflow, run on a `v*` tag in the `release` environment, can do this and upload to a draft release. Step 17 still applies.
 
 **From v0.9.2 (MSIX) and v1.0.0 (Store).**
 - `scripts/package-msix.ps1` builds the `.msixbundle` with the version `X.Y.Z.0`.
