@@ -82,7 +82,16 @@ func TestPairAndAlertAgainstV020(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	st, err := c.Status(ctx)
+	// GET /status is for anyone but app tokens: bubbles v0.2.0 answers 403
+	// to the token, so the server's name is read without it.
+	if _, err := c.Status(ctx); apiStatus(t, err).Status != 403 || !strings.Contains(err.Error(), "not available to app tokens") {
+		t.Fatalf("status with the app token: %v", err)
+	}
+	anon, err := New(Config{BaseURL: cfg.BaseURL, CAFingerprint: cfg.CAFingerprint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := anon.Status(ctx)
 	if err != nil || st.InstanceName != "Office" {
 		t.Fatalf("status %+v %v", st, err)
 	}

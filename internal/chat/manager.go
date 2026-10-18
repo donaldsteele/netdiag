@@ -43,9 +43,19 @@ const (
 	StateIdentityChanged = "identity_changed" // the server's CA is not the pinned one
 )
 
+// Reasons (Status.Reason) tell two causes of the same state apart, so the
+// page says the right thing.
+const (
+	ReasonRefused    = "refused"     // needs_reconnect: the server answered 401 to the token
+	ReasonUnreadable = "unreadable"  // needs_reconnect: the saved token cannot be opened on this computer
+	ReasonNotAllowed = "not_allowed" // no_channel: the channel refused netdiag's post (404 or 403)
+	ReasonArchived   = "archived"    // no_channel: the channel is archived
+)
+
 // Pairing request states (GET /api/bubbles/pair/status). Approved means
-// netdiag has its token and saved it; claimed means the server says the
-// token went out already, but not to netdiag.
+// netdiag has its token (saved the moment it arrived) and has asked which
+// channels its bot is in; until then the request reads pending. Claimed
+// means the server says the token went out already, but not to netdiag.
 const (
 	PairNone     = "none"
 	PairPending  = "pending"
@@ -96,12 +106,21 @@ type Manager struct {
 	conn    *Connection // nil when not connected
 	needs   *Connection // bubbles.json's server, pin and channel when its token cannot be opened here
 	gen     int         // counts connection changes, so a late answer never touches a newer connection
-	trouble string      // "", StateUnreachable, StateNeedsReconnect or StateIdentityChanged: what the last call found
+	trouble string      // "", StateUnreachable, StateNeedsReconnect or StateIdentityChanged: what the calls found (note)
 	since   time.Time   // when trouble began
-	lastErr string      // the last call's error, in words for the page
-	found   []Found     // the servers the last discovery found
-	cand    *candidate  // the server the person last inspected
-	pair    *pairSession
+	lastErr string      // trouble in words for the page
+	// chanRefused is why the saved channel refused the last post
+	// (ReasonNotAllowed or ReasonArchived; "" when it did not): the state
+	// is no_channel until a post gets through or a channel is chosen.
+	chanRefused, chanMsg string
+	unsaved              string     // why conn could not be saved in bubbles.json ("" when it is saved)
+	found                []Found    // the servers the last discovery found
+	cand                 *candidate // the server the person last inspected
+	pair                 *pairSession
+	// pairEpoch counts pairing starts, cancels and disconnects, so a
+	// pairing request still on its way when the person cancelled is never
+	// waited on.
+	pairEpoch int
 }
 
 // candidate is a server whose CA netdiag fetched and showed the person.
@@ -180,10 +199,14 @@ type ServerView struct {
 }
 
 // Status is the answer of GET /api/bubbles. It never holds the token,
-// only the start of it that bubbles shows in Admin > Apps. Waiting,
-// Dropped and LastSentAt are the outbox's (v0.6 M11).
+// only the start of it that bubbles shows in Admin > Apps. Reason tells
+// why for needs_reconnect and no_channel (the Reason* values). Unsaved
+// says, in words, that the connection works but could not be saved, so it
+// would be lost when netdiag closes. Waiting, Dropped and LastSentAt are
+// the outbox's (v0.6 M11).
 type Status struct {
 	State       string      `json:"state"`
+	Reason      string      `json:"reason,omitempty"`
 	Since       string      `json:"since,omitempty"`
 	Server      *ServerView `json:"server,omitempty"`
 	Channel     *Channel    `json:"channel,omitempty"`
@@ -194,32 +217,42 @@ type Status struct {
 	Dropped     int         `json:"dropped"`
 	LastSentAt  string      `json:"lastSentAt,omitempty"`
 	LastError   string      `json:"lastError,omitempty"`
+	Unsaved     string      `json:"unsaved,omitempty"`
 }
 
-// Status reports the connection's state.
+// Status reports the connection's state. A connection that could not be
+// saved is saved again first, so the page's status reads (every 30 s)
+// keep trying.
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	st := Status{State: StateOff, LastError: m.lastErr}
+	st := Status{State: StateOff}
 	c := m.conn
 	switch {
 	case c != nil:
 		st.State = StateConnected
-		if c.Channel.ID == "" {
-			st.State = StateNoChannel
-		}
-		if m.trouble != "" {
-			st.State = m.trouble
+		switch {
+		case m.trouble != "":
+			st.State, st.LastError = m.trouble, m.lastErr
+			if m.trouble == StateNeedsReconnect {
+				st.Reason = ReasonRefused
+			}
 			if !m.since.IsZero() {
 				st.Since = m.since.UTC().Format(time.RFC3339)
 			}
+		case c.Channel.ID == "":
+			st.State = StateNoChannel
+		case m.chanRefused != "":
+			st.State, st.Reason, st.LastError = StateNoChannel, m.chanRefused, m.chanMsg
 		}
 		st.TokenPrefix = c.TokenPrefix()
+		if m.unsaved != "" && m.saveLocked() != nil {
+			st.Unsaved = unsavedMsg(m.unsaved)
+		}
 	case m.needs != nil:
 		c = m.needs
-		st.State = StateNeedsReconnect
+		st.State, st.Reason, st.LastError = StateNeedsReconnect, ReasonUnreadable, m.lastErr
 	default:
-		st.LastError = ""
 		return st
 	}
 	if t, err := targetOf(c.Server.BaseURL, c.Server.OnboardingURL); err == nil {
@@ -321,7 +354,8 @@ type PairStart struct {
 // are used instead and the find and fingerprint steps are skipped (4.10
 // Recovery). The request then waits for the chat admin; the token is saved
 // the moment it arrives, since bubbles hands it out once. A new request
-// replaces one that is still waiting.
+// replaces one that is still waiting or still on its way, and one that is
+// cancelled (CancelPairing, Disconnect) while on its way is never waited on.
 func (m *Manager) StartPairing(ctx context.Context, address, fingerprint string, reconnect bool) (PairStart, error) {
 	if m.opt.Files == nil {
 		return PairStart{}, errNoStore
@@ -352,10 +386,8 @@ func (m *Manager) StartPairing(ctx context.Context, address, fingerprint string,
 		}
 		c = *m.cand
 	}
-	if m.pair != nil {
-		m.pair.cancel()
-		m.pair = nil
-	}
+	m.stopPairLocked()
+	epoch := m.pairEpoch
 	m.mu.Unlock()
 
 	host, _ := m.opt.Hostname()
@@ -375,8 +407,12 @@ func (m *Manager) StartPairing(ctx context.Context, address, fingerprint string,
 	wctx, wcancel := context.WithCancel(m.ctx)
 	s := &pairSession{c: c, code: p.Code(), expires: p.ExpiresAt(), state: PairPending, cancel: wcancel}
 	m.mu.Lock()
-	if m.pair != nil {
-		m.pair.cancel()
+	if m.pairEpoch != epoch {
+		// Cancelled, disconnected or replaced while the request was on its
+		// way: never wait for this one. bubbles lets it lapse.
+		m.mu.Unlock()
+		wcancel()
+		return PairStart{}, refused("The request to connect was cancelled.")
 	}
 	m.pair = s
 	m.mu.Unlock()
@@ -397,7 +433,9 @@ func formatCode(code string) string {
 }
 
 // wait polls the pairing request until the admin decides, then saves the
-// token at once and learns the app's name, scopes and channels.
+// token at once and learns the app's name, scopes and channels. The
+// request reads approved only once the channels are learnt, so the wizard
+// never sees an approval without the channel the admin ticked.
 func (m *Manager) wait(ctx context.Context, s *pairSession, p *bubbles.Pairing) {
 	cfg, err := p.Wait(ctx)
 	if err != nil {
@@ -430,31 +468,53 @@ func (m *Manager) wait(ctx context.Context, s *pairSession, p *bubbles.Pairing) 
 	if prev == nil {
 		prev = m.needs
 	}
-	err = m.replaceLocked(conn)
-	s.state = PairApproved
-	if err != nil {
-		s.err = "netdiag could not save the team chat connection: " + err.Error()
-	}
+	// Kept in memory even when the save fails (m.unsaved, tried again by
+	// Status): the token cannot be fetched a second time.
+	m.swapLocked(conn)
+	_ = m.saveLocked()
 	gen := m.gen
 	m.mu.Unlock()
 	keep := ""
 	if prev != nil {
 		keep = prev.Channel.ID
 	}
-	chans, _ := m.learn(ctx, gen, keep)
+	chans, lerr := m.learn(ctx, gen, keep)
 	m.mu.Lock()
-	if m.pair == s {
-		s.channels = chans
+	defer m.mu.Unlock()
+	if m.pair != s {
+		return
 	}
-	m.mu.Unlock()
+	s.state, s.channels = PairApproved, chans
+	if lerr != nil {
+		_, s.err = explain(lerr)
+	}
 }
 
-// replaceLocked makes c the connection and saves it; m.mu must be held.
-func (m *Manager) replaceLocked(c Connection) error {
+// swapLocked makes c the connection, in memory only; m.mu must be held.
+// The trouble the old connection had goes with it.
+func (m *Manager) swapLocked(c Connection) {
 	m.gen++
 	m.conn, m.needs = &c, nil
 	m.trouble, m.since, m.lastErr = "", time.Time{}, ""
-	return SaveConnection(m.opt.Files, c)
+	m.chanRefused, m.chanMsg, m.unsaved = "", "", ""
+}
+
+// saveLocked writes the connection to bubbles.json; m.mu must be held and
+// m.conn set. A failure is kept in m.unsaved until a save works.
+func (m *Manager) saveLocked() error {
+	err := SaveConnection(m.opt.Files, *m.conn)
+	m.unsaved = ""
+	if err != nil {
+		m.unsaved = err.Error()
+		m.opt.Logf("team chat: save %s: %v", store.FileBubbles, err)
+	}
+	return err
+}
+
+// unsavedMsg is a failed save in words for the page.
+func unsavedMsg(reason string) string {
+	return "netdiag could not save the team chat connection on this computer (" + reason +
+		"). It works until netdiag closes, and netdiag keeps trying to save it."
 }
 
 // learn asks the server which app and scopes the new token has and which
@@ -469,8 +529,9 @@ func (m *Manager) learn(ctx context.Context, gen int, keep string) ([]Channel, e
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	self, err := c.Self(ctx)
+	m.note(gen, err)
 	if err == nil {
-		m.updateConn(gen, func(conn *Connection) {
+		_ = m.updateConn(gen, func(conn *Connection) {
 			if n := strings.TrimSpace(self.App.Name); n != "" {
 				conn.AppName = n
 			}
@@ -490,7 +551,7 @@ func (m *Manager) learn(ctx context.Context, gen int, keep string) ([]Channel, e
 		pick = chans[0]
 	}
 	if pick.ID != "" {
-		m.updateConn(gen, func(conn *Connection) { conn.Channel = pick })
+		_ = m.setChannel(gen, pick)
 	}
 	return chans, nil
 }
@@ -520,18 +581,46 @@ func (m *Manager) current() (Connection, int, *bubbles.Client, error) {
 	return *m.conn, m.gen, c, nil
 }
 
-// updateConn changes the connection of generation gen and saves it.
-func (m *Manager) updateConn(gen int, f func(*Connection)) {
+// updateConn changes the connection of generation gen and saves it. The
+// change holds in memory even when the save fails (m.unsaved).
+func (m *Manager) updateConn(gen int, f func(*Connection)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.conn == nil || m.gen != gen {
-		return
+		return nil
 	}
 	c := *m.conn
 	f(&c)
 	m.conn = &c
-	if err := SaveConnection(m.opt.Files, c); err != nil {
-		m.opt.Logf("team chat: save %s: %v", store.FileBubbles, err)
+	return m.saveLocked()
+}
+
+// setChannel makes ch the channel of generation gen: it works for posts
+// again until one is refused.
+func (m *Manager) setChannel(gen int, ch Channel) error {
+	return m.updateConn(gen, func(c *Connection) {
+		c.Channel = ch
+		m.chanRefused, m.chanMsg = "", "" // updateConn holds m.mu
+	})
+}
+
+// refuseChannel records that the channel with id refused a post (reason
+// ReasonNotAllowed or ReasonArchived): the state is no_channel, with the
+// channel kept so Change channel can show it.
+func (m *Manager) refuseChannel(gen int, id, reason, msg string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.conn != nil && m.gen == gen && m.conn.Channel.ID == id {
+		m.chanRefused, m.chanMsg = reason, msg
+	}
+}
+
+// channelWorks records that a post to the channel with id got through.
+func (m *Manager) channelWorks(gen int, id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.conn != nil && m.gen == gen && m.conn.Channel.ID == id {
+		m.chanRefused, m.chanMsg = "", ""
 	}
 }
 
@@ -545,7 +634,9 @@ type PairStatus struct {
 	Error     string    `json:"error,omitempty"`
 }
 
-// PairStatus reports the pairing request the wizard is waiting on.
+// PairStatus reports the pairing request the wizard is waiting on. An
+// approved request carries an error when the channels could not be
+// listed, or when the connection works but could not be saved.
 func (m *Manager) PairStatus() PairStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -560,18 +651,31 @@ func (m *Manager) PairStatus() PairStatus {
 	if !s.expires.IsZero() {
 		out.ExpiresAt = s.expires.UTC().Format(time.RFC3339)
 	}
-	if s.state == PairApproved && m.conn != nil && m.conn.Channel.ID != "" {
-		ch := m.conn.Channel
-		out.Channel = &ch
+	if s.state == PairApproved && m.conn != nil {
+		if m.conn.Channel.ID != "" {
+			ch := m.conn.Channel
+			out.Channel = &ch
+		}
+		if m.unsaved != "" {
+			out.Error = unsavedMsg(m.unsaved)
+		}
 	}
 	return out
 }
 
-// CancelPairing stops waiting for the admin. bubbles has no way to take a
-// request back, so it lapses there after its 10 minutes.
+// CancelPairing stops waiting for the admin, also for a request still on
+// its way. bubbles has no way to take a request back, so it lapses there
+// after its 10 minutes.
 func (m *Manager) CancelPairing() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.stopPairLocked()
+}
+
+// stopPairLocked stops waiting for the admin, and makes StartPairing drop
+// a request that is still on its way; m.mu must be held.
+func (m *Manager) stopPairLocked() {
+	m.pairEpoch++
 	if m.pair != nil {
 		m.pair.cancel()
 		m.pair = nil
@@ -579,19 +683,26 @@ func (m *Manager) CancelPairing() {
 }
 
 // ChannelChoice is the connection's channel and the channels netdiag's bot
-// is in (POST /api/bubbles/channel and /connect).
+// is in (POST /api/bubbles/channel and /connect). Error says what went
+// wrong after connecting: the channels could not be listed, or the
+// connection works but could not be saved.
 type ChannelChoice struct {
 	State    string    `json:"state"`
 	Channel  *Channel  `json:"channel,omitempty"`
 	Channels []Channel `json:"channels"`
+	Error    string    `json:"error,omitempty"`
 }
 
-func (m *Manager) choice(chans []Channel) ChannelChoice {
+func (m *Manager) choice(chans []Channel, err error) ChannelChoice {
 	st := m.Status()
 	if chans == nil {
 		chans = []Channel{}
 	}
-	return ChannelChoice{State: st.State, Channel: st.Channel, Channels: chans}
+	out := ChannelChoice{State: st.State, Channel: st.Channel, Channels: chans, Error: st.Unsaved}
+	if err != nil {
+		_, out.Error = explain(err)
+	}
+	return out
 }
 
 // ConnectString connects with a bubbles connection string
@@ -625,10 +736,9 @@ func (m *Manager) ConnectString(ctx context.Context, s string) (ChannelChoice, e
 		_, msg := explain(err)
 		return ChannelChoice{}, refused(msg)
 	}
-	name := ""
-	if st, err := c.Status(ctx); err == nil {
-		name = strings.TrimSpace(st.InstanceName)
-	}
+	// The name comes from GET /status asked without the token: bubbles
+	// v0.2.0 answers 403 to an app token there.
+	name := serverName(ctx, t, cfg.CAFingerprint)
 	appName := strings.TrimSpace(self.App.Name)
 	if appName == "" {
 		appName = AppName
@@ -636,32 +746,35 @@ func (m *Manager) ConnectString(ctx context.Context, s string) (ChannelChoice, e
 	srv := Server{Name: name, BaseURL: t.BaseURL(), OnboardingURL: t.OnboardingURL(), CAFingerprint: cfg.CAFingerprint}
 	conn := NewConnection(srv, appName, slices.Clone(self.Token.Scopes), cfg.Token, m.opt.Now())
 	m.mu.Lock()
+	// Saved before it replaces anything: when the save fails, the
+	// connection netdiag had stays, and the person can paste the string
+	// again.
+	if err := SaveConnection(m.opt.Files, conn); err != nil {
+		m.mu.Unlock()
+		m.opt.Logf("team chat: save %s: %v", store.FileBubbles, err)
+		return ChannelChoice{}, fmt.Errorf("netdiag could not save the team chat connection on this computer, so it did not connect: %w", err)
+	}
 	keep := ""
 	if m.conn != nil {
 		keep = m.conn.Channel.ID
 	}
-	if m.pair != nil {
-		m.pair.cancel()
-		m.pair = nil
-	}
-	err = m.replaceLocked(conn)
+	m.stopPairLocked()
+	m.swapLocked(conn)
 	gen := m.gen
 	m.mu.Unlock()
-	if err != nil {
-		return ChannelChoice{}, fmt.Errorf("netdiag could not save the team chat connection: %w", err)
-	}
 	chans, err := m.learn(ctx, gen, keep)
-	if err != nil {
-		return m.choice(nil), nil
-	}
-	return m.choice(chans), nil
+	return m.choice(chans, err), nil
 }
 
 // SetChannel sends alerts to the channel with id from now on. With id ""
 // it only lists the channels netdiag's bot is in again (wizard step 6,
-// Check again), and picks the channel when there is exactly one.
+// Check again, and Change channel), and picks the channel when there is
+// exactly one; the current channel, when the bot is in it, counts as
+// chosen again. A chosen channel takes posts again (it clears no_channel).
+// A choice that could not be saved holds until netdiag closes, and is
+// refused in words so the person knows.
 func (m *Manager) SetChannel(ctx context.Context, id string) (ChannelChoice, error) {
-	_, gen, c, err := m.current()
+	conn, gen, c, err := m.current()
 	if err != nil {
 		return ChannelChoice{}, err
 	}
@@ -672,18 +785,24 @@ func (m *Manager) SetChannel(ctx context.Context, id string) (ChannelChoice, err
 		_, msg := explain(err)
 		return ChannelChoice{}, refused(msg)
 	}
-	if id == "" {
-		if len(chans) == 1 {
-			m.updateConn(gen, func(conn *Connection) { conn.Channel = chans[0] })
+	index := func(id string) int { return slices.IndexFunc(chans, func(ch Channel) bool { return ch.ID == id }) }
+	i := -1
+	switch {
+	case id != "":
+		if i = index(id); i < 0 {
+			return m.choice(chans, nil), refused("netdiag isn't in that channel. Choose another one, or ask your chat admin to add netdiag to it.")
 		}
-		return m.choice(chans), nil
+	case len(chans) == 1:
+		i = 0
+	case conn.Channel.ID != "":
+		i = index(conn.Channel.ID)
 	}
-	i := slices.IndexFunc(chans, func(ch Channel) bool { return ch.ID == id })
-	if i < 0 {
-		return m.choice(chans), refused("netdiag isn't in that channel. Choose another one, or ask your chat admin to add netdiag to it.")
+	if i >= 0 {
+		if err := m.setChannel(gen, chans[i]); err != nil {
+			return m.choice(chans, nil), refused("netdiag could not save the channel on this computer (" + err.Error() + "). Try again.")
+		}
 	}
-	m.updateConn(gen, func(conn *Connection) { conn.Channel = chans[i] })
-	return m.choice(chans), nil
+	return m.choice(chans, nil), nil
 }
 
 // channels lists the channels the bot can post in: public and private
@@ -718,18 +837,28 @@ type TestResult struct {
 
 // SendTest posts a test alert to the channel and resolves it again at
 // once, both directly (never through the outbox), so a missing channel
-// membership or scope shows at once.
+// membership or scope shows at once. Each call has its own time, and the
+// resolve goes on when the page that asked is closed, so the test card is
+// not left open. A test card still open in another channel (an earlier
+// test that could not close, then Change channel) is resolved there and
+// the test posted once more (4.9's 409 rule). A post the channel refuses
+// (404, 403, or archived) makes the state no_channel.
 func (m *Manager) SendTest(ctx context.Context) TestResult {
 	conn, gen, c, err := m.current()
 	if err != nil {
 		return TestResult{Error: err.Error(), Hint: "needs_reconnect"}
 	}
+	m.mu.Lock()
+	changed := m.trouble == StateIdentityChanged && m.gen == gen
+	m.mu.Unlock()
+	if changed {
+		// netdiag stopped sending: only Reconnect trusts a server again.
+		return TestResult{Error: identityMsg, Hint: "identity_changed"}
+	}
 	ch := conn.Channel
 	if ch.ID == "" {
 		return TestResult{Error: "Choose a channel for alerts first.", Hint: "no_channel"}
 	}
-	ctx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
 	host, _ := m.opt.Hostname()
 	text := "netdiag can post its alerts here. This test closes again at once."
 	if host = strings.TrimSpace(host); host != "" {
@@ -737,20 +866,51 @@ func (m *Manager) SendTest(ctx context.Context) TestResult {
 	}
 	zero := 0
 	at := m.opt.Now().UTC().Format(time.RFC3339)
-	posted, err := c.PostAlertResult(ctx, protocol.AlertInput{Channel: ch.ID, Severity: protocol.SeverityInfo,
-		Title: "Test alert from netdiag", Text: text, DedupeKey: TestKey, RenotifyAfterS: &zero, OccurredAt: &at})
-	m.note(gen, err)
-	if err != nil {
-		return testFailure(err, ch.Name)
+	in := protocol.AlertInput{Channel: ch.ID, Severity: protocol.SeverityInfo,
+		Title: "Test alert from netdiag", Text: text, DedupeKey: TestKey, RenotifyAfterS: &zero, OccurredAt: &at}
+	post := func() (*protocol.PostedAlert, error) {
+		pctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		p, err := c.PostAlertResult(pctx, in)
+		m.note(gen, err)
+		return p, err
 	}
-	_, err = c.ResolveAlertKey(ctx, TestKey, "Test finished.")
-	m.note(gen, err)
+	resolve := func() error {
+		rctx, cancel := context.WithTimeout(m.ctx, callTimeout)
+		defer cancel()
+		_, err := c.ResolveAlertKey(rctx, TestKey, "Test finished.")
+		m.note(gen, err)
+		return err
+	}
+	posted, err := post()
+	if openElsewhere(err) && resolve() == nil {
+		posted, err = post()
+	}
 	if err != nil {
+		r := testFailure(err, ch.Name)
+		switch r.Hint {
+		case "not_allowed":
+			m.refuseChannel(gen, ch.ID, ReasonNotAllowed, r.Error)
+		case "no_channel":
+			m.refuseChannel(gen, ch.ID, ReasonArchived, r.Error)
+		}
+		return r
+	}
+	m.channelWorks(gen, ch.ID)
+	if err := resolve(); err != nil {
 		r := testFailure(err, ch.Name)
 		r.Error = "The test alert reached #" + ch.Name + " but netdiag could not close it: " + r.Error
 		return r
 	}
 	return TestResult{OK: true, Transition: posted.Transition, Channel: ch.Name}
+}
+
+// openElsewhere is bubbles' 409 for a dedupe key whose alert is still open
+// in another channel. The same 409 "conflict" for an archived channel says
+// "archived" (v0.6-D24).
+func openElsewhere(err error) bool {
+	var ae *bubbles.APIError
+	return errors.As(err, &ae) && ae.Status == http.StatusConflict && !strings.Contains(ae.Message, "archived")
 }
 
 // testFailure puts a failed test post into words.
@@ -768,32 +928,41 @@ func testFailure(err error, channel string) TestResult {
 	return TestResult{Error: msg, Hint: hint}
 }
 
-// note records what a call to the server found: trouble reaching it, a
-// token it no longer accepts, or a CA that is not the pinned one. A call
-// that gets an answer clears the trouble.
+// note records what a call made with the token found (v0.6-D39): a CA
+// that is not the pinned one (identity_changed), a token the server no
+// longer accepts (needs_reconnect), or no answer (unreachable). Only a new
+// connection (Reconnect, a connection string, pairing) clears
+// identity_changed, since it is never trusted again by itself; only a call
+// the token passes clears needs_reconnect; and any answer from the server
+// clears unreachable. A call that was cancelled (the page closed, or the
+// wizard cancelled) tells nothing about the server and changes nothing.
 func (m *Manager) note(gen int, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.gen != gen || m.conn == nil {
+	if m.gen != gen || m.conn == nil || m.trouble == StateIdentityChanged {
 		return
 	}
-	state, msg := "", ""
+	var ae *bubbles.APIError
 	switch {
 	case err == nil:
+		m.troubleLocked("", "")
 	case errors.Is(err, bubbles.ErrServerIdentityChanged):
-		state, msg = StateIdentityChanged, identityMsg
+		m.troubleLocked(StateIdentityChanged, identityMsg)
 	case errors.Is(err, bubbles.ErrUnauthorized):
-		state, msg = StateNeedsReconnect, unauthorizedMsg
+		m.troubleLocked(StateNeedsReconnect, unauthorizedMsg)
+	case m.trouble == StateNeedsReconnect:
+		// Stays until a call the token passes.
 	case errors.Is(err, bubbles.ErrUnavailable), errors.Is(err, context.DeadlineExceeded):
-		state, msg = StateUnreachable, unreachableMsg
-	default:
-		// The server answered: it is reachable and accepts netdiag.
-		m.trouble, m.since = "", time.Time{}
-		return
+		m.troubleLocked(StateUnreachable, unreachableMsg)
+	case errors.As(err, &ae):
+		// The server answered (400, 403, 404, 409, 429): it is reachable.
+		m.troubleLocked("", "")
 	}
-	if m.trouble == StateIdentityChanged && state != StateIdentityChanged && state != "" {
-		return // never trusted again by itself
-	}
+}
+
+// troubleLocked sets the trouble the calls found ("" for none); m.mu must
+// be held.
+func (m *Manager) troubleLocked(state, msg string) {
 	if state != m.trouble {
 		m.since = m.opt.Now()
 	}
@@ -839,13 +1008,11 @@ func explain(err error) (hint, msg string) {
 func (m *Manager) Disconnect() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.pair != nil {
-		m.pair.cancel()
-		m.pair = nil
-	}
+	m.stopPairLocked()
 	m.gen++
 	m.conn, m.needs, m.cand = nil, nil, nil
 	m.trouble, m.since, m.lastErr = "", time.Time{}, ""
+	m.chanRefused, m.chanMsg, m.unsaved = "", "", ""
 	if m.opt.Files == nil {
 		return nil
 	}

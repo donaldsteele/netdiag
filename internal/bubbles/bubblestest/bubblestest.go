@@ -1,7 +1,8 @@
 // Package bubblestest is a fake bubbles v0.2.0 server for tests. It answers
 // the endpoints netdiag's client uses with the status codes, error codes
 // and messages bubbles v0.2.0 gives, checked in the same order: the
-// onboarding listener's /ca.crt (plain HTTP), GET /status, pairing (create,
+// onboarding listener's /ca.crt (plain HTTP), GET /status (403 to an app
+// token, as v0.2.0 gives every route for people only), pairing (create,
 // poll with the poll secret, the token handed out once with state
 // claimed), GET /channels, POST /alerts, POST /alerts/resolve,
 // POST /channels/{id}/messages and GET /apps/self.
@@ -48,6 +49,10 @@ const (
 	msgOpenElsewhere = "an alert with this dedupe_key is already open in another channel"
 )
 
+// msgNotForApps is bubbles v0.2.0's 403 for an app token on a route for
+// people only, GET /status among them.
+const msgNotForApps = "this endpoint is not available to app tokens"
+
 // Server is a fake bubbles server: API is the HTTPS listener, whose chain
 // ends in the CA pinned by CAFingerprint, and Onboard is the plain-HTTP
 // onboarding listener that serves the CA. Both close when the test ends.
@@ -70,6 +75,8 @@ type Server struct {
 	polls    int
 	seq      int // the last message id
 	fail     []failure
+	holds    map[string]*gate // "METHOD /path" -> the calls it holds
+	held     int              // calls waiting on a hold
 }
 
 type pairing struct {
@@ -94,9 +101,7 @@ func New(t testing.TB) *Server {
 	s.CADER, s.CAFingerprint = caDER, "sha256:"+hex.EncodeToString(sum[:])
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/status", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, protocol.ServerStatus{InstanceName: "Office"})
-	})
+	mux.HandleFunc("GET /api/v1/status", s.status)
 	mux.HandleFunc("POST /api/v1/pairing/requests", s.createPairing)
 	mux.HandleFunc("GET /api/v1/pairing/requests/{id}", s.pollPairing)
 	mux.HandleFunc("GET /api/v1/channels", s.app(s.listChannels, protocol.ScopeChannelsRead, protocol.ScopeMessagesRead))
@@ -104,10 +109,16 @@ func New(t testing.TB) *Server {
 	mux.HandleFunc("POST /api/v1/alerts/resolve", s.app(s.resolve, protocol.ScopeAlertsWrite))
 	mux.HandleFunc("POST /api/v1/channels/{id}/messages", s.app(s.postMessage, protocol.ScopeMessagesWrite))
 	mux.HandleFunc("GET /api/v1/apps/self", s.app(s.self))
-	s.API = httptest.NewUnstartedServer(mux)
+	s.API = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.wait(r) {
+			return
+		}
+		mux.ServeHTTP(w, r)
+	}))
 	s.API.TLS = &tls.Config{Certificates: []tls.Certificate{chain}}
 	s.API.StartTLS()
 	t.Cleanup(s.API.Close)
+	t.Cleanup(s.releaseAll) // runs first: Close waits for held calls
 
 	s.Onboard = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/ca.crt" {
@@ -241,6 +252,94 @@ func (s *Server) FailNext(status int, code, message string, retryAfter time.Dura
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.fail = append(s.fail, failure{status: status, code: code, message: message, retryAfter: retryAfter})
+}
+
+// Hold makes the calls to route ("GET /api/v1/channels", the method and
+// the path) wait until release is called, like a slow server, so a test can
+// act while a call is on its way. Held counts the calls waiting.
+func (s *Server) Hold(route string) (release func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.holds == nil {
+		s.holds = map[string]*gate{}
+	}
+	g := s.holds[route]
+	if g == nil {
+		g = &gate{ch: make(chan struct{})}
+		s.holds[route] = g
+	}
+	return func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.holds[route] == g {
+			delete(s.holds, route)
+		}
+		g.open()
+	}
+}
+
+// gate holds calls until it is opened, once.
+type gate struct {
+	ch   chan struct{}
+	once sync.Once
+}
+
+func (g *gate) open() { g.once.Do(func() { close(g.ch) }) }
+
+func (s *Server) releaseAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for route, g := range s.holds {
+		delete(s.holds, route)
+		g.open()
+	}
+}
+
+// Held counts the calls waiting on a Hold.
+func (s *Server) Held() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.held
+}
+
+// wait holds r while its route is held; false when the caller gave up.
+func (s *Server) wait(r *http.Request) bool {
+	s.mu.Lock()
+	g := s.holds[r.Method+" "+r.URL.Path]
+	if g != nil {
+		s.held++
+	}
+	s.mu.Unlock()
+	if g == nil {
+		return true
+	}
+	defer func() {
+		s.mu.Lock()
+		s.held--
+		s.mu.Unlock()
+	}()
+	select {
+	case <-g.ch:
+		return true
+	case <-r.Context().Done():
+		return false
+	}
+}
+
+// status is GET /status. It needs no sign-in, and bubbles v0.2.0 refuses
+// it to a valid app token (internal/httpapi humansOnly: 403 "this endpoint
+// is not available to app tokens"); an unknown token is anonymous there and
+// gets the status like any caller.
+func (s *Server) status(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	_, app := s.tokens[tok]
+	s.mu.Unlock()
+	if app {
+		writeError(w, 403, protocol.CodeForbidden, msgNotForApps)
+		return
+	}
+	writeJSON(w, 200, protocol.ServerStatus{InstanceName: "Office"})
 }
 
 func (s *Server) createPairing(w http.ResponseWriter, r *http.Request) {

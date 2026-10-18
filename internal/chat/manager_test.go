@@ -12,9 +12,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"netdiag/internal/bubbles"
 	"netdiag/internal/bubbles/bubblestest"
 	"netdiag/internal/bubbles/protocol"
 	"netdiag/internal/mdns"
@@ -368,7 +370,10 @@ func TestChooseChannel(t *testing.T) {
 }
 
 // A failed test alert says why in words, and puts the connection in the
-// state the status tool shows (4.10 step 7).
+// state the status tool shows (4.10 step 7, 4.9 Errors): a channel that
+// refuses the post (404, or archived) is no_channel with the channel kept,
+// until a post gets through or a channel is chosen; no answer is
+// unreachable until the server answers again; a 401 is needs_reconnect.
 func TestSendTestFailures(t *testing.T) {
 	f := bubblestest.New(t)
 	st, _ := newStore(t)
@@ -381,18 +386,61 @@ func TestSendTestFailures(t *testing.T) {
 	if r.OK || r.Hint != "not_allowed" || r.Error != "netdiag isn't allowed to post in #netdiag-alerts. Ask your chat admin to add netdiag to that channel." {
 		t.Fatalf("not in the channel: %+v", r)
 	}
-	if s := m.Status(); s.State != StateConnected {
-		t.Fatalf("a 404 is not a connection problem: %+v", s)
+	if s := m.Status(); s.State != StateNoChannel || s.Reason != ReasonNotAllowed || s.Channel == nil || s.Channel.ID != "C1" || s.LastError != r.Error {
+		t.Fatalf("after a 404 the channel takes no posts: %+v", s)
 	}
 	f.AddChannel("C1", "netdiag-alerts")
+	if r := m.SendTest(ctx); !r.OK {
+		t.Fatalf("back in the channel: %+v", r)
+	}
+	if s := m.Status(); s.State != StateConnected || s.Reason != "" || s.LastError != "" {
+		t.Fatalf("a post that gets through clears no_channel: %+v", s)
+	}
+
 	f.ArchiveChannel("C1")
 	if r := m.SendTest(ctx); r.OK || r.Hint != "no_channel" || !strings.Contains(r.Error, "archived") {
 		t.Fatalf("archived: %+v", r)
+	}
+	if s := m.Status(); s.State != StateNoChannel || s.Reason != ReasonArchived || s.Channel == nil || s.Channel.ID != "C1" {
+		t.Fatalf("status when archived %+v", s)
+	}
+	f.AddChannel("C2", "front-desk")
+	if ch, err := m.SetChannel(ctx, "C2"); err != nil || ch.State != StateConnected {
+		t.Fatalf("choosing a channel clears no_channel: %+v %v", ch, err)
 	}
 
 	f.FailNext(429, protocol.CodeRateLimited, "slow down", time.Second)
 	if r := m.SendTest(ctx); r.OK || r.Hint != "busy" {
 		t.Fatalf("busy: %+v", r)
+	}
+	if s := m.Status(); s.State != StateConnected {
+		t.Fatalf("busy is not a connection problem: %+v", s)
+	}
+
+	f.FailNext(503, protocol.CodeUnavailable, "resetting", 0)
+	now := time.Now()
+	if r := m.SendTest(ctx); r.OK || r.Hint != "unreachable" || r.Error != "netdiag can't reach the chat server." {
+		t.Fatalf("5xx: %+v", r)
+	}
+	s := m.Status()
+	since, _ := time.Parse(time.RFC3339, s.Since)
+	if s.State != StateUnreachable || since.Before(now.Add(-2*time.Second)) {
+		t.Fatalf("status when unreachable %+v", s)
+	}
+	// A request the page gave up on tells nothing about the server.
+	gone, cancel := context.WithCancel(ctx)
+	cancel()
+	if r := m.SendTest(gone); r.OK {
+		t.Fatalf("cancelled test %+v", r)
+	}
+	if s := m.Status(); s.State != StateUnreachable {
+		t.Fatalf("a cancelled request cleared unreachable: %+v", s)
+	}
+	if r := m.SendTest(ctx); !r.OK {
+		t.Fatalf("back: %+v", r)
+	}
+	if s := m.Status(); s.State != StateConnected || s.Since != "" {
+		t.Fatalf("an answer clears unreachable: %+v", s)
 	}
 
 	f.Revoke()
@@ -400,25 +448,73 @@ func TestSendTestFailures(t *testing.T) {
 	if r.OK || r.Hint != "needs_reconnect" || r.Error != "The chat server no longer accepts netdiag. Click Reconnect." {
 		t.Fatalf("revoked: %+v", r)
 	}
-	if s := m.Status(); s.State != StateNeedsReconnect || s.LastError == "" {
+	if s := m.Status(); s.State != StateNeedsReconnect || s.Reason != ReasonRefused || s.LastError == "" {
 		t.Fatalf("status after 401 %+v", s)
+	}
+	// Only a call the token passes clears it: not another answer (a GET
+	// /status without the token would get 200, one with it 403), not a
+	// server that stopped answering, not a cancelled call.
+	_, gen, _, _ := m.current()
+	for _, err := range []error{&bubbles.APIError{Status: 403, Code: protocol.CodeForbidden}, &bubbles.APIError{Status: 404, Code: protocol.CodeNotFound},
+		&bubbles.APIError{Status: 429, Code: protocol.CodeRateLimited}, fmt.Errorf("%w: down", bubbles.ErrUnavailable), context.Canceled, context.DeadlineExceeded} {
+		m.note(gen, err)
+		if s := m.Status(); s.State != StateNeedsReconnect {
+			t.Fatalf("after a 401, %v gave %+v", err, s)
+		}
+	}
+	m.note(gen, nil)
+	if s := m.Status(); s.State != StateConnected {
+		t.Fatalf("a call the token passes: %+v", s)
 	}
 
 	f.API.Close()
-	now := time.Now()
 	r = m.SendTest(ctx)
 	if r.OK || r.Hint != "unreachable" || r.Error != "netdiag can't reach the chat server." {
 		t.Fatalf("down: %+v", r)
 	}
-	s := m.Status()
-	since, _ := time.Parse(time.RFC3339, s.Since)
-	if s.State != StateUnreachable || since.Before(now.Add(-2*time.Second)) {
+	if s := m.Status(); s.State != StateUnreachable {
 		t.Fatalf("status when down %+v", s)
 	}
 }
 
+// A test card left open (an earlier test whose resolve did not get
+// through) and then Change channel: the next test resolves the old card by
+// key and posts once more, instead of failing for good with bubbles' 409
+// "already open in another channel".
+func TestSendTestAfterAnOpenTestCard(t *testing.T) {
+	f := bubblestest.New(t)
+	f.AddChannel("C2", "front-desk")
+	st, _ := newStore(t)
+	m := newManager(t, st)
+	pairWith(t, m, f)
+	ctx := context.Background()
+	if _, err := m.SetChannel(ctx, "C1"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, c, _ := m.current()
+	if _, err := c.PostAlertResult(ctx, protocol.AlertInput{Channel: "C1", Severity: protocol.SeverityInfo, Title: "Test alert from netdiag", DedupeKey: TestKey}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SetChannel(ctx, "C2"); err != nil {
+		t.Fatal(err)
+	}
+	r := m.SendTest(ctx)
+	if !r.OK || r.Channel != "front-desk" || r.Transition != protocol.AlertTransitionCreated {
+		t.Fatalf("test after the channel change %+v", r)
+	}
+	card, _ := f.Alert(TestKey)
+	if card.ChannelID != "C2" || card.Alert.State != protocol.AlertResolved || len(f.Resolved()) != 2 {
+		t.Fatalf("card %+v, resolved %+v", card, f.Resolved())
+	}
+	if s := m.Status(); s.State != StateConnected {
+		t.Fatalf("status %+v", s)
+	}
+}
+
 // A server whose CA is not the pinned one is "identity changed", and stays
-// so: it is never trusted again by itself.
+// so: it is never trusted again by itself (4.9), not when the server stops
+// answering and not when the pinned server answers again. No test alert
+// goes out; only a new connection (Reconnect) clears it.
 func TestIdentityChanged(t *testing.T) {
 	a, b := bubblestest.New(t), bubblestest.New(t)
 	st, _ := newStore(t)
@@ -431,17 +527,53 @@ func TestIdentityChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	m2 := newManager(t, st)
-	r := m2.SendTest(context.Background())
+	ctx := context.Background()
+	if _, err := m2.SetChannel(ctx, ""); err == nil {
+		t.Fatal("listed the channels of a server with another CA")
+	}
+	if s := m2.Status(); s.State != StateIdentityChanged {
+		t.Fatalf("status %+v", s)
+	}
+	r := m2.SendTest(ctx)
 	if r.OK || r.Hint != "identity_changed" || !strings.HasPrefix(r.Error, "Warning: the chat server's identity changed.") {
 		t.Fatalf("test %+v", r)
 	}
 	b.API.Close()
-	m2.SendTest(context.Background())
+	_, gen, _, _ := m2.current()
+	m2.note(gen, fmt.Errorf("%w: down", bubbles.ErrUnavailable))
 	if s := m2.Status(); s.State != StateIdentityChanged {
-		t.Fatalf("status %+v", s)
+		t.Fatalf("unreachable cleared it: %+v", s)
 	}
-	if len(b.Posted()) != 0 {
-		t.Fatal("posted to a server with another CA")
+	// The pinned server answers again at that address (an impostor that
+	// comes and goes): still identity changed.
+	m2.mu.Lock()
+	moved := *m2.conn
+	moved.Server.BaseURL = a.API.URL
+	m2.conn = &moved
+	m2.mu.Unlock()
+	if ch, err := m2.SetChannel(ctx, ""); err != nil || ch.State != StateIdentityChanged {
+		t.Fatalf("a pinned call that works: %+v %v", ch, err)
+	}
+	for _, err := range []error{nil, &bubbles.APIError{Status: 404, Code: protocol.CodeNotFound}, context.Canceled} {
+		m2.note(gen, err)
+		if s := m2.Status(); s.State != StateIdentityChanged {
+			t.Fatalf("%v cleared it: %+v", err, s)
+		}
+	}
+	if r := m2.SendTest(ctx); r.OK || r.Hint != "identity_changed" {
+		t.Fatalf("test %+v", r)
+	}
+	if len(b.Posted()) != 0 || len(a.Posted()) != 0 {
+		t.Fatal("posted while the identity is in doubt")
+	}
+	// Reconnect replaces the connection, and with it the state.
+	if _, err := m2.StartPairing(ctx, "", "", true); err != nil {
+		t.Fatal(err)
+	}
+	a.SetPairingState(protocol.PairingApproved)
+	waitApproved(t, m2)
+	if s := m2.Status(); s.State != StateConnected {
+		t.Fatalf("after Reconnect %+v", s)
 	}
 }
 
@@ -461,12 +593,17 @@ func TestConnectString(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ch.State != StateConnected || ch.Channel == nil || ch.Channel.ID != "C1" {
+	if ch.State != StateConnected || ch.Channel == nil || ch.Channel.ID != "C1" || ch.Error != "" {
 		t.Fatalf("connected %+v", ch)
 	}
+	// The server's name comes from GET /status asked without the token,
+	// which bubbles v0.2.0 refuses to an app token (403).
 	c, err := LoadConnection(st2)
 	if err != nil || c.Token() != f.Token() || c.Server.Name != "Office" || !slices.Equal(c.Scopes, Scopes) {
 		t.Fatalf("saved %v %v", c, err)
+	}
+	if s := m.Status(); s.Server == nil || s.Server.Name != "Office" {
+		t.Fatalf("status %+v", s)
 	}
 	if !m.SendTest(context.Background()).OK {
 		t.Fatal("test alert")
@@ -477,6 +614,213 @@ func TestConnectString(t *testing.T) {
 		if _, err := newManager(t, st2).ConnectString(context.Background(), bad); !errors.As(err, &r) {
 			t.Errorf("%q: %v", bad, err)
 		}
+	}
+}
+
+// The pairing request reads approved only once netdiag knows the
+// channels, so the wizard never takes an approval with the channel still
+// unknown for "netdiag isn't in any channel yet" (the token is saved, and
+// the connection shows, the moment it arrives). Channels that cannot be
+// listed after the approval come with the reason.
+func TestPairApprovedOnlyWithItsChannels(t *testing.T) {
+	f := bubblestest.New(t)
+	st, _ := newStore(t)
+	m := newManager(t, st)
+	ctx := context.Background()
+	addr, onboard := fakeAddress(t, f)
+	in, err := m.Inspect(ctx, addr, onboard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.StartPairing(ctx, in.Address, in.Fingerprint, false); err != nil {
+		t.Fatal(err)
+	}
+	release := f.Hold("GET /api/v1/channels")
+	f.SetPairingState(protocol.PairingApproved)
+	deadline := time.Now().Add(5 * time.Second)
+	for f.Held() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("the channels were never asked for: %+v", m.PairStatus())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if ps := m.PairStatus(); ps.State != PairPending || len(ps.Channels) != 0 {
+		t.Fatalf("while the channels are on their way: %+v", ps)
+	}
+	if s := m.Status(); s.State != StateNoChannel {
+		t.Fatalf("the token is kept at once: %+v", s)
+	}
+	if _, err := LoadConnection(st); err != nil {
+		t.Fatalf("saved at once: %v", err)
+	}
+	release()
+	for {
+		ps := m.PairStatus()
+		if ps.State == PairApproved {
+			if ps.Channel == nil || ps.Channel.ID != "C1" || len(ps.Channels) != 1 || ps.Error != "" {
+				t.Fatalf("approved %+v", ps)
+			}
+			break
+		}
+		if ps.State != PairPending || time.Now().After(deadline) {
+			t.Fatalf("pairing %+v", ps)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// The server stops answering right after the approval: approved, with
+	// why the channels are unknown.
+	f2 := bubblestest.New(t)
+	st2, _ := newStore(t)
+	m2 := newManager(t, st2)
+	addr, onboard = fakeAddress(t, f2)
+	if in, err = m2.Inspect(ctx, addr, onboard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m2.StartPairing(ctx, in.Address, in.Fingerprint, false); err != nil {
+		t.Fatal(err)
+	}
+	f2.FailNext(503, protocol.CodeUnavailable, "resetting", 0) // GET /apps/self
+	f2.FailNext(503, protocol.CodeUnavailable, "resetting", 0) // GET /channels
+	f2.SetPairingState(protocol.PairingApproved)
+	ps := waitPair(t, m2)
+	if ps.State != PairApproved || len(ps.Channels) != 0 || ps.Error != "netdiag can't reach the chat server." {
+		t.Fatalf("approved without channels %+v", ps)
+	}
+}
+
+// A pairing request still on its way to the chat server when the person
+// cancels (the wizard's Cancel or Esc) or disconnects is dropped when it
+// arrives: netdiag never waits on it, so a later approval by the admin
+// never connects netdiag.
+func TestPairingCancelledOnItsWay(t *testing.T) {
+	for _, stop := range []string{"cancel", "disconnect"} {
+		f := bubblestest.New(t)
+		st, dir := newStore(t)
+		m := newManager(t, st)
+		ctx := context.Background()
+		addr, onboard := fakeAddress(t, f)
+		in, err := m.Inspect(ctx, addr, onboard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		release := f.Hold("POST /api/v1/pairing/requests")
+		done := make(chan error, 1)
+		go func() {
+			_, err := m.StartPairing(ctx, in.Address, in.Fingerprint, false)
+			done <- err
+		}()
+		deadline := time.Now().Add(5 * time.Second)
+		for f.Held() == 0 {
+			if time.Now().After(deadline) {
+				t.Fatal("the pairing request never reached the server")
+			}
+			time.Sleep(time.Millisecond)
+		}
+		if stop == "cancel" {
+			m.CancelPairing()
+		} else if err := m.Disconnect(); err != nil {
+			t.Fatal(err)
+		}
+		release()
+		var r *RefusedError
+		if err := <-done; !errors.As(err, &r) {
+			t.Fatalf("%s: the request on its way gave %v", stop, err)
+		}
+		if ps := m.PairStatus(); ps.State != PairNone {
+			t.Fatalf("%s: %+v", stop, ps)
+		}
+		f.SetPairingState(protocol.PairingApproved)
+		time.Sleep(50 * time.Millisecond)
+		if f.Polls() != 0 || f.Token() != "" {
+			t.Fatalf("%s: still waited on it (%d polls)", stop, f.Polls())
+		}
+		if _, err := os.Stat(filepath.Join(dir, store.FileBubbles)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("%s: bubbles.json written", stop)
+		}
+		if s := m.Status(); s.State != StateOff {
+			t.Fatalf("%s: status %+v", stop, s)
+		}
+	}
+}
+
+// flakyFiles is a data folder whose writes fail while fail is set: a full
+// disk, or a virus scanner holding the file while netdiag replaces it.
+type flakyFiles struct {
+	*store.Store
+	fail atomic.Bool
+}
+
+func (f *flakyFiles) WriteFile(name string, data []byte) error {
+	if f.fail.Load() {
+		return errors.New("the disk is full")
+	}
+	return f.Store.WriteFile(name, data)
+}
+
+// A token that arrives when bubbles.json cannot be written is kept in
+// memory (bubbles hands it out once) and the wizard and the status say so,
+// and every status read tries the save again. A connection string that
+// cannot be saved does not connect, and a channel that cannot be saved is
+// refused in words.
+func TestSaveFailures(t *testing.T) {
+	f := bubblestest.New(t)
+	s, _ := newStore(t)
+	st := &flakyFiles{Store: s}
+	m := newManager(t, st)
+	ctx := context.Background()
+	addr, onboard := fakeAddress(t, f)
+	in, err := m.Inspect(ctx, addr, onboard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.StartPairing(ctx, in.Address, in.Fingerprint, false); err != nil {
+		t.Fatal(err)
+	}
+	st.fail.Store(true)
+	f.SetPairingState(protocol.PairingApproved)
+	ps := waitApproved(t, m)
+	want := "netdiag could not save the team chat connection on this computer (the disk is full). It works until netdiag closes, and netdiag keeps trying to save it."
+	if ps.Error != want {
+		t.Fatalf("approved but not saved: %+v", ps)
+	}
+	if s := m.Status(); s.State != StateConnected || s.Unsaved != want {
+		t.Fatalf("status %+v", s)
+	}
+	if _, err := LoadConnection(st); !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("load %v", err)
+	}
+	if r := m.SendTest(ctx); !r.OK {
+		t.Fatalf("the connection works from memory: %+v", r)
+	}
+	f.AddChannel("C2", "front-desk")
+	var r *RefusedError
+	if _, err := m.SetChannel(ctx, "C2"); !errors.As(err, &r) || !strings.Contains(r.Msg, "could not save the channel") {
+		t.Fatalf("channel not saved: %v", err)
+	}
+	st.fail.Store(false)
+	if s := m.Status(); s.Unsaved != "" || s.Channel == nil || s.Channel.ID != "C2" {
+		t.Fatalf("status after the disk has room %+v", s)
+	}
+	if c, err := LoadConnection(st); err != nil || c.Token() != f.Token() || c.Channel.ID != "C2" {
+		t.Fatalf("saved on the next status read: %v %v", c, err)
+	}
+	if ps := m.PairStatus(); ps.Error != "" {
+		t.Fatalf("pair status %+v", ps)
+	}
+
+	// A connection string is saved before it replaces anything.
+	u, _ := url.Parse(f.API.URL)
+	cs := "bubbles://" + u.Host + "/?token=" + url.QueryEscape(f.Token()) + "&fp=" + f.CAFingerprint
+	s3, _ := newStore(t)
+	st3 := &flakyFiles{Store: s3}
+	st3.fail.Store(true)
+	m3 := newManager(t, st3)
+	if _, err := m3.ConnectString(ctx, cs); err == nil || !strings.Contains(err.Error(), "could not save the team chat connection") {
+		t.Fatalf("connection string not saved: %v", err)
+	}
+	if s := m3.Status(); s.State != StateOff {
+		t.Fatalf("connected without saving: %+v", s)
 	}
 }
 
@@ -532,7 +876,7 @@ func TestNeedsReconnectAndReconnect(t *testing.T) {
 
 	m := newManager(t, st)
 	s := m.Status()
-	if s.State != StateNeedsReconnect || s.Server == nil || s.Server.Name != "Office" || s.Channel == nil || s.LastError == "" {
+	if s.State != StateNeedsReconnect || s.Reason != ReasonUnreadable || s.Server == nil || s.Server.Name != "Office" || s.Channel == nil || s.LastError == "" {
 		t.Fatalf("status %+v", s)
 	}
 	f.AddChannel("C2", "other")

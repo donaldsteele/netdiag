@@ -104,14 +104,15 @@ func TestChatRoutes(t *testing.T) {
 	f.SetPairingState(protocol.PairingApproved)
 	var status chat.PairStatus
 	deadline := time.Now().Add(5 * time.Second)
+	// Approved comes with the channel: the page never sees one without it.
 	for time.Now().Before(deadline) {
 		_, b = do(t, "GET", u+"/api/bubbles/pair/status", "", "")
-		if status = decode[chat.PairStatus](t, b); status.State == chat.PairApproved && status.Channel != nil {
+		if status = decode[chat.PairStatus](t, b); status.State != chat.PairPending {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if status.State != chat.PairApproved || status.Channel == nil || status.Channel.Name != "netdiag-alerts" {
+	if status.State != chat.PairApproved || status.Channel == nil || status.Channel.Name != "netdiag-alerts" || status.Error != "" {
 		t.Fatalf("pair status %+v", status)
 	}
 
