@@ -144,15 +144,36 @@ func nasSignal(h model.Host) bool {
 	return ok
 }
 
+// macModel returns the Mac model identifier in m's TXT records ("Mac14,3"),
+// or "". A Mac mini, Mac Studio or Mac Pro has no "macbook" or "imac" in its
+// name, and with File Sharing off it announces only AirPlay and Companion,
+// which alone read as a TV or a phone. Each service's own TXT is read first,
+// then the merged TXT.
+func macModel(m *model.MDNSInfo) string {
+	txts := make([]map[string]string, 0, len(m.Details)+1)
+	for _, d := range m.Details {
+		txts = append(txts, d.TXT)
+	}
+	for _, txt := range append(txts, m.TXT) {
+		for _, k := range macModelKeys {
+			if v := strings.TrimSpace(txt[k]); macModelID.MatchString(v) {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
 // Classify returns the device type and the reason (winning signal).
 //
 // Priority: self, gateway, printer flag, mDNS, SNMP, vendor, hostname, web
 // port, unknown. Within mDNS the group order is
-// printer > camera > phone > storage (nas/computer) > tv > companion > iot;
-// the tv group is skipped when the hostname indicates a phone or computer
-// (e.g. a Mac advertising _airplay), and the companion group (_companion-link,
-// which Macs, Apple TVs and HomePods announce too) when it indicates a
-// computer.
+// printer > camera > phone > storage (nas/computer) > Mac model > tv >
+// companion > iot. A Mac model identifier in a TXT record (macModel) is a
+// computer. The tv group is skipped when the hostname indicates a phone or
+// computer (e.g. a MacBook advertising _airplay), and the companion group
+// (_companion-link, which Macs, Apple TVs and HomePods announce too) when it
+// indicates a computer.
 func Classify(h model.Host, gateway string) (Type, string) {
 	if h.IsSelf {
 		return Self, "this computer"
@@ -186,6 +207,9 @@ func Classify(h model.Host, gateway string) (Type, string) {
 				return NAS, "mdns " + n + " + nas signal"
 			}
 			return Computer, "mdns " + n
+		}
+		if m := macModel(h.MDNS); m != "" {
+			return Computer, "mdns model " + m
 		}
 		if !hostPhone && !hostComputer {
 			if n := mdnsHas(set, mdnsTV.services); n != "" {

@@ -1,5 +1,7 @@
 package devtype
 
+import "regexp"
+
 // mdnsGroup maps mDNS service names (first label, e.g. "_ipp") to a type.
 type mdnsGroup struct {
 	t        Type
@@ -7,13 +9,14 @@ type mdnsGroup struct {
 }
 
 // mDNS groups are evaluated in a fixed order by Classify:
-// printer > camera > phone > storage (nas/computer) > tv > companion > iot.
+// printer > camera > phone > storage (nas/computer) > Mac model > tv >
+// companion > iot.
 //
 // _companion-link is a weak phone signal: every Apple device that runs
 // Companion (Macs, Apple TVs and HomePods as well as iPhones and iPads)
-// announces it, so file sharing, the TV group and a computer hostname all
-// win over it. _apple-mobdev2 (iPhone and iPad Wi-Fi sync) stays a strong
-// phone signal.
+// announces it, so file sharing, a Mac model, the TV group and a computer
+// hostname all win over it. _apple-mobdev2 (iPhone and iPad Wi-Fi sync)
+// stays a strong phone signal.
 var (
 	mdnsPrinter   = mdnsGroup{Printer, []string{"_ipp", "_ipps", "_printer", "_pdl-datastream"}}
 	mdnsCamera    = mdnsGroup{Camera, []string{"_rtsp", "_onvif"}}
@@ -24,6 +27,17 @@ var (
 )
 
 var storageServices = []string{"_smb", "_afpovertcp", "_afpovertls", "_nfs", "_adisk"}
+
+// macModelKeys are the TXT keys in which Apple devices give their model
+// identifier: AirPlay's "model", RAOP's "am" and Companion's "rpMd" (the
+// mDNS parser lower-cases keys).
+var macModelKeys = []string{"model", "am", "rpmd"}
+
+// macModelID matches the model identifier of a Mac: "Mac14,3" (Mac mini,
+// Mac Studio), "Macmini9,1", "MacPro7,1", "MacBookPro18,3", "iMac21,1",
+// "iMacPro1,1" and "VirtualMac2,1". Apple TVs ("AppleTV11,1"), HomePods
+// ("AudioAccessory5,1"), iPhones and iPads never match.
+var macModelID = regexp.MustCompile(`^(?:Virtual)?i?Mac[A-Za-z]*[0-9]+,[0-9]+$`)
 
 // MDNSServices returns every DNS-SD service type the rules key on, as
 // "_name._tcp". The mDNS browser must ask for each of them

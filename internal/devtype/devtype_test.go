@@ -11,6 +11,41 @@ func mdns(host string, svcs ...string) *model.MDNSInfo {
 	return &model.MDNSInfo{Hostname: host, Services: svcs}
 }
 
+// svc is one announced service with its TXT key/value pairs.
+func svc(typ string, kv ...string) model.MDNSService {
+	s := model.MDNSService{Type: typ}
+	for i := 0; i+1 < len(kv); i += 2 {
+		if s.TXT == nil {
+			s.TXT = map[string]string{}
+		}
+		s.TXT[kv[i]] = kv[i+1]
+	}
+	return s
+}
+
+// appleMDNS is what an Apple device announces: its services, each with its
+// own TXT keys in Details.
+func appleMDNS(host string, svcs ...model.MDNSService) *model.MDNSInfo {
+	m := &model.MDNSInfo{Hostname: host, Details: svcs}
+	for _, s := range svcs {
+		m.Services = append(m.Services, s.Type)
+	}
+	return m
+}
+
+func TestMacModelID(t *testing.T) {
+	for id, want := range map[string]bool{
+		"Mac14,3": true, "Mac13,1": true, "Macmini9,1": true, "MacPro7,1": true, "MacBookPro18,3": true,
+		"MacBookAir10,1": true, "iMac21,1": true, "iMacPro1,1": true, "VirtualMac2,1": true,
+		"AppleTV11,1": false, "AudioAccessory5,1": false, "iPhone14,2": false, "iPad13,1": false,
+		"Mac": false, "Mac14": false, "mac14,3": false, "OLED65C1": false, "": false,
+	} {
+		if got := macModelID.MatchString(id); got != want {
+			t.Errorf("macModelID(%q) = %v, want %v", id, got, want)
+		}
+	}
+}
+
 func TestClassify(t *testing.T) {
 	const gw = "192.168.0.1"
 	tests := []struct {
@@ -43,6 +78,19 @@ func TestClassify(t *testing.T) {
 		{"macbook smb+companion", model.Host{IP: "1", Vendor: "Apple, Inc.", Hostname: "Dons-MacBook-Pro.local", MDNS: mdns("Dons-MacBook-Pro.local", "_airplay._tcp", "_companion-link._tcp", "_raop._tcp", "_smb._tcp")}, Computer, "mdns _smb"},
 		{"macbook airplay+companion", model.Host{IP: "1", Vendor: "Apple, Inc.", Hostname: "Dons-MacBook-Pro.local", MDNS: mdns("Dons-MacBook-Pro.local", "_airplay._tcp", "_companion-link._tcp", "_raop._tcp")}, Computer, "hostname macbook"},
 		{"imac companion only", model.Host{IP: "1", MDNS: &model.MDNSInfo{Instance: "Kitchen iMac", Services: []string{"_companion-link._tcp"}}}, Computer, "hostname imac"},
+		// A Mac mini, Mac Studio or Mac Pro has no computer word in its name; with
+		// File Sharing off only the model in its AirPlay, RAOP or Companion TXT says Mac.
+		{"mac mini airplay model", model.Host{IP: "1", Vendor: "Apple, Inc.", MDNS: appleMDNS("Dons-Mac-mini.local",
+			svc("_airplay._tcp", "model", "Mac14,3"), svc("_companion-link._tcp", "rpmd", "Mac14,3"), svc("_raop._tcp", "am", "Mac14,3"))}, Computer, "mdns model Mac14,3"},
+		{"mac studio companion model", model.Host{IP: "1", MDNS: appleMDNS("Studio.local", svc("_companion-link._tcp", "rpmd", "Mac13,1"))}, Computer, "mdns model Mac13,1"},
+		{"mac pro raop model", model.Host{IP: "1", MDNS: appleMDNS("Office.local", svc("_raop._tcp", "am", "MacPro7,1"), svc("_companion-link._tcp"))}, Computer, "mdns model MacPro7,1"},
+		{"mac model in merged txt", model.Host{IP: "1", MDNS: &model.MDNSInfo{Hostname: "Dons-Mac-mini.local", Services: []string{"_airplay._tcp"}, TXT: map[string]string{"model": "Macmini9,1"}}}, Computer, "mdns model Macmini9,1"},
+		{"mac smb beats model", model.Host{IP: "1", MDNS: appleMDNS("Dons-Mac-mini.local", svc("_airplay._tcp", "model", "Mac14,3"), svc("_smb._tcp"))}, Computer, "mdns _smb"},
+		{"apple tv model", model.Host{IP: "1", MDNS: appleMDNS("Living-Room.local",
+			svc("_airplay._tcp", "model", "AppleTV11,1"), svc("_companion-link._tcp", "rpmd", "AppleTV11,1"), svc("_raop._tcp", "am", "AppleTV11,1"))}, TV, "mdns _airplay"},
+		{"homepod model", model.Host{IP: "1", MDNS: appleMDNS("Kitchen.local",
+			svc("_companion-link._tcp", "rpmd", "AudioAccessory5,1"), svc("_raop._tcp", "am", "AudioAccessory5,1"))}, TV, "mdns _raop"},
+		{"iphone companion model", model.Host{IP: "1", MDNS: appleMDNS("Dons-Phone.local", svc("_companion-link._tcp", "rpmd", "iPhone14,2"))}, Phone, "mdns _companion-link"},
 		{"printer over camera", model.Host{IP: "1", MDNS: mdns("", "_rtsp._tcp", "_ipp._tcp")}, Printer, ""},
 		{"smb generic", model.Host{IP: "1", MDNS: mdns("", "_smb._tcp")}, Computer, "mdns _smb"},
 		{"smb synology", model.Host{IP: "1", Vendor: "Synology Incorporated", MDNS: mdns("", "_smb._tcp")}, NAS, ""},
