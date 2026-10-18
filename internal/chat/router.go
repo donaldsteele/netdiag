@@ -3,6 +3,7 @@ package chat
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -219,11 +220,15 @@ func (m *Manager) remember(network, key string, in protocol.AlertInput) {
 	m.alerts[k] = in
 }
 
-// forget drops the kept alert of a problem that is fixed or dropped.
+// forget drops what the router keeps of a problem that is fixed or
+// dropped: its alert, and that a burst only counted it.
 func (m *Manager) forget(network, key string) {
 	m.scansMu.Lock()
-	defer m.scansMu.Unlock()
 	delete(m.alerts, network+"\x00"+key)
+	m.scansMu.Unlock()
+	m.mu.Lock()
+	delete(m.summed, network+"\x00"+key)
+	m.mu.Unlock()
 }
 
 // alertOf is the alert for the open problem e: the one built from its
@@ -261,7 +266,7 @@ func (m *Manager) ApplySettings(c model.SettingsChat) {
 			}
 		}
 	case !was && c.Enabled:
-		m.helloDue = true
+		m.helloDue, m.summed = true, nil
 	}
 	m.mu.Unlock()
 	m.maybeBurst()
@@ -338,8 +343,9 @@ func (m *Manager) maybeBurst() {
 // no card in chat and none on its way: at most 10, the most severe first,
 // then a message saying how many more there are. A problem marked pending
 // whose post is no longer in the outbox (it lapsed, or the outbox file was
-// lost) counts as having none. hosts and conflicts are the scan's, when
-// the router has them. It returns the keys it posted.
+// lost) counts as having none; one an earlier burst only counted (summed)
+// is left out until sending starts again. hosts and conflicts are the
+// scan's, when the router has them. It returns the keys it posted.
 func (m *Manager) burst(network string, hosts map[string]model.Host, conflicts map[string]string) map[string]bool {
 	min, ok := m.sending()
 	if !ok || m.opt.Ledger == nil {
@@ -347,10 +353,13 @@ func (m *Manager) burst(network string, hosts map[string]model.Host, conflicts m
 	}
 	m.burstMu.Lock() // two bursts at once would post a problem twice
 	defer m.burstMu.Unlock()
+	m.mu.Lock()
+	summed := maps.Clone(m.summed)
+	m.mu.Unlock()
 	open, _ := m.opt.Ledger.Snapshot()
 	var cur []problems.Entry
 	for _, e := range open {
-		if e.Network != network || !sends(e.Severity, min) {
+		if e.Network != network || !sends(e.Severity, min) || summed[e.Network+"\x00"+e.Key] {
 			continue
 		}
 		if e.Chat == "" || (e.Chat == problems.ChatPending && !m.out.hasPost(e.Network, e.Key)) {
@@ -365,6 +374,14 @@ func (m *Manager) burst(network string, hosts map[string]model.Host, conflicts m
 		if i == maxBurst {
 			more := len(cur) - maxBurst
 			m.out.Message(network, fmt.Sprintf("…and %d more %s. Open %s to see them all.", more, plural(more, "problem", "problems"), m.who()))
+			m.mu.Lock()
+			if m.summed == nil {
+				m.summed = map[string]bool{}
+			}
+			for _, x := range cur[maxBurst:] {
+				m.summed[x.Network+"\x00"+x.Key] = true
+			}
+			m.mu.Unlock()
 			break
 		}
 		var h *model.Host

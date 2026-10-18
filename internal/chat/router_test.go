@@ -921,6 +921,15 @@ func TestFirstConnectBurst(t *testing.T) {
 	if len(f.Messages()) != 2 || len(f.Posted()) != 10 {
 		t.Fatal("a second burst")
 	}
+	// The next live scan's first pass leaves out the problems the burst
+	// only counted: they do not trickle in after "…and 3 more".
+	again := newFakeScan(testNet, true)
+	m.Attach(again)
+	again.reconcile()
+	time.Sleep(burstQuiet + 150*time.Millisecond)
+	if len(f.Messages()) != 2 || len(f.Posted()) != 10 {
+		t.Fatalf("the next pass posted %d, messages %q", len(f.Posted()), f.Messages())
+	}
 }
 
 // The ledger drops a problem of a network netdiag has not been on for 7

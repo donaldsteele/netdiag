@@ -175,6 +175,10 @@ type Manager struct {
 	// is a channel, with the current problems of a network a live scan
 	// watches (the next live scan's first pass sends them otherwise).
 	helloDue bool
+	// summed is the problems (by network and key) a burst only counted in
+	// its "…and N more problems" since sending started: a later burst
+	// leaves them out, so they never trickle in after it.
+	summed map[string]bool
 	// oldChannel is the channel before the last Change channel, for the
 	// words when a card cannot be moved out of it.
 	oldChannel string
@@ -664,7 +668,7 @@ func (m *Manager) swapLocked(c Connection) {
 	m.chanRefused, m.chanMsg, m.unsaved = "", "", ""
 	m.dropSendClientLocked()
 	m.forgetCards()
-	m.helloDue = true
+	m.helloDue, m.summed = true, nil
 	m.out.kick()
 }
 
