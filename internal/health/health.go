@@ -184,23 +184,23 @@ func (r *Runner) defaults() {
 	}
 }
 
-var checkMeta = []struct{ id, label string }{
-	{"gateway", "Gateway reachable"},
-	{"dhcp", "DHCP lease"},
-	{"dns", "DNS resolving"},
-	{"webserver", "Web server"},
-	{"internet", "Internet reachability"},
-	{"wifi", "Wi-Fi"},
-}
+// checkMeta is the checks in the order Run runs them, each with its plain
+// name (model.HealthLabel).
+var checkMeta = func() []struct{ id, label string } {
+	ids := []string{"gateway", "dhcp", "dns", "webserver", "internet", "wifi"}
+	out := make([]struct{ id, label string }, len(ids))
+	for i, id := range ids {
+		out[i].id, out[i].label = id, model.HealthLabel(id)
+	}
+	return out
+}()
 
-// Label is the name a check's results carry ("Web server" for the check
-// webserver), or id itself for a check there is none of. Team chat names a
+// Label is the name a check's results carry ("Router" for the check
+// gateway), or id itself for a check there is none of. Team chat names a
 // failed check with it when it has only the problem's key.
 func Label(id string) string {
-	for _, c := range checkMeta {
-		if c.id == id {
-			return c.label
-		}
+	if l := model.HealthLabel(id); l != "" {
+		return l
 	}
 	return id
 }

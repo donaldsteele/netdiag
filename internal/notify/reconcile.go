@@ -275,10 +275,7 @@ func (e *Engine) gone(f *fault, hosts []model.Host, cs []model.Conflict, rep *mo
 			if c.Status == model.HealthFail || c.Status == model.HealthUnavailable {
 				return "", "", false
 			}
-			name := c.Label
-			if name == "" {
-				name = c.ID
-			}
+			name := c.Name()
 			return "Health check OK again", fmt.Sprintf("%s check is OK again.", name), true
 		}
 	case model.TriggerNetdiagLink:
@@ -374,6 +371,9 @@ func hasPrefixKey(key, trigger, id string) bool {
 const (
 	linkBackTitle   = "netdiag is back on the network"
 	linkBackMessage = "netdiag checks the local network again."
+	// routerBackTitle closes a hold that began when the router stopped
+	// answering (model.HeldGateway): this computer never lost the network.
+	routerBackTitle = "The router answers again"
 )
 
 // LinkKey is the key of the storm guard's problem on a network
@@ -411,7 +411,8 @@ func (e *Engine) LinkLost(network, reason, title, msg string) []model.Notice {
 }
 
 // LinkBack closes the storm guard's problem for network with its OK notice,
-// or returns nothing when it is not open.
+// or returns nothing when it is not open. A hold for the router says the
+// router answers again.
 func (e *Engine) LinkBack(network string) []model.Notice {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -419,5 +420,9 @@ func (e *Engine) LinkBack(network string) []model.Notice {
 	if f == nil {
 		return nil
 	}
-	return e.emitOK(nil, f, linkBackTitle, linkBackMessage)
+	title := linkBackTitle
+	if f.code == model.HeldGateway {
+		title = routerBackTitle
+	}
+	return e.emitOK(nil, f, title, linkBackMessage)
 }

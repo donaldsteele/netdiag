@@ -164,22 +164,29 @@ func TestProblemsHeldLiveScan(t *testing.T) {
 	}
 }
 
-// The card names a health check as the page's health strip does
-// (problems.CheckNames, app.js healthStrip): "Health check failed ·
-// Gateway", never the check's label ("Gateway reachable", which reads as if
-// the router answered). Every name is of a check the health package runs.
+// The page's health strip names each check in a word or two (app.js
+// healthStrip), and the card, the alerts and team chat by its plain name
+// (model.HealthLabel): the strip's word is part of the plain name, so the
+// two read as the same check ("DNS" and "Health check failed · Name lookup
+// (DNS)"), and the router is "Router" in both, never "Gateway reachable",
+// which reads as if the router answered. Every id is a check the health
+// package runs.
 func TestCheckNamesMatchHealthStrip(t *testing.T) {
 	js, _ := readAsset("app.js")
-	names := problems.CheckNames()
-	if len(names) != 6 {
-		t.Fatalf("check names: %v", names)
+	strip := regexp.MustCompile(`\['([a-z]+)', '([^']+)'\]`).FindAllStringSubmatch(
+		regexp.MustCompile(`(?s)healthStrip\(\) \{.*?const ids = \[[^\n]*`).FindString(string(js)), -1)
+	if len(strip) != 6 {
+		t.Fatalf("app.js healthStrip: %v", strip)
 	}
-	for id, name := range names {
-		if !strings.Contains(string(js), "['"+id+"', '"+name+"']") {
-			t.Errorf("app.js healthStrip lacks ['%s', '%s']", id, name)
+	for _, m := range strip {
+		id, word := m[1], m[2]
+		name := model.HealthLabel(id)
+		if name == "" || health.Label(id) != name {
+			t.Errorf("%s is not a health check (%q, %q)", id, name, health.Label(id))
+			continue
 		}
-		if health.Label(id) == id {
-			t.Errorf("%s is not a health check", id)
+		if !strings.Contains(name, word) {
+			t.Errorf("app.js healthStrip names %s %q, which is not part of its plain name %q", id, word, name)
 		}
 	}
 }

@@ -353,15 +353,15 @@ var runbooks = []runbook{
 				"6. If no open problem is a warning or critical (only notes, or nothing), netdiag has not finished checking:\n" +
 				"   - source is \"live\": its scan is still going. Start with \"" + verdictNotChecked + ": netdiag has not finished checking yet.\" Suggest waiting a minute, then asking again.\n" +
 				"   - otherwise: start with \"" + verdictNotChecked + ": no problems found, but the health checks did not run for this scan.\" " +
-				"Suggest **Open Health** on the Problems right now card in the netdiag window, then **Recheck**.\n" +
+				"Suggest **Open Health** on the Problems right now card in the netdiag window, then **Check again**.\n" +
 				"   List any notes as \"Also worth knowing\", and stop.\n" +
 				"7. Otherwise start your answer with \"" + verdictProblem + ":\" and the title of the most urgent problem.\n" +
 				"8. Order the open problems critical, then warning, then info (\"Also worth knowing\"), and within each group the longest-open first (the earliest since).\n" +
 				"9. For at most 5 problems (then say \"and N more\"), give the title, the device name, advice.meaning (lightly reworded, keep the facts) and up to 3 advice.steps. " +
 				"Name each advice.actions button by its label in bold, such as **Open router page**, **Check again**, **Open Settings** or **Show device**.\n" +
 				"10. If the gateway or Wi-Fi check is failing and several devices went offline together, say there is one likely cause (this computer's connection or the router) instead of listing every device.\n" +
-				"11. List fixed items as the netdiag window does, \"Fixed at 10:42 (was down 12 min): Health check failed · DNS\": fixedAt in local time, " +
-				"downForSec as \"12 min\", \"2 h 5 min\", or from a day on in days and hours (\"1 day\", \"8 days 1 h\"), then the title and its detail, which says which check or supply was fixed.\n" +
+				"11. List fixed items as the netdiag window does, \"Fixed at 10:42 (lasted 12 min): Health check failed · Router\": fixedAt in local time, " +
+				"downForSec as \"12 min\", \"2 h 5 min\", or from a day on in days and hours (\"1 day\", \"8 days 1 h\"), then the title (what was wrong) and its detail, which says which check, alert or supply was fixed.\n" +
 				"12. If checkedAt is more than 10 minutes old and nothing is watching (get_status watching is null), offer run_health_check, or probe_host for one device. Ask first."
 		}},
 
@@ -382,7 +382,7 @@ var runbooks = []runbook{
 				"3. Is it just this computer? Call get_status. If netdiag is watching, call list_devices with watching.scanId and filter=offline. Many devices offline at once points to the router; otherwise it is this computer.\n" +
 				"4. If the person says this network has no internet on purpose, stop at \"" + verdictOK + ": the local network is working\". " +
 				"They can turn on **This network has no internet** in **Settings** so netdiag stops warning about it.\n" +
-				"5. They can repeat the check with **Recheck** in the **Health** view."
+				"5. They can repeat the check with **Check again** in the **Health** view."
 		}},
 
 	{Name: "device_offline", Title: "A device stopped answering", Since: since060,

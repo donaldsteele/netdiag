@@ -22,6 +22,43 @@ type HealthCheck struct {
 	Advice *Advice `json:"advice,omitempty"`
 }
 
+// healthLabels are the plain names of the health checks, in the order
+// netdiag runs them. The Health panel, the Problems right now card, the
+// alerts and team chat all name a check by these words, so a failed router
+// check never reads as "Gateway reachable".
+var healthLabels = []struct{ id, label string }{
+	{"gateway", "Router"},
+	{"dhcp", "Getting an address (DHCP)"},
+	{"dns", "Name lookup (DNS)"},
+	{"webserver", "Web server"},
+	{"internet", "Internet"},
+	{"wifi", "Wi-Fi"},
+}
+
+// HealthLabel is the plain name of the health check id ("Router" for
+// gateway), or "" for an id netdiag has no check of.
+func HealthLabel(id string) string {
+	for _, c := range healthLabels {
+		if c.id == id {
+			return c.label
+		}
+	}
+	return ""
+}
+
+// Name is what a notice or the card calls c: the plain name of its check,
+// so a report saved by an older netdiag reads the same, else its label,
+// else its id.
+func (c HealthCheck) Name() string {
+	if l := HealthLabel(c.ID); l != "" {
+		return l
+	}
+	if c.Label != "" {
+		return c.Label
+	}
+	return c.ID
+}
+
 // HealthReport is the set of health checks at one moment.
 type HealthReport struct {
 	CheckedAt string        `json:"checkedAt"`

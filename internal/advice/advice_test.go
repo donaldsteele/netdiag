@@ -156,8 +156,8 @@ var technicalRe = regexp.MustCompile(`(?i)\b(ARP|DHCP|DNS|SNMP|MAC|ICMP|IP addre
 
 // placeRe lists words that point at a place on one page. The same advice
 // is shown in the drawer, on the Problems right now card, in team chat and
-// to Claude, where nothing is above or below it.
-var placeRe = regexp.MustCompile(`(?i)\b(below|above)\b`)
+// to Claude, where nothing is above or below it and "here" is another place.
+var placeRe = regexp.MustCompile(`(?i)\b(below|above|here)\b`)
 
 func TestWordingLint(t *testing.T) {
 	for name, a := range every() {
@@ -194,7 +194,7 @@ func TestWordingLint(t *testing.T) {
 			t.Errorf("technical lint misses %q", bad)
 		}
 	}
-	for _, bad := range []string{"Look at the two devices below.", "the steps above"} {
+	for _, bad := range []string{"Look at the two devices below.", "the steps above", "netdiag will show both devices here."} {
 		if !placeRe.MatchString(bad) {
 			t.Errorf("place lint misses %q", bad)
 		}

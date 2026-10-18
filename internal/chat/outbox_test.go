@@ -480,9 +480,9 @@ func TestAlertContentLimits(t *testing.T) {
 	}
 }
 
-// The resolve note says "was down" only for what was down: a device that
-// stopped answering or a failed health check. Low toner, an open cover or
-// an IP conflict was never down.
+// The resolve note says how long the problem lasted, in words that fit
+// every problem: low toner, an open cover or an IP conflict was never
+// "down" (v0.6-D54, which replaces D52's "was down" and "after").
 func TestFixedTextWording(t *testing.T) {
 	from := time.Date(2026, 10, 17, 8, 0, 0, 0, time.UTC)
 	at := func(d time.Duration) string { return from.Add(d).Format(time.RFC3339) }
@@ -492,20 +492,20 @@ func TestFixedTextWording(t *testing.T) {
 		d            time.Duration
 		want         string
 	}{
-		{model.TriggerPrinterOffline, "Front Desk HP (192.168.1.50) answers again.", 12 * time.Minute, " (was down 12 min). Front Desk HP (192.168.1.50) answers again."},
-		{model.TriggerDeviceOffline, "", 2 * time.Hour, " (was down 2 h)."},
-		{model.TriggerHealthFailed, "Web server check is OK again.", 30 * time.Second, " (was down less than a minute). Web server check is OK again."},
-		{model.TriggerSupplyLow, "Front Desk HP (192.168.1.50) no longer reports the low supply.", 3 * time.Hour, " (after 3 h). Front Desk HP (192.168.1.50) no longer reports the low supply."},
-		{model.TriggerIPConflict, "The conflict is gone.", 12 * time.Minute, " (after 12 min). The conflict is gone."},
-		{model.TriggerPrinterAlert, "ZD621: Cover open is gone.", 65 * time.Minute, " (after 1 h 5 min). ZD621: Cover open is gone."},
+		{model.TriggerPrinterOffline, "Front Desk HP (192.168.1.50) answers again.", 12 * time.Minute, " (lasted 12 min). Front Desk HP (192.168.1.50) answers again."},
+		{model.TriggerDeviceOffline, "", 2 * time.Hour, " (lasted 2 h)."},
+		{model.TriggerHealthFailed, "Web server check is OK again.", 30 * time.Second, " (lasted less than a minute). Web server check is OK again."},
+		{model.TriggerSupplyLow, "Front Desk HP (192.168.1.50) no longer reports the low supply.", 3 * time.Hour, " (lasted 3 h). Front Desk HP (192.168.1.50) no longer reports the low supply."},
+		{model.TriggerIPConflict, "The conflict is gone.", 12 * time.Minute, " (lasted 12 min). The conflict is gone."},
+		{model.TriggerPrinterAlert, "ZD621: Cover open is gone.", 65 * time.Minute, " (lasted 1 h 5 min). ZD621: Cover open is gone."},
 	} {
 		n := model.Notice{Trigger: tc.trigger, OK: true, OpenedAt: at(0), At: at(tc.d), Message: tc.msg}
 		want := "Fixed at " + clock(tc.d) + tc.want
 		if got := fixedText(n, from); got != want {
 			t.Errorf("%s: %q, want %q", tc.trigger, got, want)
 		}
-		if got := fixedText(n, from); strings.Contains(got, " 0 min") {
-			t.Errorf("%s: %q says 0 min", tc.trigger, got)
+		if got := fixedText(n, from); strings.Contains(got, " 0 min") || strings.Contains(got, "was down") || strings.Contains(got, "(after ") {
+			t.Errorf("%s: %q says 0 min, was down or after", tc.trigger, got)
 		}
 	}
 }

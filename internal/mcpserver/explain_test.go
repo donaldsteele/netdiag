@@ -224,13 +224,13 @@ func TestExplainProblemsHealthOnly(t *testing.T) {
 // A fixed item as explain_problems step 11 asks Claude to say it, the way
 // the card and team chat do: it names what was fixed (detail), and an
 // outage of a day or more reads in days. list_problems carries both: the
-// check's short name, and downForSec from the ledger's start of the fault.
+// check's plain name, and downForSec from the ledger's start of the fault.
 func TestExplainProblemsFixedItems(t *testing.T) {
 	e := setupWindow(t, fakePinger{}, nil)
 	txt := promptText(t, e, "explain_problems", nil)
 	step := txt[strings.Index(txt, "\n11. ")+1:]
 	step = step[:strings.Index(step, "\n")]
-	for _, m := range []string{"fixedAt", "downForSec", `"8 days 1 h"`, `"1 day"`, "detail", "Health check failed · DNS"} {
+	for _, m := range []string{"fixedAt", "downForSec", `"8 days 1 h"`, `"1 day"`, "detail", "Health check failed · Router", "(lasted 12 min)"} {
 		if !strings.Contains(step, m) {
 			t.Fatalf("step 11 misses %q: %s", m, step)
 		}
@@ -251,7 +251,7 @@ func TestExplainProblemsFixedItems(t *testing.T) {
 		t.Fatalf("fixed: %+v", out.Fixed)
 	}
 	// 193 h 52 min, which step 11 says as "8 days 1 h".
-	if f := out.Fixed[0]; f.Title != "Health check failed" || f.Detail != "DNS" || f.DownForSec != (193*60+52)*60 {
+	if f := out.Fixed[0]; f.Title != "Health check failed" || f.Detail != "Name lookup (DNS)" || f.DownForSec != (193*60+52)*60 {
 		t.Fatalf("fixed item: %+v", f)
 	}
 }

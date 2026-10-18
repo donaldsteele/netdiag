@@ -147,7 +147,7 @@ func TestV02UI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`id="health"`, `aria-labelledby="health-h"`, "Recheck", `<dialog id="settings-dialog"`,
+	for _, want := range []string{`id="health"`, `aria-labelledby="health-h"`, ">Check again</button>", `<dialog id="settings-dialog"`,
 		`id="alerts"`, `aria-label="Alerts"`, `id="tab-history"`, ">History<", "CONFLICT", "Ignore this MAC",
 		"Enable desktop alerts", "Export diff CSV", `role="alert"`} {
 		if !strings.Contains(string(html), want) {
@@ -206,7 +206,7 @@ func TestFixedBanners(t *testing.T) {
 		"tag: n.key || n.id, silent: true",
 		"body: (n.message ? n.message + ' ' : '') + 'Fixed '",
 		"return this.fixedText(b) + (b.message ? ' ' + b.message : '');",
-		"(was down ",
+		"(lasted ",
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("app.js missing %q", want)
@@ -288,7 +288,9 @@ func TestProblemsCardUI(t *testing.T) {
 	for _, want := range []string{
 		"fetch('/api/problems', {cache: 'no-store'})", "setInterval(() => this.loadProblems(), 60000);",
 		"if (!pnTimer) pnTimer = setTimeout(() => this.loadProblems(), 2000);",
-		"{critical: 'Problem', warning: 'Warning', info: 'Note', ok: 'Fixed'}",
+		"{critical: 'Urgent', warning: 'Warning', info: 'Note', ok: 'Fixed'}",
+		// The banners lead with the same words as the card (one severity map, D3).
+		"b.severity === 'critical' ? 'Urgent: ' : b.severity === 'warn' ? 'Warning: ' : 'Note: '",
 		"{critical: 'circle-x', warning: 'triangle-alert', info: 'info', ok: 'circle-check'}",
 		"isProblem(h) { return this.hostIssues(h).length > 0; },",
 	} {
@@ -588,13 +590,17 @@ func TestTeamChatUI(t *testing.T) {
 	for _, want := range []string{
 		"Team chat (bubbles)</legend>", `<dialog id="chat-dialog"`, `x-ref="chatDlg"`, `@cancel.prevent="closeChatWizard()"`,
 		`id="chat-tool"`, `class="iconbtn tool chattool"`, "Connect to team chat", "Is this the right server?",
-		`x-text="wiz.wait"`, "No chat server found automatically. A firewall or a separate Wi-Fi network can hide it.",
+		`x-text="wiz.wait"`, "No chat server found automatically. A firewall on this computer or a separate Wi-Fi network can hide it.",
 		"Type the address", "Paste a connection string", "It matches", "It doesn't",
 		"Stop here and tell your chat admin.", "Ask your chat admin to approve netdiag", "Open the approval page (for your chat admin)",
 		"If the browser warns about the connection, ask your chat admin to approve on their own computer.",
-		"netdiag isn't in any channel yet.", "Check again", "Send test alert", "<strong>It sends them only while it is watching this network:</strong>",
+		"netdiag isn't in any channel yet.", "Look again", "Send test alert", "<strong>It sends them only while it is watching this network:</strong>",
 		"Add the port only if your chat admin says it isn't the usual one (28225), for example 192.168.1.20:30000.",
 		`<h2 id="chat-h" tabindex="-1" x-text="wiz.title">`, `id="chat-choose"`, "Choose a channel",
+		// Done tells the truth when Send alerts to team chat is off, and
+		// watching takes Scan, not only the Live mode tick.
+		`id="wiz-done-on" x-show="chatSending()"`, `id="wiz-done-off" x-show="!chatSending()"`,
+		"Tick Live mode and press Scan, then leave netdiag open.",
 		"Alerts go to team chat only while netdiag is watching this network.", `id="chat-enabled"`, `role="switch"`,
 		`<option value="warning">Problems and warnings</option>`, `<option value="critical">Only urgent problems</option>`,
 		`<option value="info">Everything, including notes</option>`, "Takes effect when you click Save.",

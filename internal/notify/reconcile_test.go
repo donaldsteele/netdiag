@@ -424,11 +424,11 @@ func TestLinkNotices(t *testing.T) {
 	cfg := DefaultConfig()
 	clear(cfg.Triggers)
 	e.SetConfig(cfg)
-	n := e.LinkLost("n-0123456789ab", model.HeldLink, "netdiag lost the network", "x")
+	n := e.LinkLost("n-0123456789ab", model.HeldLink, "This computer lost the network", "x")
 	if len(n) != 1 || n[0].Key != "netdiagLink||n-0123456789ab" || n[0].Severity != "warn" || n[0].Trigger != model.TriggerNetdiagLink {
 		t.Fatalf("lost: %v", n)
 	}
-	if n := e.LinkLost("n-0123456789ab", model.HeldLink, "netdiag lost the network", "x"); len(n) != 0 {
+	if n := e.LinkLost("n-0123456789ab", model.HeldLink, "This computer lost the network", "x"); len(n) != 0 {
 		t.Fatalf("again: %v", n)
 	}
 	// A stronger reason: a second notice under the same key, the problem
@@ -445,5 +445,10 @@ func TestLinkNotices(t *testing.T) {
 	}
 	if n := e.LinkBack("n-0123456789ab"); len(n) != 0 {
 		t.Fatalf("back again: %v", n)
+	}
+	// A hold for the router closes saying the router answers again.
+	e.LinkLost("n-0123456789ab", model.HeldGateway, "The router stopped answering", "z")
+	if n := e.LinkBack("n-0123456789ab"); len(n) != 1 || !n[0].OK || n[0].Title != "The router answers again" {
+		t.Fatalf("router back: %v", n)
 	}
 }

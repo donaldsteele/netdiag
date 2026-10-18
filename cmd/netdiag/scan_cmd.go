@@ -264,7 +264,7 @@ func (l *liveWriter) notice(n model.NoticeEvent) {
 			line += "  " + n.Message
 		}
 		if d, ok := downFor(n.Notice); ok {
-			line += "  (was down " + d + ")"
+			line += "  (lasted " + d + ")"
 		}
 		fmt.Fprintln(l.stdout, line)
 		return

@@ -55,7 +55,8 @@ type Entry struct {
 	MAC      string `json:"mac,omitempty"`
 	Name     string `json:"name,omitempty"`
 	Title    string `json:"title"`
-	// Detail is what the OK names (a printer alert's or supply's description).
+	// Detail is what the OK names (a printer alert's or supply's description,
+	// or a health check's name).
 	Detail string `json:"detail,omitempty"`
 	// Network is the id (model.NetworkID) of the network the problem is on,
 	// "" when netdiag could not tell the network apart.
@@ -72,8 +73,8 @@ type Entry struct {
 type Fixed struct {
 	Key   string `json:"key"`
 	Title string `json:"title"`
-	// Detail is the open problem's Detail (the supply's or printer alert's
-	// description), so the card can say which one was fixed.
+	// Detail says which one was fixed, as the open problem's Detail does
+	// (the check, the printer alert or the supply).
 	Detail   string `json:"detail,omitempty"`
 	IP       string `json:"ip,omitempty"`
 	Name     string `json:"name,omitempty"`

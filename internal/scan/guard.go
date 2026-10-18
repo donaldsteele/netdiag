@@ -104,7 +104,7 @@ func heldNotice(reason string) (title, msg string) {
 	case model.HeldGateway:
 		return "The router stopped answering", "The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline."
 	}
-	return "netdiag lost the network", "This computer lost the local network, so netdiag paused its checks. They start again by themselves when the network is back."
+	return "This computer lost the network", "This computer lost the local network, so netdiag paused its checks. They start again by themselves when the network is back."
 }
 
 // guardStart begins a live cycle: a wall-clock gap since the last cycle

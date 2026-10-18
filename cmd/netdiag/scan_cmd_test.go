@@ -30,7 +30,7 @@ func TestLiveWriterFixedLine(t *testing.T) {
 	if !strings.Contains(lines[0], "  ALERT  [warn]  Printer offline  192.168.1.50  Printer HP") {
 		t.Fatalf("alert line %q", lines[0])
 	}
-	if !strings.HasSuffix(lines[1], "  FIXED  Printer back online  192.168.1.50  Printer HP (192.168.1.50) answers again.  (was down 12m)") {
+	if !strings.HasSuffix(lines[1], "  FIXED  Printer back online  192.168.1.50  Printer HP (192.168.1.50) answers again.  (lasted 12m)") {
 		t.Fatalf("fixed line %q", lines[1])
 	}
 
@@ -42,8 +42,8 @@ func TestLiveWriterFixedLine(t *testing.T) {
 			Key: "healthFailed||" + strings.ToLower(check), OK: true, OpenedAt: "2026-10-17T10:30:00Z"}})
 	}
 	lines = strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) != 2 || !strings.HasSuffix(lines[0], "  FIXED  Health check OK again  DNS check is OK again.  (was down 5m)") ||
-		!strings.HasSuffix(lines[1], "  FIXED  Health check OK again  DHCP check is OK again.  (was down 5m)") {
+	if len(lines) != 2 || !strings.HasSuffix(lines[0], "  FIXED  Health check OK again  DNS check is OK again.  (lasted 5m)") ||
+		!strings.HasSuffix(lines[1], "  FIXED  Health check OK again  DHCP check is OK again.  (lasted 5m)") {
 		t.Fatalf("health lines %q", lines)
 	}
 

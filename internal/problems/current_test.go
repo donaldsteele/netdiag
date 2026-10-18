@@ -228,12 +228,12 @@ func TestCurrentRules(t *testing.T) {
 	if got := kinds(ps); !reflect.DeepEqual(got, want) {
 		t.Fatalf("default triggers: %v", got)
 	}
-	// The card names the check by its short name: "Health check failed ·
+	// The card names the check by its plain name: "Health check failed ·
 	// Gateway reachable" reads as if the router answered.
-	if ps[0].Key != notify.HealthKey("gateway") || ps[0].Check != "gateway" || ps[0].Title != "Health check failed" || ps[0].Detail != "Gateway" {
+	if ps[0].Key != notify.HealthKey("gateway") || ps[0].Check != "gateway" || ps[0].Title != "Health check failed" || ps[0].Detail != "Router" {
 		t.Errorf("gateway item: %+v", ps[0])
 	}
-	if ps[1].Detail != "DNS" {
+	if ps[1].Detail != "Name lookup (DNS)" {
 		t.Errorf("dns item: %+v", ps[1])
 	}
 	if ps[2].Title != TitleHealthNotRun || ps[4].Title != TitleHealthWarn {
@@ -404,19 +404,18 @@ func TestViewLedger(t *testing.T) {
 	if strings.Join(keys, " ") != "supplyLow|02:00:5E:00:00:09|abc healthFailed||dns" {
 		t.Fatalf("fixed: %v", keys)
 	}
-	// Each fixed item says which one was fixed: the check by its short name
-	// (from the key, also for a ledger saved before Detail), the supply.
-	if f := v.Fixed[1]; f.Kind != model.TriggerHealthFailed || f.DownForSec != 420 || f.Device != nil || f.Detail != "DNS" {
+	// Each fixed item says which one was fixed: the check (also for a fix
+	// the ledger kept without a detail), the supply.
+	if f := v.Fixed[1]; f.Kind != model.TriggerHealthFailed || f.DownForSec != 420 || f.Device != nil || f.Detail != "Name lookup (DNS)" {
 		t.Errorf("dns fixed: %+v", f)
 	}
-	if f := v.Fixed[0]; f.Device == nil || f.Device.IP != "10.0.0.9" || f.Device.Name != "Laser" || f.DownForSec != 0 ||
-		f.Detail != "Black Toner" {
+	if f := v.Fixed[0]; f.Device == nil || f.Device.IP != "10.0.0.9" || f.Device.Name != "Laser" || f.DownForSec != 0 || f.Detail != "Black Toner" {
 		t.Errorf("supply fixed: %+v", f)
 	}
 	// The JSON the card reads.
 	b, _ := json.Marshal(v)
 	for _, want := range []string{`"source":"live"`, `"watching":true`, `"everythingFine":false`, `"open":[{"key":"printerOffline|ip:10.0.0.9|"`,
-		`"severity":"warning"`, `"downForSec":420`} {
+		`"severity":"warning"`, `"downForSec":420`, `"detail":"Name lookup (DNS)"`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("JSON lacks %s: %s", want, b)
 		}

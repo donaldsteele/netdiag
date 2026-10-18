@@ -78,8 +78,8 @@ func DefaultConfig() Config {
 // open-problem ledger (v0.6 F2b) keeps these across restarts.
 type OpenFault struct {
 	Key, Trigger, Severity, IP, MAC, Name, Title string
-	// Detail is what the OK message names: a printer alert's or a low
-	// supply's description ("" for the other triggers).
+	// Detail is what the OK names: a printer alert's or a low supply's
+	// description, or a health check's name ("" for the other triggers).
 	Detail   string
 	OpenedAt time.Time
 }
@@ -236,7 +236,7 @@ func (e *Engine) emitOK(out []model.Notice, f *fault, title, msg string) []model
 		return out
 	}
 	n := model.Notice{Trigger: f.Trigger, Severity: sevInfo, IP: f.IP, MAC: f.MAC, Name: f.Name,
-		Title: title, Message: msg, Key: f.Key, OK: true,
+		Title: title, Message: msg, Key: f.Key, OK: true, Detail: f.Detail,
 		OpenedAt: f.OpenedAt.UTC().Format(time.RFC3339)}
 	n.ID, n.At = e.next(now)
 	if e.deferred {
@@ -701,10 +701,7 @@ func (e *Engine) ObserveHealth(rep model.HealthReport) []model.Notice {
 	defer e.mu.Unlock()
 	var out []model.Notice
 	for _, c := range rep.Checks {
-		name := c.Label
-		if name == "" {
-			name = c.ID
-		}
+		name := c.Name()
 		key := HealthKey(c.ID)
 		f := e.open[key]
 		switch c.Status {
@@ -721,7 +718,7 @@ func (e *Engine) ObserveHealth(rep model.HealthReport) []model.Notice {
 				if e.bad[c.ID] >= HealthFailRuns {
 					out = e.emit(out, model.Notice{Trigger: model.TriggerHealthFailed,
 						Severity: severityFor(model.TriggerHealthFailed, sevCtx{check: c.ID}),
-						Title:    "Health check failed", Message: fmt.Sprintf("%s check failed.", name), Key: key}, "")
+						Title:    "Health check failed", Message: fmt.Sprintf("%s check failed.", name), Key: key, Detail: name}, name)
 				}
 			}
 			continue

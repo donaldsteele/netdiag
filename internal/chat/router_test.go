@@ -171,8 +171,7 @@ func TestFaultOpensOneCardAndFixedResolvesIt(t *testing.T) {
 	sc.notice(l, coverClosed(t0.Add(12*time.Minute), t0))
 	waitFor(t, "the resolve", func() bool { return len(f.Resolved()) == 1 })
 	r := f.Resolved()[0]
-	// A cover that was open was not down.
-	want := "Fixed at " + t0.Add(12*time.Minute).Local().Format("15:04") + " (after 12 min). ZD621 (192.168.68.76): Cover open is gone."
+	want := "Fixed at " + t0.Add(12*time.Minute).Local().Format("15:04") + " (lasted 12 min). ZD621 (192.168.68.76): Cover open is gone."
 	if r.DedupeKey != zebraKey || r.Text != want {
 		t.Fatalf("resolve %+v, want %q", r, want)
 	}
@@ -843,7 +842,7 @@ func TestRouterFilters(t *testing.T) {
 	sc := newFakeScan(testNet, true)
 	m.Attach(sc)
 	sc.reconcile()
-	link := model.Notice{Trigger: model.TriggerNetdiagLink, Severity: "warn", Title: "netdiag lost the network", Key: "netdiagLink||" + testNet}
+	link := model.Notice{Trigger: model.TriggerNetdiagLink, Severity: "warn", Title: "This computer lost the network", Key: "netdiagLink||" + testNet}
 	sc.notice(l, link)
 	sc.notice(l, model.Notice{Trigger: model.TriggerChatTest, Severity: "info", Title: "t", Key: TestKey})
 	sc.ch <- model.Event{Type: model.EventNotice, Data: model.NoticeEvent{Notice: fault(9, "warn"), Replay: true}}

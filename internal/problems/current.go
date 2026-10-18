@@ -50,7 +50,7 @@ type Problem struct {
 	Kind     string `json:"kind"`
 	Severity string `json:"severity"` // SevCritical, SevWarning or SevInfo
 	Title    string `json:"title"`
-	// Detail says which one: the check (its short name, CheckName), the
+	// Detail says which one: the check (its plain name, model.HealthLabel), the
 	// printer alert, the supply and its level, or the addresses of a
 	// conflict.
 	Detail string     `json:"detail,omitempty"`
@@ -126,37 +126,6 @@ func checkDone(c model.HealthCheck) bool {
 func deviceRef(h model.Host) *DeviceRef {
 	return &DeviceRef{IP: h.IP, MAC: strings.ToUpper(strings.TrimSpace(h.MAC)), Name: notify.Name(h)}
 }
-
-// checkNames are the health checks' short names, as the page's health strip
-// says them (web/app.js healthStrip; TestCheckNamesMatchHealthStrip keeps
-// the two in step). The card names a check by them: a label such as
-// "Gateway reachable" next to "Health check failed" reads as if the router
-// answered.
-var checkNames = map[string]string{"gateway": "Gateway", "dhcp": "DHCP", "dns": "DNS", "internet": "Internet",
-	"wifi": "Wi-Fi", "webserver": "Web server"}
-
-// CheckNames returns a copy of the short name of each health check, by id.
-func CheckNames() map[string]string {
-	out := make(map[string]string, len(checkNames))
-	for k, v := range checkNames {
-		out[k] = v
-	}
-	return out
-}
-
-// CheckName is the short name of the health check id, else its label, else
-// id itself.
-func CheckName(id, label string) string {
-	if n := checkNames[id]; n != "" {
-		return n
-	}
-	if label != "" {
-		return label
-	}
-	return id
-}
-
-func checkName(c model.HealthCheck) string { return CheckName(c.ID, c.Label) }
 
 // normMAC is a MAC as conflicts and the ignore list carry it.
 func normMAC(m string) string {
@@ -242,7 +211,7 @@ func Current(r model.ScanResult, set model.Settings) []Problem {
 
 	if tr.HealthFailed && r.Health != nil {
 		for _, c := range r.Health.Checks {
-			p := Problem{Key: notify.HealthKey(c.ID), Kind: model.TriggerHealthFailed, Check: c.ID, Detail: checkName(c), Advice: c.Advice}
+			p := Problem{Key: notify.HealthKey(c.ID), Kind: model.TriggerHealthFailed, Check: c.ID, Detail: c.Name(), Advice: c.Advice}
 			switch {
 			case c.Status == model.HealthFail:
 				p.Severity, p.Title = cardSeverity(notify.HealthSeverity(c.ID)), "Health check failed"
@@ -432,9 +401,9 @@ type FixedItem struct {
 	Key   string `json:"key"`
 	Kind  string `json:"kind"`
 	Title string `json:"title"`
-	// Detail says which one was fixed, as the open problem's Detail: the
-	// check's short name, or the printer alert or supply ("" when the
-	// ledger did not keep it).
+	// Detail says which one was fixed, as an open item's does: the check
+	// (its plain name, model.HealthLabel), the printer alert or the supply
+	// ("" when the ledger did not keep it).
 	Detail     string     `json:"detail,omitempty"`
 	Device     *DeviceRef `json:"device,omitempty"`
 	OpenedAt   string     `json:"openedAt,omitempty"`
@@ -616,8 +585,11 @@ func NewView(in Input) View {
 		kind, _, _ := strings.Cut(f.Key, "|")
 		it := FixedItem{Key: f.Key, Kind: kind, Title: f.Title, Detail: f.Detail, OpenedAt: f.OpenedAt, FixedAt: f.FixedAt}
 		if kind == model.TriggerHealthFailed {
-			// The key names the check, also in a ledger saved before Detail.
-			it.Detail = CheckName(strings.TrimPrefix(f.Key, notify.HealthKey("")), "")
+			// The key names the check, also in a ledger saved before Detail
+			// or with an older netdiag's label as its detail.
+			if l := model.HealthLabel(strings.TrimPrefix(f.Key, notify.HealthKey(""))); l != "" {
+				it.Detail = l
+			}
 		}
 		if f.IP != "" {
 			it.Device = &DeviceRef{IP: f.IP, Name: f.Name}

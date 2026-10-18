@@ -115,11 +115,11 @@ func TestPairAndAlertAgainstV020(t *testing.T) {
 	if got.RenotifyAfterS == nil || *got.RenotifyAfterS != 0 || got.OccurredAt == nil || *got.OccurredAt != at {
 		t.Fatalf("renotify_after_s and occurred_at not sent: %+v", got)
 	}
-	m, err := c.ResolveAlertKey(ctx, in.DedupeKey, "Fixed at 10:42 (was down 12 min).")
+	m, err := c.ResolveAlertKey(ctx, in.DedupeKey, "Fixed at 10:42 (lasted 12 min).")
 	if err != nil || m.Alert.State != protocol.AlertResolved {
 		t.Fatalf("resolve %+v %v", m, err)
 	}
-	if r := f.Resolved(); len(r) != 1 || r[0].Text != "Fixed at 10:42 (was down 12 min)." {
+	if r := f.Resolved(); len(r) != 1 || r[0].Text != "Fixed at 10:42 (lasted 12 min)." {
 		t.Fatalf("resolved %+v", r)
 	}
 	// Resolving again changes nothing; a key never posted is 404, which

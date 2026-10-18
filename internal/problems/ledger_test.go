@@ -115,7 +115,7 @@ func TestLedgerApplyAndReopen(t *testing.T) {
 		t.Fatalf("open %v fixed %v", open, fixed)
 	}
 	if f := fixed[0]; f.Key != cover.Key || f.FixedAt != coverOK.At || f.OpenedAt != cover.At || f.Title != "Printer alert" || f.Network != netA ||
-		f.Detail != cover.Detail {
+		f.Detail != cover.Detail { // the fixed problem still says which alert
 		t.Fatalf("fixed %+v", f)
 	}
 }

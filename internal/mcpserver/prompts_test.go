@@ -47,13 +47,15 @@ func TestPrompts(t *testing.T) {
 			// Not checked, by cause, with the card's own buttons: no scan
 			// yet (Scan), the storm guard (Paused or Stopped), a scan still
 			// going (wait), health checks that did not run (Open Health,
-			// then Recheck).
+			// then Check again).
 			`If source is "none", start with "Not checked: netdiag has not looked at the local network yet."`, "**Live mode**", "**Scan**",
 			"If held is true", "Paused or Stopped", `"link": "Problem: this computer lost the local network`, `"gateway": "Problem: the router stopped answering`,
 			`"network_changed": "Not checked: this computer is on a different network now`, "**Restart watching**",
 			`source is "live": its scan is still going. Start with "Not checked: netdiag has not finished checking yet." Suggest waiting a minute`,
-			`"Not checked: no problems found, but the health checks did not run for this scan." Suggest **Open Health** on the Problems right now card in the netdiag window, then **Recheck**`}},
-		{"internet_not_working", nil, []string{"run_health_check", "wifi", "dhcp", "gateway", "dns", "internet", "Recheck", "Health"}},
+			`"Not checked: no problems found, but the health checks did not run for this scan." Suggest **Open Health** on the Problems right now card in the netdiag window, then **Check again**`,
+			// Fixed items say what was fixed and how long it lasted, never "was down".
+			`"Fixed at 10:42 (lasted 12 min): Health check failed · Router"`, "title (what was wrong) and its detail"}},
+		{"internet_not_working", nil, []string{"run_health_check", "wifi", "dhcp", "gateway", "dns", "internet", "**Check again** in the **Health** view"}},
 		{"device_offline", nil, []string{"list_devices", "get_device", "probe_host", "foundBy", "conflict", "Fixed", "filter=offline"}},
 		{"device_offline", map[string]string{"device": "Front desk PC"}, []string{`query="Front desk PC"`, "get_device", "probe_host"}},
 		{"first_look", nil, []string{"list_interfaces", "start_scan", "waitSec=60", "alreadyWatching", "get_health", "list_devices", "list_problems",
@@ -122,10 +124,12 @@ func TestPrompts(t *testing.T) {
 		}
 		checkDeviceTextRule(t, c.name, txt)
 	}
-	// The Health view has Recheck; Check again is only an advice button on
-	// a failing check, which a Not checked answer has none of.
-	if txt := promptText(t, e, "explain_problems", nil); strings.Contains(txt, "**Check again** in the **Health** view") {
-		t.Error("explain_problems sends the person to a Check again button in the Health view")
+	// One action, one name: the Health view's button and the advice button
+	// that runs the checks again are both Check again, never Recheck.
+	for _, n := range []string{"explain_problems", "internet_not_working"} {
+		if txt := promptText(t, e, n, nil); strings.Contains(txt, "Recheck") || strings.Contains(txt, "was down") {
+			t.Errorf("%s says Recheck or was down", n)
+		}
 	}
 	// optional args may be omitted
 	for _, n := range []string{"triage_network", "what_changed", "explain_problems", "internet_not_working", "device_offline", "first_look"} {

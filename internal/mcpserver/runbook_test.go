@@ -300,7 +300,7 @@ func pageLabels(t *testing.T) map[string]bool {
 // "Are you sure?", which the page never asks.
 func TestRunbookButtonsExist(t *testing.T) {
 	labels := pageLabels(t)
-	for _, want := range []string{"Scan", "Recheck", "Open Health", "Live mode", "Ignore this MAC", "Team chat (bubbles)"} {
+	for _, want := range []string{"Scan", "Check again", "Open Health", "Live mode", "Ignore this MAC", "Team chat (bubbles)"} {
 		if !labels[want] {
 			t.Fatalf("pageLabels misses %q: %v", want, labels)
 		}

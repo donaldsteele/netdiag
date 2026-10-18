@@ -56,6 +56,9 @@ func sends(severity, minSeverity string) bool {
 // the address alone, or the health check ("Web server").
 func subject(n model.Notice) string {
 	if n.Trigger == model.TriggerHealthFailed {
+		if n.Detail != "" {
+			return n.Detail
+		}
 		if name, ok := strings.CutSuffix(n.Message, " check failed."); ok && name != "" {
 			return name
 		}
@@ -239,11 +242,9 @@ func alertForEntry(e problems.Entry, h *model.Host) protocol.AlertInput {
 	return in
 }
 
-// fixedText is the resolve note of an OK notice: "Fixed at 10:42 (was down
-// 12 min)." and what was fixed, in this computer's time. Only a device
-// that stopped answering or a failed health check was down: every other
-// problem (low toner, an open cover, an IP conflict) reads "Fixed at 10:42
-// (after 12 min).".
+// fixedText is the resolve note of an OK notice: "Fixed at 10:42 (lasted 12
+// min)." and what was fixed, in this computer's time. "lasted" fits every
+// problem (an open cover or low toner was never down), as the page says it.
 func fixedText(n model.Notice, now time.Time) string {
 	end := now
 	if t, err := time.Parse(time.RFC3339, n.At); err == nil {
@@ -251,12 +252,7 @@ func fixedText(n model.Notice, now time.Time) string {
 	}
 	s := "Fixed at " + end.Local().Format("15:04")
 	if from, err := time.Parse(time.RFC3339, n.OpenedAt); err == nil && !end.Before(from) {
-		lead := " (after "
-		switch n.Trigger {
-		case model.TriggerPrinterOffline, model.TriggerDeviceOffline, model.TriggerHealthFailed:
-			lead = " (was down "
-		}
-		s += lead + downFor(end.Sub(from)) + ")"
+		s += " (lasted " + downFor(end.Sub(from)) + ")"
 	}
 	s += "."
 	if m := strings.TrimSpace(n.Message); m != "" {

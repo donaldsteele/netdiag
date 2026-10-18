@@ -511,7 +511,9 @@ func TestPrinterAlertNewOnly(t *testing.T) {
 }
 
 // TestNoticeCodeAndDetail: printer alert and low supply notices carry the
-// alert code and what they are about, which the advice keys on.
+// alert code and what they are about, which the advice keys on; the OK
+// notice carries what its fault was about, so a fixed problem still says
+// which one.
 func TestNoticeCodeAndDetail(t *testing.T) {
 	e, _ := newEng()
 	a := model.Alert{Severity: "critical", Code: "hrPrinterDetectedErrorState.doorOpen", Description: "Door or cover open"}
@@ -523,8 +525,32 @@ func TestNoticeCodeAndDetail(t *testing.T) {
 	if len(n) != 1 || n[0].Trigger != model.TriggerSupplyLow || n[0].Detail != "Black" || n[0].Code != "" {
 		t.Fatalf("supply low: %+v", n)
 	}
-	if n := e.Observe(printer(true, 10), printer(true, 10)); len(n) != 1 || !n[0].OK || n[0].Code != "" || n[0].Detail != "" {
+	if n := e.Observe(printer(true, 10), printer(true, 10)); len(n) != 1 || !n[0].OK || n[0].Code != "" || n[0].Detail != a.Description {
 		t.Fatalf("OK notice: %+v", n)
+	}
+}
+
+// TestHealthNoticeNamesTheCheck: a failed check's notice names the check in
+// plain words ("Router", never "Gateway reachable", even in a report an
+// older netdiag saved), in its message and its Detail, and so does its OK.
+func TestHealthNoticeNamesTheCheck(t *testing.T) {
+	e, _ := newEng()
+	rep := func(status string) model.HealthReport {
+		return model.HealthReport{Checks: []model.HealthCheck{{ID: "gateway", Label: "Gateway reachable", Status: status}}}
+	}
+	var fault []model.Notice
+	for range HealthFailRuns {
+		fault = e.ObserveHealth(rep(model.HealthFail))
+	}
+	if len(fault) != 1 || fault[0].Message != "Router check failed." || fault[0].Detail != "Router" {
+		t.Fatalf("fault: %+v", fault)
+	}
+	var ok []model.Notice
+	for range HealthOKRuns {
+		ok = e.ObserveHealth(rep(model.HealthOK))
+	}
+	if len(ok) != 1 || !ok[0].OK || ok[0].Message != "Router check is OK again." || ok[0].Detail != "Router" {
+		t.Fatalf("OK: %+v", ok)
 	}
 }
 
