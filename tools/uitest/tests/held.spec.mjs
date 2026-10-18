@@ -14,6 +14,9 @@ async function liveWith(page, frames, theme = 'dark') {
   const rec = await installMocks(page, { scenario: 'live', frames });
   await page.goto(HOME);
   await page.getByRole('button', { name: 'Scan', exact: true }).click();
+  // liveText() starts with "Live" before the stream arrives, while x-show
+  // still hides the pill: wait until the pill is shown as well.
+  await expect(page.locator('.livepill')).toBeVisible();
   await expect(page.locator('.livepill')).toContainText('Live');
   return rec;
 }
@@ -124,6 +127,7 @@ for (const theme of THEMES) {
 test('the held pill causes no horizontal scroll from 360 to 1440', async ({ page }) => {
   await liveWith(page, held('link'));
   const pill = page.locator('.livepill');
+  await expect(pill).toHaveClass(/held/);
   for (const width of [360, 390, 768, 1100, 1440]) {
     await page.setViewportSize({ width, height: 800 });
     const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
