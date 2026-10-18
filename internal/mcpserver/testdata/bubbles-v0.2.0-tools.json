@@ -1,0 +1,103 @@
+{
+  "about": "bubbles v0.2.0's MCP tools, copied so TestNoToolNameClashWithBubbles and TestBubblesToolsAtV020 run without a bubbles checkout (CI). Read from the bubbles repository with: git show v0.2.0:internal/mcpserver/tools.go. tools is ToolNames in order with each tool's \"Needs scopes\" (without mcp); fields is every json name in the file, sorted. With a bubbles checkout next to this repository, TestBubblesToolsAtV020 checks this file against it.",
+  "repository": "bubbles",
+  "tag": "v0.2.0",
+  "commit": "138622369990629466840f28eb11404546227be5",
+  "tagObject": "2315dd1f02b8b1625ef1787a1ad58ba1d4b8e122",
+  "path": "internal/mcpserver/tools.go",
+  "tools": [
+    {
+      "name": "list_channels",
+      "scopes": [
+        "messages:read"
+      ]
+    },
+    {
+      "name": "read_messages",
+      "scopes": [
+        "messages:read"
+      ]
+    },
+    {
+      "name": "search_messages",
+      "scopes": [
+        "messages:read"
+      ]
+    },
+    {
+      "name": "post_message",
+      "scopes": [
+        "messages:write"
+      ]
+    },
+    {
+      "name": "list_alerts",
+      "scopes": [
+        "alerts:write",
+        "messages:read"
+      ]
+    },
+    {
+      "name": "post_alert",
+      "scopes": [
+        "alerts:write"
+      ]
+    },
+    {
+      "name": "ack_alert",
+      "scopes": [
+        "alerts:write"
+      ]
+    },
+    {
+      "name": "resolve_alert",
+      "scopes": [
+        "alerts:write"
+      ]
+    }
+  ],
+  "fields": [
+    "alert",
+    "alerts",
+    "archived",
+    "author",
+    "author_kind",
+    "before",
+    "body",
+    "channel",
+    "channel_id",
+    "channels",
+    "created_at",
+    "cursor",
+    "dedupe_key",
+    "edited_at",
+    "fields",
+    "id",
+    "kind",
+    "last_seen_at",
+    "limit",
+    "link",
+    "member_count",
+    "message",
+    "messages",
+    "name",
+    "next_before",
+    "next_cursor",
+    "occurred_at",
+    "occurrences",
+    "query",
+    "renotify_after_s",
+    "reply_count",
+    "results",
+    "severity",
+    "short",
+    "snippet",
+    "state",
+    "text",
+    "thread_root_id",
+    "title",
+    "topic",
+    "transition",
+    "value"
+  ]
+}

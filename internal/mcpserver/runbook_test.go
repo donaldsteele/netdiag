@@ -18,15 +18,87 @@ import (
 	"netdiag/internal/advice"
 )
 
-// bubblesV020Tools are the tools of bubbles v0.2.0's own MCP server, the
-// version netdiag v0.6 works against, in its order (ToolNames in
-// bubbles/internal/mcpserver/tools.go at the tag v0.2.0, commit 2315dd1).
-// bubbles v0.2.0 has no prompts and no resources. TestBubblesToolsAtV020
-// checks this copy against the bubbles repository when it is next to this
-// one.
-var bubblesV020Tools = []string{
-	"list_channels", "read_messages", "search_messages", "post_message",
-	"list_alerts", "post_alert", "ack_alert", "resolve_alert",
+// bubblesV020File is the copy of bubbles v0.2.0's own MCP tools, the
+// version netdiag v0.6 works against (bubbles/internal/mcpserver/tools.go
+// at the tag v0.2.0: commit 1386223, tag object 2315dd1). bubbles v0.2.0 has no prompts and no
+// resources. TestBubblesToolsAtV020 checks the copy against the bubbles
+// repository when it is next to this one.
+const bubblesV020File = "testdata/bubbles-v0.2.0-tools.json"
+
+// bubblesTools is what bubblesV020File holds of a bubbles tools.go: its
+// ToolNames in order, each with the scopes its description says it needs
+// besides "mcp", and every json name in the file.
+type bubblesTools struct {
+	Tag    string        `json:"tag"`
+	Commit string        `json:"commit"`
+	Path   string        `json:"path"`
+	Tools  []bubblesTool `json:"tools"`
+	Fields []string      `json:"fields"`
+}
+
+// bubblesTool is one bubbles MCP tool and the scopes it needs besides "mcp".
+type bubblesTool struct {
+	Name   string   `json:"name"`
+	Scopes []string `json:"scopes"`
+}
+
+// names is the tool names in order.
+func (b bubblesTools) names() []string {
+	var out []string
+	for _, x := range b.Tools {
+		out = append(out, x.Name)
+	}
+	return out
+}
+
+// bubblesV020 reads bubblesV020File.
+func bubblesV020(t *testing.T) bubblesTools {
+	t.Helper()
+	data, err := os.ReadFile(bubblesV020File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b bubblesTools
+	if err := json.Unmarshal(data, &b); err != nil {
+		t.Fatalf("%s: %v", bubblesV020File, err)
+	}
+	if b.Tag != "v0.2.0" || b.Path == "" || len(b.Tools) == 0 || len(b.Fields) == 0 {
+		t.Fatalf("%s holds %+v", bubblesV020File, b)
+	}
+	return b
+}
+
+// parseBubblesTools reads a bubbles internal/mcpserver/tools.go the way
+// bubblesV020File was made: ToolNames, each description's "Needs scopes mcp
+// and x." or "Needs scopes mcp, x and y.", and the json names, sorted.
+func parseBubblesTools(t *testing.T, src string) bubblesTools {
+	t.Helper()
+	var b bubblesTools
+	m := regexp.MustCompile(`(?s)var ToolNames = \[\]string\{(.*?)\}`).FindStringSubmatch(src)
+	if m == nil {
+		t.Fatal("bubbles tools.go has no ToolNames")
+	}
+	scopes := map[string][]string{}
+	needs := regexp.MustCompile(`(?s)Name: "([a-z_]+)",.*?Description: "[^"]*Needs scopes ([^."]+)\.`)
+	for _, m := range needs.FindAllStringSubmatch(src, -1) {
+		for _, s := range strings.FieldsFunc(strings.ReplaceAll(m[2], " and ", ","), func(r rune) bool { return r == ',' || r == ' ' }) {
+			if s != "mcp" {
+				scopes[m[1]] = append(scopes[m[1]], s)
+			}
+		}
+	}
+	for _, q := range regexp.MustCompile(`"([a-z_]+)"`).FindAllStringSubmatch(m[1], -1) {
+		b.Tools = append(b.Tools, bubblesTool{q[1], scopes[q[1]]})
+	}
+	seen := map[string]bool{}
+	for _, f := range regexp.MustCompile(`json:"([a-z_]+)[",]`).FindAllStringSubmatch(src, -1) {
+		if !seen[f[1]] {
+			seen[f[1]] = true
+			b.Fields = append(b.Fields, f[1])
+		}
+	}
+	slices.Sort(b.Fields)
+	return b
 }
 
 // bubblesToolNames are the bubbles MCP tools a runbook may name (v0.6 §5.4):
@@ -379,15 +451,16 @@ func TestSiteToolCount(t *testing.T) {
 // TestNoToolNameClashWithBubbles: an agent connected to both servers
 // (check_chat_alerts) can tell every netdiag tool and prompt from a bubbles
 // v0.2.0 tool by name, and the bubbles tools and fields the runbooks name
-// are bubbles v0.2.0's.
+// are bubbles v0.2.0's (the copy in bubblesV020File, so this runs in CI).
 func TestNoToolNameClashWithBubbles(t *testing.T) {
-	for _, n := range bubblesV020Tools {
+	theirs := bubblesV020(t).names()
+	for _, n := range theirs {
 		if slices.Contains(ToolNames, n) || slices.Contains(PromptNames, n) {
 			t.Errorf("%s is both a bubbles tool and a netdiag tool or prompt", n)
 		}
 	}
 	for _, n := range bubblesToolNames {
-		if !slices.Contains(bubblesV020Tools, n) {
+		if !slices.Contains(theirs, n) {
 			t.Errorf("runbooks may name %s, which bubbles v0.2.0 does not have", n)
 		}
 	}
@@ -396,7 +469,7 @@ func TestNoToolNameClashWithBubbles(t *testing.T) {
 		t.Fatal("no check_chat_alerts runbook")
 	}
 	for _, n := range rb.Tools {
-		if !slices.Contains(ToolNames, n) && !slices.Contains(bubblesV020Tools, n) {
+		if !slices.Contains(ToolNames, n) && !slices.Contains(theirs, n) {
 			t.Errorf("check_chat_alerts lists %s, which is neither server's tool", n)
 		}
 	}
@@ -426,58 +499,50 @@ func bubblesRepo(t *testing.T) string {
 	}
 }
 
-// TestBubblesToolsAtV020: bubblesV020Tools and bubblesFields are what
-// bubbles v0.2.0 has, read from its repository with git (skipped when there
-// is no bubbles checkout, as in CI).
+// TestBubblesToolsAtV020: bubblesScopes and bubblesFields, and the fields
+// check_chat_alerts reads, are what bubbles v0.2.0 has, by the copy in
+// bubblesV020File (so this runs in CI). When a bubbles checkout is next to
+// this repository, the copy is also checked against its tag, read with git.
 func TestBubblesToolsAtV020(t *testing.T) {
-	repo := bubblesRepo(t)
-	if repo == "" {
-		t.Skip("no bubbles checkout next to this repository (set NETDIAG_BUBBLES_REPO)")
+	b := bubblesV020(t)
+	for _, x := range b.Tools {
+		if len(x.Scopes) == 0 || !slices.Equal(x.Scopes, bubblesScopes[x.Name]) {
+			t.Errorf("bubbles v0.2.0 %s needs %v, bubblesScopes says %v", x.Name, x.Scopes, bubblesScopes[x.Name])
+		}
 	}
-	out, err := exec.Command("git", "-C", repo, "show", "v0.2.0:internal/mcpserver/tools.go").Output()
-	if err != nil {
-		t.Skipf("git show v0.2.0 in %s: %v", repo, err)
-	}
-	src := string(out)
-	m := regexp.MustCompile(`(?s)var ToolNames = \[\]string\{(.*?)\}`).FindStringSubmatch(src)
-	if m == nil {
-		t.Fatal("bubbles v0.2.0 tools.go has no ToolNames")
-	}
-	var got []string
-	for _, q := range regexp.MustCompile(`"([a-z_]+)"`).FindAllStringSubmatch(m[1], -1) {
-		got = append(got, q[1])
-	}
-	if !slices.Equal(got, bubblesV020Tools) {
-		t.Fatalf("bubbles v0.2.0 ToolNames = %v, the copy here is %v", got, bubblesV020Tools)
+	if len(bubblesScopes) != len(b.Tools) {
+		t.Errorf("bubblesScopes has %d tools, bubbles v0.2.0 %d", len(bubblesScopes), len(b.Tools))
 	}
 	for _, f := range bubblesFields {
-		if !strings.Contains(src, `json:"`+f+`"`) && !strings.Contains(src, `json:"`+f+`,`) {
+		if !slices.Contains(b.Fields, f) {
 			t.Errorf("bubbles v0.2.0 tools have no field %s", f)
 		}
 	}
 	for _, f := range []string{"author", "dedupe_key", "state"} {
-		if !strings.Contains(src, `json:"`+f+`"`) {
+		if !slices.Contains(b.Fields, f) {
 			t.Errorf("bubbles v0.2.0 alerts have no %s, which check_chat_alerts reads", f)
 		}
 	}
-	// Each tool's description ends "Needs scopes mcp and x." or "Needs
-	// scopes mcp, x and y.".
-	needs := regexp.MustCompile(`(?s)Name: "([a-z_]+)",.*?Description: "[^"]*Needs scopes ([^."]+)\.`)
-	seen := 0
-	for _, m := range needs.FindAllStringSubmatch(src, -1) {
-		var scopes []string
-		for _, s := range strings.FieldsFunc(strings.ReplaceAll(m[2], " and ", ","), func(r rune) bool { return r == ',' || r == ' ' }) {
-			if s != "mcp" {
-				scopes = append(scopes, s)
-			}
-		}
-		if !slices.Equal(scopes, bubblesScopes[m[1]]) {
-			t.Errorf("bubbles v0.2.0 %s needs %v, bubblesScopes says %v", m[1], scopes, bubblesScopes[m[1]])
-		}
-		seen++
+
+	repo := bubblesRepo(t)
+	if repo == "" {
+		t.Logf("no bubbles checkout next to this repository (set NETDIAG_BUBBLES_REPO): checked %s only", bubblesV020File)
+		return
 	}
-	if seen != len(bubblesV020Tools) {
-		t.Errorf("read the scopes of %d bubbles tools, want %d", seen, len(bubblesV020Tools))
+	out, err := exec.Command("git", "-C", repo, "show", b.Tag+":"+b.Path).Output()
+	if err != nil {
+		t.Logf("git show %s:%s in %s: %v: checked %s only", b.Tag, b.Path, repo, err, bubblesV020File)
+		return
+	}
+	got := parseBubblesTools(t, string(out))
+	if !slices.EqualFunc(got.Tools, b.Tools, func(x, y bubblesTool) bool { return x.Name == y.Name && slices.Equal(x.Scopes, y.Scopes) }) {
+		t.Errorf("bubbles %s tools are %+v, %s has %+v", b.Tag, got.Tools, bubblesV020File, b.Tools)
+	}
+	if !slices.Equal(got.Fields, b.Fields) {
+		t.Errorf("bubbles %s json names are %v, %s has %v", b.Tag, got.Fields, bubblesV020File, b.Fields)
+	}
+	if rev, err := exec.Command("git", "-C", repo, "rev-parse", b.Tag+"^{commit}").Output(); err == nil && strings.TrimSpace(string(rev)) != b.Commit {
+		t.Errorf("bubbles %s is commit %s, %s says %s", b.Tag, strings.TrimSpace(string(rev)), bubblesV020File, b.Commit)
 	}
 }
 
