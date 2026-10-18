@@ -355,6 +355,36 @@ func (l *Ledger) OpenFor(network string) []notify.OpenFault {
 	return out
 }
 
+// ReadLedger reads open-problems.json without becoming its writer: the
+// open problems (sorted by key) and the fixed ones (oldest first), as
+// Snapshot gives them. It is for a netdiag that is not the window's, such
+// as `netdiag mcp` over stdio (MCP list_problems): a missing file is no
+// problems, and an unreadable one is an error and stays as it is, for the
+// window's Ledger to set aside.
+func ReadLedger(files interface{ ReadFile(string) ([]byte, error) }) ([]Entry, []Fixed, error) {
+	data, err := files.ReadFile(store.FileOpenProblems)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("problems: %s could not be read: %w", store.FileOpenProblems, err)
+	}
+	var f ledgerFile
+	if err := json.Unmarshal(data, &f); err != nil || f.SchemaVersion < 1 {
+		return nil, nil, fmt.Errorf("problems: %s is unreadable", store.FileOpenProblems)
+	}
+	open := make([]Entry, 0, len(f.Open))
+	for _, e := range f.Open {
+		if e.Key != "" {
+			open = append(open, e)
+		}
+	}
+	sort.Slice(open, func(i, j int) bool { return open[i].Key < open[j].Key })
+	fixed := append([]Fixed(nil), f.Fixed...)
+	sort.SliceStable(fixed, func(i, j int) bool { return fixed[i].FixedAt < fixed[j].FixedAt })
+	return open, fixed, nil
+}
+
 // Snapshot returns copies of the open problems (sorted by key) and the
 // fixed ones (oldest first).
 func (l *Ledger) Snapshot() ([]Entry, []Fixed) {

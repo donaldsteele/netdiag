@@ -59,6 +59,9 @@ type Problem struct {
 	// Since is when the problem began (RFC 3339), when netdiag knows.
 	Since  string        `json:"since,omitempty"`
 	Advice *model.Advice `json:"advice,omitempty"`
+	// Chat is the team chat state of the ledger's entry (ChatPending,
+	// ChatPosted or ""), set by NewView for an alerted problem.
+	Chat string `json:"chat,omitempty"`
 
 	// keys are the keys the problem may be open under in the ledger
 	// (notify.HostKeys: the MAC key, then the "ip:" key).
@@ -520,7 +523,7 @@ func NewView(in Input) View {
 		p := &ps[i]
 		for _, k := range p.keys {
 			if e, ok := opened[k]; ok && !used[k] && owns(e, *p, byIP) {
-				p.Key, p.alerted, used[k] = k, true, true
+				p.Key, p.alerted, used[k], p.Chat = k, true, true, e.Chat
 				if e.OpenedAt != "" {
 					p.Since = e.OpenedAt
 				}

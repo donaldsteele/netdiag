@@ -130,6 +130,8 @@ func New(cfg Config) *Server {
 		}
 	}
 	svc.OnSettingsSaved(s.settingsSaved)
+	// MCP get_status over this server's /mcp speaks for the window.
+	svc.SetWindow(s.Port)
 	return s
 }
 

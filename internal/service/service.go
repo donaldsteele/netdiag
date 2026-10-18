@@ -66,6 +66,11 @@ type Service struct {
 	healthMu   sync.Mutex
 	lastHealth *model.HealthReport
 
+	// windowMu guards windowPort, the window's port when this service is
+	// the netdiag window's (SetWindow).
+	windowMu   sync.Mutex
+	windowPort func() int
+
 	logsMu   sync.Mutex
 	logs     map[string]*EventLog
 	logOrder []string

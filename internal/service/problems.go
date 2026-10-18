@@ -83,8 +83,14 @@ func (s *Service) Problems() problems.View {
 		}
 	}
 	in.Result = &r
-	if s.cfg.Ledger != nil {
+	switch {
+	case s.cfg.Ledger != nil:
 		in.Open, in.Fixed = s.cfg.Ledger.Snapshot()
+	case s.cfg.Store != nil:
+		// Not the window's netdiag (`netdiag mcp` over stdio): the window's
+		// ledger is the file's only writer, so read what it last saved. An
+		// unreadable file leaves out only the starts and the fixed list.
+		in.Open, in.Fixed, _ = problems.ReadLedger(s.cfg.Store)
 	}
 	return problems.NewView(in)
 }
