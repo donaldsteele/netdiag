@@ -124,7 +124,7 @@ Tag `v0.5.7` is at `d69860a`. It shipped four changes:
 
 **Open follow-ups from v0.5.7, owned by later versions:**
 - [ ] The "Remote access (v0.5.7)" items in `docs/field-checklist.md:60`, including the Defender check after opening Remote Desktop.
-- [ ] v0.6 brings `POST /api/scans/{id}/remote` under the method-based session guard. The remote POST in app.js moves into `api()`.
+- [x] v0.6 brings `POST /api/scans/{id}/remote` under the method-based session guard. The remote POST in app.js moves into `api()`. (Done in v0.6 M4: `TestRemoteOpenNeedsToken` in `internal/server/remote_test.go`; app.js sends it through `api()`. `GET /api/remote` and `GET /api/scans/{id}/remote.rdp` stay readable, as 8.3 and 8.4 say.)
 - [x] v0.6 adds `netdiag/internal/remote` to `TestMCPImportsNoActionPackages` (done in v0.6 M10a, which created the test).
 - [ ] v0.7 builds on remote access and doesn't duplicate it: no new remote route, no second remote section, no new default port. Port-check results never go into `Host.OpenPorts`.
 
