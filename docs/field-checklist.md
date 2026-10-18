@@ -82,7 +82,8 @@ Tick only after observing the behaviour on real hardware.
 - [ ] With ping to the router getting no reply, the Router row is `ok` and says "answers on port 80" (or 443), with "(it does not reply to ping)" or, when this computer blocks the ping, "(ping could not run on this computer)". To get there, use a router or access point whose ping reply on the local network side can be turned off (a "WAN ping" setting does not affect pings from the local network), or block outgoing ping (ICMP echo request) to the router's address on the test computer, for example with a Windows Firewall outbound rule. Write down which method you used and the detail shown
 - [ ] With the router unplugged, the Router row is `fail` and says it did not reply to ping or on ports 80 and 443, within about 5 seconds
 - [ ] A Web server URL starting with `http://` on a server that redirects to `https://` on the same name is `ok` and shows "redirected to https://..."
-- [ ] A Web server URL that redirects to a sign-in page on another server is `fail` and the detail names that server
+- [ ] A Web server URL that redirects to a sign-in page on another server is `fail` and the detail names that server; its card names the address with **Use this address**, which fills "Web server URL" in Settings and saves nothing until **Save**
+- [ ] A Web server URL on a server that redirects in a loop (or, with the expected answer set to a redirect, one that answers with another redirect) is `fail` with "isn't answering as expected" and offers no address to use
 - [ ] A Web server URL with a user name and password (`http://user:password@server/`, on a device that asks for them) is `ok`; the Web server row, the scan export, its `history` file and MCP `get_health` / `get_settings` show the password as `xxxxx`, and only Settings shows it
 - [ ] An `https://` Web server URL on a device with a self-signed certificate (a printer, NAS or router admin page) is `fail` with "the certificate is not trusted: self-signed or from a private authority" and a **Trust this certificate** button, on both Windows and macOS
 - [ ] The confirmation shows the server address and a fingerprint that matches the one the browser shows for that page (certificate viewer, SHA-256); **Cancel** changes nothing
@@ -114,7 +115,8 @@ Tick only after observing the behaviour on real hardware.
 ### Conflicts
 - [ ] Two devices given the same static IP produce a MAC flap conflict after two alternations within 10 minutes
 - [ ] A single DHCP address change does not produce a conflict
-- [ ] A Wi-Fi range extender or mesh node shows the "same MAC on several IPs" warning with the extender hint
+- [ ] A Wi-Fi range extender or mesh node shows the "same MAC on several IPs" case as a note, not a warning: ℹ **NOTE** on its rows, "Note: One device uses several addresses" in the detail panel with the advice that this is normal for extenders, and "One device uses several addresses" under "Also worth knowing" on the Problems right now card
+- [ ] With team chat connected, the alert for two devices given the same static IP names both MAC addresses (the "MACs" field); an extender's "One device uses several addresses" is only sent when **Send** is **Everything, including notes**
 - [ ] "Ignore this MAC" asks for confirmation first (Cancel keeps the conflict), then removes the conflict, and the MAC appears in Settings under Ignored conflict MACs
 - [ ] Remove next to that MAC in Settings, then Save, brings the conflict back on a later check
 - [ ] Gateway and this computer are never reported as multi-IP conflicts

@@ -89,8 +89,9 @@ WHAT YOU WILL SEE
 - Export JSON or CSV to save or send the results.
 - The Health panel shows whether the router, DHCP, DNS and the web
   server are working. "Check again" runs the checks again.
-- Conflicts are listed when two devices share an address. Routers and
-  Wi-Fi extenders often do this on purpose; use "Ignore this MAC" if so.
+- Conflicts are listed when two devices share an address. One device on
+  several addresses (often a Wi-Fi extender or router) shows as a NOTE;
+  use "Ignore this MAC" if that is expected.
 - Scans are saved in the History tab, and two scans can be compared.
 - Alerts (live mode) show as a banner and a beep. Use Mute to silence them.
 - The "Problems right now" card at the top says what is broken at this
