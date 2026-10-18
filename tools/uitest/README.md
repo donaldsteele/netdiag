@@ -38,14 +38,17 @@ Both screenshot specs run with the full suite, so every `npx playwright test` re
 1. README (`docs/img/`): `npx playwright test tests/docs-shots.spec.mjs`. It renders a 1280x800 viewport
    at CSS scale 1 with reduced motion emulated, so the PNGs stay under 250 KB each, writes them to
    `out/docs/` and copies them into `docs/img/`: `devices-dark.png` (with the Problems right now card),
-   `drawer-light.png` (the conflict view), `settings-mcp.png`, `settings-chat.png` and `chat-wizard.png`.
+   `drawer-light.png` (the conflict view), `settings-mcp.png`, `settings-printer-poll.png`,
+   `settings-chat.png` and `chat-wizard.png`.
 2. Site (`docs/assets/shots/`): `npx playwright test tests/site-shots.spec.mjs`, at 2x, written straight
    to `docs/assets/shots/`.
 3. Look at a few of them (both themes) before committing, and check `git status` lists only the shots you expected.
 
-The real Zebra shots (`real-zebra-*.png`) and the bubbles resolved-card shot (`bubbles-resolved.png`)
-need the printer and a bubbles server; `docs/field-checklist.md` section 6.1 says how to take them.
-`go test ./tools/docscheck` checks that every screenshot the README and the site show exists.
+The real Zebra shots (`real-zebra-fault.png`, `real-zebra-fault-drawer.png`, `real-zebra-recovered.png`
+and `real-zebra-activity.png`) and the bubbles resolved-card shot (`bubbles-resolved.png`) need the printer
+and a bubbles server; `docs/field-checklist.md` check 6.1 ("Cover open, then closed") takes all five in one
+run. `go test ./tools/docscheck` checks that every screenshot the README and the site show exists, and
+that a spec above or check 6.1 makes it.
 
 ## How it works
 

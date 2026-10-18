@@ -2,7 +2,9 @@
 // Viewport shots (not full page) at deviceScaleFactor 1 keep each PNG well under 250 KB.
 // v0.6: the Devices view with the Problems right now card, the drawer's
 // conflict view (the two devices side by side), Settings > Team chat
-// (bubbles) connected, and the connect wizard's fingerprint step.
+// (bubbles) connected, the connect wizard's fingerprint step, and the
+// printer status check interval. Every docs/img shot the README shows is
+// made here (tools/docscheck TestReadmeShotsGenerated).
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
@@ -71,6 +73,16 @@ test('docs screenshot: settings, MCP agent access, dark theme', async ({ page })
   await expect(dialog.locator('#mcp-endpoint')).toBeVisible();
   await dialog.locator('#mcp-enabled').scrollIntoViewIfNeeded();
   await save(dialog, 'settings-mcp');
+});
+
+test('docs screenshot: settings, printer status check interval, dark theme', async ({ page }) => {
+  await prepare(page, 'dark');
+  const dialog = await openSettings(page);
+  const poll = dialog.getByLabel('Printer status check in live mode (seconds, 2-300)');
+  await expect(poll).toHaveValue(String(fx.settings().printerStatusPollSec));
+  await poll.focus();
+  await poll.scrollIntoViewIfNeeded();
+  await save(dialog, 'settings-printer-poll');
 });
 
 test('docs screenshot: settings, team chat connected, dark theme', async ({ page }) => {

@@ -2,8 +2,10 @@ package docscheck
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -79,6 +81,73 @@ func TestDocsImagesExist(t *testing.T) {
 	}
 	if n < 10 {
 		t.Fatalf("found only %d images; the patterns no longer match the docs", n)
+	}
+}
+
+// rigShots are the screenshots only the test rig can take: the real Zebra
+// ZD621 and a bubbles server. Field check "Cover open, then closed." (6.1)
+// retakes them all in one run.
+var rigShots = []string{"real-zebra-fault", "real-zebra-fault-drawer", "real-zebra-recovered", "real-zebra-activity", "bubbles-resolved"}
+
+// TestShotsGenerated: every screenshot the README and the site show is made
+// by a spec (docs-shots for docs/img, site-shots for docs/assets/shots), or
+// is a test-rig shot that field check 6.1 retakes, so a release never shows
+// a stale shot that nothing refreshes.
+func TestShotsGenerated(t *testing.T) {
+	docsSpec := read(t, "tools/uitest/tests/docs-shots.spec.mjs")
+	siteSpec := read(t, "tools/uitest/tests/site-shots.spec.mjs")
+	saved := map[string]bool{}
+	for _, m := range regexp.MustCompile(`save\(\w+, '([\w-]+)'\)`).FindAllStringSubmatch(docsSpec, -1) {
+		saved[m[1]] = true
+	}
+	// site-shots names a shot 'name', 'name.png' or 'name-' + theme.
+	siteMakes := func(name string) bool {
+		if strings.Contains(siteSpec, "'"+name+"'") || strings.Contains(siteSpec, "'"+name+".png'") {
+			return true
+		}
+		for _, theme := range []string{"-dark", "-light"} {
+			if p, ok := strings.CutSuffix(name, theme); ok && strings.Contains(siteSpec, "'"+p+"-' + theme") {
+				return true
+			}
+		}
+		return false
+	}
+	_, rig, _ := strings.Cut(read(t, "docs/field-checklist.md"), "**Cover open, then closed.**")
+	rig, _, _ = strings.Cut(rig, "\n- [")
+	shown := map[string]bool{}
+	for _, m := range mdImage.FindAllStringSubmatch(read(t, "README.md"), -1) {
+		shown[m[1]] = true
+	}
+	for _, m := range htmlImage.FindAllStringSubmatch(read(t, "docs/index.html"), -1) {
+		shown["docs/"+m[1]] = true
+	}
+	for ref := range shown {
+		dir, file := path.Split(ref)
+		name, ok := strings.CutSuffix(file, ".png")
+		if !ok {
+			continue
+		}
+		switch {
+		case slices.Contains(rigShots, name):
+			if !strings.Contains(rig, file+"`") {
+				t.Errorf("%s is a test-rig shot, but field check 6.1 does not retake it", ref)
+			}
+		case dir == "docs/img/":
+			if !saved[name] {
+				t.Errorf("the README shows %s, which docs-shots.spec.mjs does not make", ref)
+			}
+		case dir == "docs/assets/shots/":
+			if !siteMakes(name) {
+				t.Errorf("%s is shown, but site-shots.spec.mjs does not make it", ref)
+			}
+		default:
+			t.Errorf("%s is neither in docs/img nor in docs/assets/shots", ref)
+		}
+	}
+	for _, name := range rigShots {
+		if !strings.Contains(rig, name+".png`") {
+			t.Errorf("field check 6.1 does not take %s.png", name)
+		}
 	}
 }
 
