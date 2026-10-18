@@ -670,14 +670,16 @@ export const CHAT_CHANNEL = { id: 'C1', name: 'netdiag-alerts' };
 export const CHAT_GROUPS = ['3F2A', '9C10', '77B4', 'E0D1', '5D41', '402A', 'BC4B', '2A76', 'B971', '9D91', '1017', 'C592', '7D79', '3FCB', '0AB1', 'E6B2'];
 export const CHAT_FP = 'sha256:' + CHAT_GROUPS.join('').toLowerCase();
 export const CHAT_SINCE = '2026-10-10T08:40:00Z';
+// The run of netdiag the status's activity note ids count in (they start again with a new one).
+export const CHAT_RUN = '5f0c2a9d41e6b873';
 
 // GET /api/bubbles in each state the status tool shows. extra adds or
 // overrides fields: reason (needs_reconnect: refused or unreadable;
 // no_channel: not_allowed or archived, which keep the channel) or unsaved.
 export function bubblesStatus(state = 'off', extra = {}) {
-  if (state === 'off') return { state: 'off', waiting: 0, dropped: 0, activity: [] };
+  if (state === 'off') return { state: 'off', waiting: 0, dropped: 0, activity: [], run: CHAT_RUN };
   const st = { state, server: { ...CHAT_SERVER }, channel: { ...CHAT_CHANNEL }, appName: 'netdiag', tokenPrefix: 'bub_0001',
-    scopes: ['alerts:write', 'channels:read', 'messages:write', 'files:write'], waiting: 0, dropped: 0, activity: [] };
+    scopes: ['alerts:write', 'channels:read', 'messages:write', 'files:write'], waiting: 0, dropped: 0, activity: [], run: CHAT_RUN };
   if (state === 'no_channel' && !extra.reason) delete st.channel;
   if (state === 'unreachable') { st.since = CHAT_SINCE; st.lastError = "netdiag can't reach the chat server."; st.waiting = 3; }
   if (state === 'needs_reconnect') { st.reason = 'refused'; st.lastError = 'The chat server no longer accepts netdiag. Click Reconnect.'; }

@@ -526,6 +526,27 @@ test("team chat's notes reach the Activity log once", async ({ page }) => {
   clean(rec, errors);
 });
 
+// The page stays open while netdiag restarts: the new run's notes start at
+// id 1 again (its run says so), and none of them is taken for one the page
+// saw from the old run, even when there are more of them by the next read.
+test("team chat's notes after netdiag restarted all reach the Activity log", async ({ page }) => {
+  const errors = watchErrors(page);
+  const note = (id, text) => ({ id, at: '2026-10-17T10:4' + id + ':00Z', text });
+  const old = [1, 2, 3, 4, 5].map((id) => note(id, `Old run note ${id}.`));
+  const rec = await open(page, { chat: 'connected', chatExtra: { activity: old } });
+  await page.locator('#tab-activity').click();
+  const log = page.getByRole('log', { name: 'Activity log' });
+  await expect(log).toContainText('Old run note 5.');
+  const fresh = [1, 2, 3, 4, 5, 6].map((id) => note(id, `New run note ${id}.`));
+  rec.chat = fx.bubblesStatus('connected', { activity: fresh, run: '0b7e44c19a3d2f60' });
+  await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).loadChat());
+  for (const n of fresh) await expect(log.getByText(n.text)).toHaveCount(1);
+  await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).loadChat());
+  await expect(log.getByText('New run note 1.')).toHaveCount(1);
+  await expect(log.getByText('Old run note 1.')).toHaveCount(1);
+  clean(rec, errors);
+});
+
 for (const theme of THEMES) {
   test(`team chat is accessible ${theme}`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: theme });

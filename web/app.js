@@ -24,7 +24,7 @@ document.addEventListener('alpine:init', () => {
     shown: {},
     remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
     sessionOff: false, settingsLocked: false,
-    chat: null, chatMsg: '', chatBusy: false, chatNoteSeen: 0, wiz: {step: 'closed', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
+    chat: null, chatMsg: '', chatBusy: false, chatNoteSeen: 0, chatNoteRun: '', wiz: {step: 'closed', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
       code: '', expiresAt: '', adminUrl: '', channels: [], channelId: '', channel: null, testMsg: '', testOk: false, fresh: false, stopped: '', retry: ''},
     problems: null, pnAll: false, pnLimit: 5, pnDismissed: {},
     watching: null, restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: null, focusAt: 0, starting: false,
@@ -524,9 +524,12 @@ document.addEventListener('alpine:init', () => {
     },
     // What the outbox and the polling had to say ("Team chat server moved
     // to 192.168.1.27.") goes to the Activity log under Notice, once each.
-    // Ids start again when netdiag does.
+    // Ids start again when netdiag does, which the status's run says: a
+    // page open across a restart takes the new run's notes from the first.
     chatNotes() {
       const notes = (this.chat && this.chat.activity) || [];
+      const run = (this.chat && this.chat.run) || '';
+      if (run !== this.chatNoteRun) { this.chatNoteRun = run; this.chatNoteSeen = 0; }
       const top = notes.reduce((m, n) => Math.max(m, n.id), 0);
       if (top < this.chatNoteSeen) this.chatNoteSeen = 0;
       for (const n of notes) {
