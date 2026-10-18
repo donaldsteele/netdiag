@@ -230,8 +230,9 @@ test('no channel yet: Look again once the admin added netdiag', async ({ page })
 
 // README step 4 lets the person close the wizard and wait for the chat
 // admin: the new connection already turned Send on, so a channel picked
-// later with Change channel sends, and Done says so truthfully.
-test('no channel yet, Close, then Change channel: Send is on and Done says alerts go', async ({ page }) => {
+// later with Choose a channel (no channel was ever chosen) sends, and Done
+// says so truthfully.
+test('no channel yet, Close, then Choose a channel: Send is on and Done says alerts go', async ({ page }) => {
   const rec = await open(page, { channels: [], pairStates: ['approved'] });
   await startWizard(page);
   const w = wizard(page);
@@ -246,7 +247,9 @@ test('no channel yet, Close, then Change channel: Send is on and Done says alert
   rec.channels = [fx.CHAT_CHANNEL];
   const s = settingsDlg(page);
   await expect(s).toHaveJSProperty('open', true);
-  await s.locator('#chat-change').click();
+  // No channel was ever chosen, so Settings offers Choose a channel.
+  await expect(s.locator('#chat-change')).toBeHidden();
+  await s.locator('#chat-choose').click();
   await expect(w.locator('#wiz-ready')).toContainText('Alerts will go to #netdiag-alerts.', { timeout: 10_000 });
   await w.getByRole('button', { name: 'Finish' }).click();
   await expect(w.locator('#wiz-done-on')).toBeVisible();

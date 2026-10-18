@@ -60,7 +60,7 @@ var retiredWords = []struct {
 	why string
 }{
 	{regexp.MustCompile(`Recheck`), "the button that runs the health checks again is Check again"},
-	{regexp.MustCompile(`was down|\(after (\d+|N) min\)`),`a fixed problem says how long it lasted: "(lasted 12 min)"`},
+	{regexp.MustCompile(`was down|\(after (\d+|N) min\)`), `a fixed problem says how long it lasted: "(lasted 12 min)"`},
 	{regexp.MustCompile(`(?i)gateway reachable|DNS resolving|internet reachability|\bDHCP lease\b|\bGateway (row|check)\b`), "the checks are Router, Getting an address (DHCP), Name lookup (DNS), Web server, Internet and Wi-Fi"},
 	{regexp.MustCompile(`netdiag lost the network`), `the notices are "This computer lost the network" and "The router stopped answering"`},
 	{regexp.MustCompile(`with (\*\*)?Live mode(\*\*)? ticked\.`), "ticking Live mode alone does not start watching: tick Live mode and press Scan"},

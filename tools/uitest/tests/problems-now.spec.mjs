@@ -252,7 +252,7 @@ for (const theme of THEMES) {
     await expect(card(page).locator('#pn-fine')).toBeHidden();
     await expect(card(page).locator('#pn-watch')).toBeHidden();
     await expect(items(page)).toHaveCount(1);
-    await expect(items(page).first().locator('.psev')).toHaveText('Problem');
+    await expect(items(page).first().locator('.psev')).toHaveText('Urgent');
     await expect(items(page).first().locator('.pline .sub')).toHaveText('Router');
     await runAxe(page, `problems-health-${theme}`, testInfo);
     expect(rec.unmatched).toEqual([]);

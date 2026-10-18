@@ -119,7 +119,7 @@ func TestProblemsHealthRunOnly(t *testing.T) {
 	if v.Source != problems.SourceHealth || v.EverythingFine || v.CheckedAt != "2099-01-01T00:00:00Z" || len(v.Open) != 1 {
 		t.Fatalf("health checks only: %+v", v)
 	}
-	if p := v.Open[0]; p.Key != "healthFailed||dns" || p.Detail != "DNS" || p.Severity != problems.SevWarning || p.Advice == nil {
+	if p := v.Open[0]; p.Key != "healthFailed||dns" || p.Detail != "Name lookup (DNS)" || p.Severity != problems.SevWarning || p.Advice == nil {
 		t.Errorf("dns item: %+v", p)
 	}
 	s.cfg.Health = okHealth{network: testNet}

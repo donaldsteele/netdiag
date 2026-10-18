@@ -501,7 +501,8 @@ export function linkNotice(reason = 'link') {
     const message = 'The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline.';
     return { id: 'n-33', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'The router stopped answering',
       message, at: HELD_SINCE, key, code: reason,
-      advice: advice(message, ["Check that the router is switched on and its lights look normal.", "Check this computer's network cable or Wi-Fi."], [], message) };
+      advice: advice("The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline.",
+        ["Check that the router is switched on and its lights look normal.", "Check this computer's network cable or Wi-Fi."], [], message) };
   }
   const message = 'This computer lost the local network, so netdiag paused its checks. They start again by themselves when the network is back.';
   return { id: 'n-30', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'This computer lost the network',

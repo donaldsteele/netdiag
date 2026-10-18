@@ -305,7 +305,7 @@ document.addEventListener('alpine:init', () => {
       ].filter(g => g.items.length);
     },
     // Every item is a shape plus a word: Urgent (critical), Warning, Note,
-    // Fixed: the words the banners and Settings > Send use too.
+    // Fixed: the words the banners and the Team chat alert level use too.
     pnSev(p) { return p.fixedAt ? 'ok' : p.severity === 'critical' || p.severity === 'warning' ? p.severity : 'info'; },
     pnIcon(p) { return {critical: 'circle-x', warning: 'triangle-alert', info: 'info', ok: 'circle-check'}[this.pnSev(p)]; },
     pnClass(p) { return {critical: 's-bad', warning: 's-warn', info: 's-info', ok: 's-ok'}[this.pnSev(p)]; },
@@ -1042,7 +1042,7 @@ document.addEventListener('alpine:init', () => {
       if (j.error) { this.wizGo('channel'); this.wiz.error = j.error; return; }
       // A new connection turns Send on even before it has a channel, so
       // closing at "isn't in any channel yet" and picking one later with
-      // Change channel still sends.
+      // Choose a channel still sends.
       if (this.wiz.fresh) this.wizSendOn();
       if (j.channel && !(choose && this.wiz.channels.length > 1)) return this.wizReady(j.channel);
       this.wizGo('channel');
