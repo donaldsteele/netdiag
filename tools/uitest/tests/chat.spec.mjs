@@ -37,7 +37,14 @@ async function open(page, opts = {}, theme = 'dark') {
   return rec;
 }
 
+// The page reads the settings as it loads. A dialog opened before they come
+// starts from the defaults (Send off), so a spec could see the unsaved notice.
 async function openSettings(page) {
+  await expect.poll(() => page.evaluate(() => {
+    const el = document.querySelector('.shell');
+    const data = el && el._x_dataStack ? el._x_dataStack[0] : null;
+    return !!(data && data.settings);
+  })).toBe(true);
   await page.evaluate(() => document.querySelector('#nav-settings').click());
   await expect(settingsDlg(page)).toHaveJSProperty('open', true);
 }
