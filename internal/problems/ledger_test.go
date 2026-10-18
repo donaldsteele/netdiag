@@ -259,8 +259,14 @@ func TestLedgerChatState(t *testing.T) {
 	if a, b := l.Chat(netA, dns.Key), l.Chat(netB, dns.Key); a != ChatPosted || b != "" {
 		t.Fatalf("chat A %q, B %q", a, b)
 	}
+	if !l.IsOpen(netA, dns.Key) || !l.IsOpen(netB, dns.Key) || l.IsOpen("n-other", dns.Key) {
+		t.Fatal("IsOpen before the OK")
+	}
 	ok := model.Notice{Trigger: dns.Trigger, Key: dns.Key, OK: true, Title: "Health check OK again", At: "2026-10-17T09:20:00Z"}
 	l.Apply(netA, []model.Notice{ok})
+	if l.IsOpen(netA, dns.Key) || !l.IsOpen(netB, dns.Key) {
+		t.Fatal("IsOpen after the OK on A")
+	}
 	if got := l.Chat(netA, dns.Key); got != ChatPosted {
 		t.Fatalf("after the OK: %q", got)
 	}

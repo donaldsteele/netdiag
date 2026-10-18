@@ -390,6 +390,15 @@ func (l *Ledger) Chat(network, key string) string {
 	return ""
 }
 
+// IsOpen reports whether the problem key on network is open. The team chat
+// outbox asks it for the posts a previous run left: only a problem still
+// open after the first pass is posted (v0.6 4.9).
+func (l *Ledger) IsOpen(network, key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.open[slot(network, key)] != nil
+}
+
 // MarkChat records the team chat state (ChatPending, ChatPosted or "") of
 // the problem key on network: the open one, else the one fixed last (its
 // card was resolved). network is the problem's own, which an outbox item

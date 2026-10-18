@@ -318,6 +318,9 @@ type Scan struct {
 	apply     func(model.Settings) bool // set while the pipeline runs
 	liveSince string                    // when the scan went live (RFC 3339); "" before
 	network   string                    // the fingerprint id, set at the end of the first pass
+
+	reconciled     chan struct{} // closed once the first pass is reconciled
+	reconciledOnce sync.Once
 }
 
 // Request returns the scan's request with the SNMP community hidden. Its
@@ -359,6 +362,17 @@ func (s *Scan) Network() string {
 // LiveStatus is the latest live status of a live-mode scan (its last cycle,
 // whether it checked, and the storm guard); ok is false until it went live.
 func (s *Scan) LiveStatus() (model.LiveStatus, bool) { return s.bus.Live() }
+
+// Reconciled is closed once the scan's first pass has been reconciled with
+// the open-problem ledger (v0.6 X-1): the ledger then knows which problems
+// are still open, and the notices the pass held back have been published.
+// The team chat outbox holds what a previous run left until then (v0.6
+// 4.9). A scan that stops before its first pass ends never closes it; Done
+// is closed then.
+func (s *Scan) Reconciled() <-chan struct{} { return s.reconciled }
+
+// markReconciled closes Reconciled, once.
+func (s *Scan) markReconciled() { s.reconciledOnce.Do(func() { close(s.reconciled) }) }
 
 // ApplySettings applies changed settings (alert triggers, threshold,
 // cooldown, health config, ignored conflict MACs) to a running scan and
@@ -485,7 +499,7 @@ func (o *Orchestrator) Start(ctx context.Context, req model.ScanRequest) (*Scan,
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Scan{ID: newID(), bus: NewBus(), cancel: cancel, done: make(chan struct{}), settings: set}
+	s := &Scan{ID: newID(), bus: NewBus(), cancel: cancel, done: make(chan struct{}), settings: set, reconciled: make(chan struct{})}
 	s.header = model.ScanResult{
 		ID:            s.ID,
 		Request:       req.Redacted(),
@@ -882,7 +896,7 @@ func (r *runner) finishFirstPass(complete bool) {
 			}
 		}
 	}
-	r.st.reconcile(r.fp.ID, check, keep, complete)
+	r.st.reconcile(r.fp.ID, check, keep, complete, r.s.markReconciled)
 	if complete {
 		r.saveProfile(r.fp)
 	}
