@@ -5,9 +5,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +19,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -215,6 +220,17 @@ func testWindow(t *testing.T, agent bool) (*store.Store, *service.Service, insta
 	if err := instance.Save(st, info); err != nil {
 		t.Fatal(err)
 	}
+	// Serve starts answering a moment after Listen. Wait until the window
+	// answers its identity, so a slow start on a busy machine is not taken
+	// for no window by the test that follows.
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if running, _ := instance.Running(context.Background(), info); running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the window does not answer its identity")
+		}
+	}
 	return st, svc, info
 }
 
@@ -360,7 +376,7 @@ func TestMCPAttachEndsWhenAgentAccessGoesOff(t *testing.T) {
 	st, svc, _ := testWindow(t, true)
 	cs, code, errb := attached(t, "--attach")
 	if s := getStatus(t, cs); s.Transport != "http" {
-		t.Fatalf("not attached: %+v", s)
+		t.Fatalf("not attached: %+v; stderr=%s", s, errb.String())
 	}
 	set, err := st.LoadSettings()
 	if err != nil {
@@ -386,7 +402,7 @@ func TestMCPAttachEndsWhenWindowQuits(t *testing.T) {
 	_, _, info := testWindow(t, true)
 	cs, code, errb := attached(t, "--attach")
 	if s := getStatus(t, cs); s.Transport != "http" {
-		t.Fatalf("not attached: %+v", s)
+		t.Fatalf("not attached: %+v; stderr=%s", s, errb.String())
 	}
 	if c := post(t, "http://127.0.0.1:"+strconv.Itoa(info.Port)+"/api/quit", info.Token); c != 204 {
 		t.Fatalf("quit: %d", c)
@@ -406,6 +422,118 @@ func TestMCPAttachEndsWhenWindowQuits(t *testing.T) {
 	}
 	if c := exited(t, code, errb); c != 1 || !strings.Contains(errb.String(), "MCP connection ended") {
 		t.Fatalf("exit %d; stderr=%s", c, errb.String())
+	}
+}
+
+// A call the window refuses on its own, with a JSON-RPC error (here a
+// request carrying a protocol version only stateless servers take), gets
+// that error, code, message and data, as a client connected directly
+// would; the attached session goes on, and the next call works.
+func TestMCPAttachPassesWindowRefusal(t *testing.T) {
+	testWindow(t, true)
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	errb := &syncBuf{}
+	code := make(chan int, 1)
+	go func() {
+		c := runMCP([]string{"--attach"}, inR, outW, errb)
+		outW.Close()
+		code <- c
+	}()
+	lines := make(chan map[string]any, 16)
+	go func() {
+		sc := bufio.NewScanner(outR)
+		sc.Buffer(make([]byte, 1<<20), 16<<20)
+		for sc.Scan() {
+			var m map[string]any
+			if json.Unmarshal(sc.Bytes(), &m) == nil {
+				lines <- m
+			}
+		}
+		close(lines)
+	}()
+	send := func(l string) {
+		t.Helper()
+		if _, err := inW.Write([]byte(l + "\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	answer := func(id float64) map[string]any {
+		t.Helper()
+		timeout := time.After(15 * time.Second)
+		for {
+			select {
+			case m, ok := <-lines:
+				if !ok {
+					t.Fatalf("stdout closed before answer %v; stderr=%s", id, errb.String())
+				}
+				if m["id"] == id {
+					return m
+				}
+			case <-timeout:
+				t.Fatalf("no answer %v; stderr=%s", id, errb.String())
+			}
+		}
+	}
+	send(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}`)
+	if m := answer(1); m["error"] != nil {
+		t.Fatalf("initialize: %v", m)
+	}
+	send(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	send(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_status","arguments":{},"_meta":{"` + mcp.MetaKeyProtocolVersion + `":"2025-06-18"}}}`)
+	m := answer(2)
+	e, _ := m["error"].(map[string]any)
+	if e == nil || e["code"] != float64(mcp.CodeUnsupportedProtocolVersion) || !strings.Contains(fmt.Sprint(e["message"]), "not supported") || e["data"] == nil {
+		t.Fatalf("the window's refusal was not passed on: %v; stderr=%s", m, errb.String())
+	}
+	send(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_status","arguments":{}}}`)
+	m = answer(3)
+	res, _ := m["result"].(map[string]any)
+	if sc, _ := res["structuredContent"].(map[string]any); m["error"] != nil || sc["transport"] != "http" {
+		t.Fatalf("the call after a refusal: %v; stderr=%s", m, errb.String())
+	}
+	inW.Close()
+	if c := exited(t, code, errb); c != 0 {
+		t.Fatalf("exit %d; stderr=%s", c, errb.String())
+	}
+}
+
+// relayEnds ends the relay only when the window is gone (session ended,
+// nothing on its port, the connection given up), never for one message
+// the window refused; refusal passes the window's JSON-RPC error on. The
+// errors are shaped as go-sdk v1.8.0's streamable client returns them
+// (checkResponse, doRequest).
+func TestAttachRelayEnds(t *testing.T) {
+	rejected := &jsonrpc.Error{Code: rejectedCode, Message: "rejected by transport"}
+	unsupported := &jsonrpc.Error{Code: mcp.CodeUnsupportedProtocolVersion, Message: `protocol version "2026-07-28" is not supported by this server`,
+		Data: json.RawMessage(`{"supported":["2025-06-18"],"requested":"2026-07-28"}`)}
+	dial := &url.Error{Op: "Post", URL: "http://127.0.0.1:1/mcp", Err: &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}}
+	cases := []struct {
+		name string
+		err  error
+		ends bool
+		code int64
+	}{
+		{"session ended", fmt.Errorf(`sending "tools/call": failed to connect (session ID: s1): %w`, mcp.ErrSessionMissing), true, jsonrpc.CodeInternalError},
+		{"window quit", fmt.Errorf(`sending "tools/call": %w: %w`, rejected, dial), true, jsonrpc.CodeInternalError},
+		{"connection given up", errors.New(`sending "tools/call": Bad Request`), true, jsonrpc.CodeInternalError},
+		{"busy", fmt.Errorf(`%w: sending "tools/call": Service Unavailable`, rejected), false, jsonrpc.CodeInternalError},
+		{"refused with a JSON-RPC error", fmt.Errorf(`sending "tools/call": %w: %w: Bad Request`, unsupported, rejected), false, mcp.CodeUnsupportedProtocolVersion},
+	}
+	id, _ := jsonrpc.MakeID(float64(4))
+	for _, c := range cases {
+		if got := relayEnds(c.err); got != c.ends {
+			t.Errorf("%s: relayEnds = %v, want %v", c.name, got, c.ends)
+		}
+		r := refusal(&jsonrpc.Request{ID: id, Method: "tools/call"}, c.err)
+		werr, _ := r.Error.(*jsonrpc.Error)
+		if r.ID != id || werr == nil || werr.Code != c.code {
+			t.Errorf("%s: answer %+v, want code %d", c.name, r, c.code)
+			continue
+		}
+		if c.code == mcp.CodeUnsupportedProtocolVersion && (werr.Message != unsupported.Message || string(werr.Data) != string(unsupported.Data)) {
+			t.Errorf("%s: the window's message and data were not passed on: %+v", c.name, werr)
+		}
 	}
 }
 

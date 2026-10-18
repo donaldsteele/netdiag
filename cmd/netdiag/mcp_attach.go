@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -108,9 +109,11 @@ func runAttached(ctx context.Context, endpoint string, stdin io.ReadCloser, stdo
 // window) and back. Each call is sent on its own, as the SDK's client does,
 // since a POST answers only when its result (or a first progress note)
 // is ready; notifications and responses go in order. A call the window does
-// not take gets an error answer, so the agent is not left waiting, and ends
-// the relay: the window quit or closed the session. It returns nil when
-// local ends (stdin closed), else what stopped it.
+// not take gets an error answer, so the agent is not left waiting (the
+// window's own JSON-RPC error when it gave one, see refusal). Only the
+// window going away ends the relay (relayEnds): it quit or closed the
+// session. It returns nil when local ends (stdin closed), else what
+// stopped it.
 //
 // The relay never starts the window's stream for messages nobody asked for
 // (the SDK client starts it only for its own sessions): netdiag's server
@@ -146,16 +149,19 @@ func relay(ctx context.Context, local, remote mcp.Connection, ver *protoVersion)
 				go func() {
 					defer calls.Done()
 					if err := remote.Write(ctx, req); err != nil && ctx.Err() == nil {
-						_ = local.Write(ctx, &jsonrpc.Response{ID: req.ID,
-							Error: &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "the netdiag window did not take this request: " + err.Error()}})
-						// The window quit, or ended this session (Agent
-						// access off): stop, so the agent sees it.
-						stop(err)
+						_ = local.Write(ctx, refusal(req, err))
+						if relayEnds(err) {
+							// The window quit, or ended this session
+							// (Agent access off): stop, so the agent sees it.
+							stop(err)
+						}
 					}
 				}()
 				continue
 			}
-			if err := remote.Write(ctx, msg); err != nil {
+			// A notification or a response has no answer to give: one the
+			// window refuses is dropped, unless the window is gone.
+			if err := remote.Write(ctx, msg); err != nil && relayEnds(err) {
 				stop(err)
 				return
 			}
@@ -180,6 +186,41 @@ func relay(ctx context.Context, local, remote mcp.Connection, ver *protoVersion)
 	<-reading
 	calls.Wait()
 	return err
+}
+
+// rejectedCode marks an error the SDK's client transport returns for one
+// message it could not deliver while the connection stays usable
+// (jsonrpc2.ErrRejected in go-sdk internal/jsonrpc2/wire.go, which callers
+// outside the SDK can match only by its code: jsonrpc.Error's Is compares
+// codes). Errors without it mean the SDK gave up on the connection.
+const rejectedCode = -32005
+
+// relayEnds reports whether err, from writing to the window, means the
+// window is gone for this relay: it ended the session (Agent access
+// turned off, ErrSessionMissing), nothing answers on its port any more (it
+// quit: a failed dial or a broken connection, *net.OpError), or the SDK
+// gave up on the connection (an error it did not mark as one message's).
+// One message the window refused on its own (a JSON-RPC error, such as an
+// unsupported protocol version, or a busy answer) ends only that message,
+// as for a client connected to the window directly.
+func relayEnds(err error) bool {
+	var opErr *net.OpError
+	return errors.Is(err, mcp.ErrSessionMissing) || errors.As(err, &opErr) ||
+		!errors.Is(err, &jsonrpc.Error{Code: rejectedCode})
+}
+
+// refusal is the answer to the agent's call req that the window did not
+// take (err from writing it). The window's own JSON-RPC error is passed on
+// with its code, message and data, so the agent can act on it as it would
+// when connected directly; any other failure is an internal error that
+// says what happened.
+func refusal(req *jsonrpc.Request, err error) *jsonrpc.Response {
+	var werr *jsonrpc.Error
+	if errors.As(err, &werr) && werr.Code != rejectedCode {
+		return &jsonrpc.Response{ID: req.ID, Error: &jsonrpc.Error{Code: werr.Code, Message: werr.Message, Data: werr.Data}}
+	}
+	return &jsonrpc.Response{ID: req.ID,
+		Error: &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "the netdiag window did not take this request: " + err.Error()}}
 }
 
 // protoVersion adds the MCP-Protocol-Version header the agent and the
