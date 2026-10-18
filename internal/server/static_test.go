@@ -526,7 +526,11 @@ func TestTeamChatUI(t *testing.T) {
 		`<option value="warning">Problems and warnings</option>`, `<option value="critical">Only urgent problems</option>`,
 		`<option value="info">Everything, including notes</option>`, "Takes effect when you click Save.",
 		"Warning: the chat server's identity changed.", "Disconnect", "Change channel", "Reconnect",
-		`:href="wiz.adminUrl || null"`, `!$refs.chatDlg.open`,
+		`:href="wiz.adminUrl || null"`, `!$refs.chatDlg.open`, `!$refs.chatOffDlg.open`, `id="chat-unsaved"`,
+		// Disconnect asks in its own dialog: Disconnect · Cancel (4.10 Recovery).
+		`<dialog id="chat-off-dialog"`, `@cancel.prevent="keepChat()"`, "Disconnect from team chat?",
+		"Your chat admin should also remove netdiag in bubbles under <strong>Admin &gt; Apps</strong>.",
+		`id="chat-off-go" class="danger"`, `id="chat-off-cancel" class="primary"`,
 	} {
 		if !strings.Contains(string(html), want) {
 			t.Errorf("index.html missing %q", want)
@@ -536,14 +540,18 @@ func TestTeamChatUI(t *testing.T) {
 		"this.api('GET', '/api/bubbles')", "this.api('GET', '/api/bubbles/pair/status')", "'/api/bubbles/discover'",
 		"'/api/bubbles/inspect'", "'/api/bubbles/pair'", "this.api('DELETE', '/api/bubbles/pair')", "'/api/bubbles/connect'",
 		"'/api/bubbles/channel'", "this.api('POST', '/api/bubbles/test', {})", "this.api('DELETE', '/api/bubbles')",
-		"confirmed: true", "{reconnect: true}", "'Disconnect from team chat?",
-		"Your chat admin should also remove netdiag in bubbles under Admin > Apps.",
+		"confirmed: true", "{reconnect: true}", "c.reason === 'unreadable'", "c.reason === 'not_allowed'", "c.reason === 'archived'",
+		// A late answer never drives a closed wizard; a request on its way is cancelled.
+		"wizEpoch++", "if (this.wiz.step === 'approve' || pairAsking)",
 		"s === 'connected' ? 'chat' : s === 'unreachable' ? 'chat-warn' : 'chat-off'",
 		"setInterval(() => this.loadChat(), 30000)", "}, 2000);",
 	} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("app.js missing %q", want)
 		}
+	}
+	if strings.Contains(string(js), "window.confirm('Disconnect") {
+		t.Error("Disconnect asks in its own dialog, not with window.confirm")
 	}
 	// The fingerprint step never presents the TXT prefix as a check.
 	if strings.Contains(string(html), "fpPrefixMatches") || strings.Contains(string(js), "fpPrefixMatches") {

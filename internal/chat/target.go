@@ -47,7 +47,7 @@ var errTarget = errors.New("Use the address of a chat server on the local networ
 // host, host:port or https://host:port. The port is the HTTPS port (28225
 // when there is none). onboard is the onboarding port when discovery knows
 // it (the TXT "onboard" key); otherwise it is 28226, or the HTTPS port + 1
-// when a port was given, as bubbles' own two defaults are (v0.6-D35).
+// when a port was given, as bubbles' own two defaults are (v0.6-D37).
 //
 // Only local addresses are accepted (4.10 "Pairing targets"): private,
 // link-local, shared (100.64.0.0/10) and loopback IPv4 addresses, and

@@ -604,16 +604,18 @@ export const CHAT_GROUPS = ['3F2A', '9C10', '77B4', 'E0D1', '5D41', '402A', 'BC4
 export const CHAT_FP = 'sha256:' + CHAT_GROUPS.join('').toLowerCase();
 export const CHAT_SINCE = '2026-10-10T08:40:00Z';
 
-// GET /api/bubbles in each state the status tool shows.
-export function bubblesStatus(state = 'off') {
+// GET /api/bubbles in each state the status tool shows. extra adds or
+// overrides fields: reason (needs_reconnect: refused or unreadable;
+// no_channel: not_allowed or archived, which keep the channel) or unsaved.
+export function bubblesStatus(state = 'off', extra = {}) {
   if (state === 'off') return { state: 'off', waiting: 0, dropped: 0 };
   const st = { state, server: { ...CHAT_SERVER }, channel: { ...CHAT_CHANNEL }, appName: 'netdiag', tokenPrefix: 'bub_0001',
     scopes: ['alerts:write', 'channels:read', 'messages:write', 'files:write'], waiting: 0, dropped: 0 };
-  if (state === 'no_channel') delete st.channel;
+  if (state === 'no_channel' && !extra.reason) delete st.channel;
   if (state === 'unreachable') { st.since = CHAT_SINCE; st.lastError = "netdiag can't reach the chat server."; }
-  if (state === 'needs_reconnect') st.lastError = 'The chat server no longer accepts netdiag. Click Reconnect.';
+  if (state === 'needs_reconnect') { st.reason = 'refused'; st.lastError = 'The chat server no longer accepts netdiag. Click Reconnect.'; }
   if (state === 'identity_changed') { st.since = CHAT_SINCE; st.lastError = "Warning: the chat server's identity changed."; }
-  return st;
+  return { ...st, ...extra };
 }
 
 // POST /api/bubbles/discover: the chat servers mDNS found, and the one the bubbles tray uses.

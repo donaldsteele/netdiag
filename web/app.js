@@ -5,6 +5,8 @@ let tabs = null; // BroadcastChannel shared by every open netdiag tab
 let restartOpener = null; // element that opened the restart dialog
 let session = ''; // this launch's session token, when the browser keeps no storage
 let pairTimer = 0; // next poll of the team chat pairing request
+let wizEpoch = 0; // counts team chat wizard openings and closings
+let pairAsking = 0; // team chat pairing requests on their way
 document.addEventListener('alpine:init', () => {
   Alpine.data('app', () => ({
     ifaces: [], ifaceName: '', cidr: '', community: 'public',
@@ -450,19 +452,33 @@ document.addEventListener('alpine:init', () => {
     chatStatusClass() {
       return {off: 'hs-info', connected: 'hs-ok', unreachable: 'hs-warn'}[this.chatState()] || 'hs-fail';
     },
-    // "Sending to #netdiag-alerts on Office (192.168.1.20)", in parts.
+    // "Sending to #netdiag-alerts on Office (192.168.1.20)", in parts. Only
+    // while alerts go there (or wait for the server): not when netdiag
+    // stopped, or the channel takes no posts.
     chatWhere() {
-      const c = this.chat || {}, s = c.server, ch = c.channel;
-      if (!ch || !s) return {lead: '', channel: '', rest: ''};
+      const c = this.chat || {}, s = c.server, ch = c.channel, st = this.chatState();
+      if (!ch || !s || (st !== 'connected' && st !== 'unreachable')) return {lead: '', channel: '', rest: ''};
       const host = s.host + (s.port && s.port !== 28225 ? ':' + s.port : '');
       return {lead: 'Sending to', channel: '#' + ch.name, rest: ' on ' + (s.name ? s.name + ' (' + host + ')' : host)};
     },
-    // What is wrong with the connection, in words; identity changed has its own box.
+    // What is wrong with the connection, in words; identity changed has its
+    // own box. reason tells two causes of the same state apart: a token the
+    // server refused or a saved connection this computer can't open, and a
+    // channel that refused netdiag's post or was archived.
     chatTrouble() {
-      const s = this.chatState();
+      const s = this.chatState(), c = this.chat || {}, ch = c.channel ? '#' + c.channel.name : 'the channel';
       if (s === 'unreachable') return "Can't reach the chat server" + this.chatSince() + '. Check that it is running, then send a test alert.';
-      if (s === 'needs_reconnect') return 'The chat server no longer accepts netdiag (your chat admin may have removed it). Click Reconnect. Your chat admin may see a second netdiag app; they can remove the old one in Admin > Apps.';
-      if (s === 'no_channel') return "netdiag isn't posting anywhere yet. Click Change channel to choose where alerts go.";
+      if (s === 'needs_reconnect') {
+        const why = c.reason === 'unreadable'
+          ? "netdiag can't open its saved team chat connection on this computer (it may have been copied from another computer or Windows user), so it has to be connected again."
+          : 'The chat server no longer accepts netdiag (your chat admin may have removed it).';
+        return why + ' Click Reconnect. Your chat admin may see a second netdiag app; they can remove the old one in Admin > Apps.';
+      }
+      if (s === 'no_channel') {
+        if (c.reason === 'not_allowed') return "netdiag isn't allowed to post in " + ch + ' any more. Ask your chat admin to add netdiag to it again, then send a test alert, or click Change channel.';
+        if (c.reason === 'archived') return 'The channel ' + ch + ' is archived. Click Change channel to choose another one.';
+        return "netdiag isn't posting anywhere yet. Click Change channel to choose where alerts go.";
+      }
       return '';
     },
     chatPending() {
@@ -495,8 +511,20 @@ document.addEventListener('alpine:init', () => {
         return j.error || ('Could not send the test alert (HTTP ' + r.status + ').');
       } catch (e) { return 'Could not send the test alert: ' + e.message; }
     },
+    // Disconnect asks first in its own dialog (4.10 Recovery: Disconnect ·
+    // Cancel, with Cancel focused). Esc and Cancel leave everything as it is
+    // and give focus back to Disconnect.
+    askDisconnect() {
+      const d = this.$refs.chatOffDlg; if (d && !d.open) d.showModal();
+      this.$nextTick(() => this.focusShown([document.getElementById('chat-off-cancel')]));
+    },
+    closeDisconnect() { const d = this.$refs.chatOffDlg; if (d && d.open) d.close(); },
+    keepChat() {
+      this.closeDisconnect();
+      this.focusShown([document.getElementById('chat-disconnect')]);
+    },
     async chatDisconnect() {
-      if (!window.confirm('Disconnect from team chat?\n\nnetdiag stops sending alerts. Your chat admin should also remove netdiag in bubbles under Admin > Apps.')) return;
+      this.closeDisconnect();
       try {
         const r = await this.api('DELETE', '/api/bubbles');
         this.chatMsg = r.ok ? 'Disconnected from team chat.' : 'Could not disconnect (HTTP ' + r.status + ').';
@@ -508,9 +536,13 @@ document.addEventListener('alpine:init', () => {
     // The connect wizard (<dialog id="chat-dialog">). It opens from Settings,
     // which it closes and opens again (with any changes not yet saved) when
     // it closes. mode: connect (find the server), reconnect (pair again with
-    // the server netdiag knows) or channel (Change channel).
+    // the server netdiag knows) or channel (Change channel). wizEpoch counts
+    // its openings and closings: an answer that comes back after the wizard
+    // closed (or opened again) never drives it, so a closed wizard never
+    // waits for the admin, connects or turns Send alerts on.
     openChatWizard(mode) {
       clearTimeout(pairTimer);
+      wizEpoch++;
       this.chatMsg = '';
       Object.assign(this.wiz, {step: '', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
         code: '', expiresAt: '', adminUrl: '', channels: [], channelId: '', channel: null, testMsg: '', testOk: false, fresh: false, stopped: '', retry: ''});
@@ -520,10 +552,12 @@ document.addEventListener('alpine:init', () => {
       if (mode === 'reconnect') return this.wizReconnect();
       return this.wizFind();
     },
-    // Esc, Close and Cancel: stop waiting for the admin and go back to Settings.
+    // Esc, Close and Cancel: stop waiting for the admin (also for a request
+    // still on its way to the chat server) and go back to Settings.
     closeChatWizard() {
       clearTimeout(pairTimer);
-      if (this.wiz.step === 'approve') this.api('DELETE', '/api/bubbles/pair').catch(() => {});
+      wizEpoch++;
+      if (this.wiz.step === 'approve' || pairAsking) this.api('DELETE', '/api/bubbles/pair').catch(() => {});
       this.wiz.step = 'closed';
       const d = this.$refs.chatDlg; if (d && d.open) d.close();
       this.loadChat().then(() => this.$nextTick(() => {
@@ -548,21 +582,27 @@ document.addEventListener('alpine:init', () => {
       };
       this.$nextTick(() => pick(0));
     },
-    // A wizard call: the JSON answer, or null with the error shown.
+    // A wizard call: the JSON answer, or null with the error shown. An
+    // answer that comes after the wizard closed touches nothing on it; the
+    // caller checks wizEpoch.
     async wizCall(method, url, body, what) {
+      const e = wizEpoch;
       this.wiz.busy = true; this.wiz.error = '';
+      let out = null, err = '';
       try {
         const r = await this.api(method, url, body);
         const j = await r.json().catch(() => ({}));
-        if (!r.ok) { this.wiz.error = j.error || (what + ' (HTTP ' + r.status + ').'); return null; }
-        return j;
-      } catch (e) { this.wiz.error = what + ': ' + e.message; return null; }
-      finally { this.wiz.busy = false; }
+        if (r.ok) out = j;
+        else err = j.error || (what + ' (HTTP ' + r.status + ').');
+      } catch (ex) { err = what + ': ' + ex.message; }
+      if (e === wizEpoch) { this.wiz.busy = false; this.wiz.error = err; }
+      return out;
     },
     async wizFind() {
+      const e = wizEpoch;
       this.wizGo('find');
       const j = await this.wizCall('POST', '/api/bubbles/discover', {interface: this.ifaceName}, 'Could not look for chat servers');
-      if (this.wiz.step !== 'find') return;
+      if (e !== wizEpoch || this.wiz.step !== 'find') return;
       const err = this.wiz.error;
       if (j) { this.wiz.servers = j.servers || []; this.wiz.tray = j.trayServer || null; }
       this.wizGo('list');
@@ -570,25 +610,42 @@ document.addEventListener('alpine:init', () => {
     },
     wizUse(f) { return this.wizInspect(f.address + ':' + f.port, f.onboardPort); },
     async wizInspect(address, onboardPort) {
+      const e = wizEpoch;
       const j = await this.wizCall('POST', '/api/bubbles/inspect', {address: String(address).trim(), onboardPort: onboardPort || 0}, 'Could not check the chat server');
-      if (j) { this.wiz.insp = j; this.wizGo('fingerprint'); }
+      if (j && e === wizEpoch) { this.wiz.insp = j; this.wizGo('fingerprint'); }
     },
-    async wizMatch() {
+    wizMatch() {
       const i = this.wiz.insp;
-      this.wizApprove(await this.wizCall('POST', '/api/bubbles/pair', {address: i.address, fingerprint: i.fingerprint, confirmed: true}, 'Could not ask the chat server'), 'match');
+      return this.wizPair({address: i.address, fingerprint: i.fingerprint, confirmed: true}, 'match');
+    },
+    // Asks the chat server for netdiag's token (It matches, Reconnect, Try
+    // again). When the wizard closed while the request was on its way, the
+    // request is cancelled once it is known, unless a new wizard is open.
+    async wizPair(body, retry) {
+      const e = wizEpoch;
+      pairAsking++;
+      const j = await this.wizCall('POST', '/api/bubbles/pair', body, 'Could not ask the chat server');
+      pairAsking--;
+      if (e !== wizEpoch) {
+        if (j && this.wiz.step === 'closed') this.api('DELETE', '/api/bubbles/pair').catch(() => {});
+        return;
+      }
+      this.wizApprove(j, retry);
     },
     // Reconnect: pair again with the server and pin netdiag knows. After
     // the server's identity changed, the fingerprint is compared again first.
     async wizReconnect() {
+      const e = wizEpoch;
       const s = (this.chat && this.chat.server) || null;
       if (this.chatState() === 'identity_changed' && s) {
         this.wizGo('find');
         await this.wizInspect(s.host + ':' + s.port, s.onboardPort);
+        if (e !== wizEpoch) return;
         if (this.wiz.step === 'find') { const err = this.wiz.error; this.wizGo('address'); this.wiz.address = s.host + ':' + s.port; this.wiz.error = err; }
         return;
       }
       this.wizGo('find');
-      this.wizApprove(await this.wizCall('POST', '/api/bubbles/pair', {reconnect: true}, 'Could not ask the chat server'), 'reconnect');
+      return this.wizPair({reconnect: true}, 'reconnect');
     },
     wizApprove(j, retry) {
       if (!j) {
@@ -608,11 +665,12 @@ document.addEventListener('alpine:init', () => {
     },
     wizPoll() {
       clearTimeout(pairTimer);
+      const e = wizEpoch;
       pairTimer = setTimeout(async () => {
-        if (this.wiz.step !== 'approve') return;
+        if (e !== wizEpoch || this.wiz.step !== 'approve') return;
         let j = null;
-        try { const r = await this.api('GET', '/api/bubbles/pair/status'); if (r.ok) j = await r.json(); } catch (e) {}
-        if (this.wiz.step !== 'approve') return;
+        try { const r = await this.api('GET', '/api/bubbles/pair/status'); if (r.ok) j = await r.json(); } catch (ex) {}
+        if (e !== wizEpoch || this.wiz.step !== 'approve') return;
         const st = j ? j.state : 'pending';
         if (st === 'pending') return this.wizPoll();
         if (st === 'approved') {
@@ -629,31 +687,39 @@ document.addEventListener('alpine:init', () => {
       return this.wizFind();
     },
     async wizConnectString() {
+      const e = wizEpoch;
       const j = await this.wizCall('POST', '/api/bubbles/connect', {connectionString: this.wiz.connString.trim()}, 'Could not connect');
-      if (!j) return;
+      if (!j || e !== wizEpoch) return;
       this.wiz.fresh = true; this.wiz.connString = '';
       this.wizChannels(j, false);
     },
     // Step 6: one channel is used by itself, several are a choice (always
-    // for Change channel), none asks the admin to add netdiag to one.
+    // for Change channel), none asks the admin to add netdiag to one. An
+    // error after connecting (the channels could not be listed, or the
+    // connection works but could not be saved) is shown on this step, whose
+    // buttons try again; it never goes on to Done by itself.
     wizChannels(j, choose) {
       this.wiz.channels = j.channels || [];
       this.wiz.channelId = (j.channel && j.channel.id) || '';
+      if (j.error) { this.wizGo('channel'); this.wiz.error = j.error; return; }
       if (j.channel && !(choose && this.wiz.channels.length > 1)) return this.wizReady(j.channel);
       this.wizGo('channel');
     },
     async wizCheckChannels(choose) {
+      const e = wizEpoch;
       if (!this.wiz.step) this.wizGo('find');
       const j = await this.wizCall('POST', '/api/bubbles/channel', {}, 'Could not list the channels');
+      if (e !== wizEpoch) return;
       if (j) this.wizChannels(j, choose);
       else if (this.wiz.step === 'find') this.wizStop(this.wiz.error, '');
     },
     async wizPick() {
+      const e = wizEpoch;
       const j = await this.wizCall('POST', '/api/bubbles/channel', {channelId: this.wiz.channelId}, 'Could not choose the channel');
-      if (j && j.channel) this.wizReady(j.channel);
+      if (j && j.channel && e === wizEpoch) this.wizReady(j.channel);
     },
     // Alerts have a channel. A new connection turns Send alerts to team chat
-    // on, so the Done screen tells the truth (v0.6-D36).
+    // on, so the Done screen tells the truth (v0.6-D38).
     async wizReady(ch) {
       this.wiz.channel = ch;
       this.wizGo('ready');
@@ -665,8 +731,10 @@ document.addEventListener('alpine:init', () => {
       this.loadChat();
     },
     async wizTest() {
+      const e = wizEpoch;
       this.wiz.busy = true; this.wiz.testMsg = 'Sending a test alert...'; this.wiz.testOk = false;
       const msg = await this.sendTest();
+      if (e !== wizEpoch) return;
       this.wiz.testOk = msg.startsWith('Test alert sent');
       this.wiz.testMsg = msg; this.wiz.busy = false;
       this.loadChat();

@@ -348,6 +348,8 @@ details.btry .advice{margin-top:var(--s1)}
 .chatacts{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin:var(--s2) 0}
 #set-chat p{margin:var(--s2) 0;overflow-wrap:anywhere}
 #chat-dialog{max-width:560px}
+#chat-off-dialog{max-width:460px}
+#chat-off-dialog p{margin:var(--s2) 0}
 .chatwiz p{margin:var(--s2) 0;overflow-wrap:anywhere}
 .chatwiz h3{display:flex;align-items:center;gap:6px;margin:var(--s2) 0;font-size:16px}
 .chatwiz h3>.ico{color:inherit}

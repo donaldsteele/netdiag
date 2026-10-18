@@ -292,22 +292,130 @@ test('the three status-tool states have distinct glyphs', async () => {
   expect(new Set(g).size).toBe(3);
 });
 
-test('Disconnect asks first', async ({ page }) => {
+test('Disconnect asks first in its own dialog: Disconnect or Cancel', async ({ page }) => {
   const rec = await open(page, { chat: 'connected' });
   await openSettings(page);
   const s = settingsDlg(page);
-  let text = '';
-  page.once('dialog', (d) => { text = d.message(); d.dismiss(); });
+  const off = page.locator('#chat-off-dialog');
   await s.locator('#chat-disconnect').click();
-  await expect.poll(() => text).toContain('Disconnect from team chat?');
-  expect(text).toContain('Your chat admin should also remove netdiag in bubbles under Admin > Apps.');
+  await expect(off).toHaveJSProperty('open', true);
+  await expect(off.getByRole('heading', { name: 'Disconnect from team chat?' })).toBeVisible();
+  await expect(off.locator('#chat-off-q')).toHaveText('netdiag stops sending alerts. Your chat admin should also remove netdiag in bubbles under Admin > Apps.');
+  await expect(off.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await expect(off.getByRole('button', { name: 'Disconnect' })).toHaveClass(/danger/);
+  // Esc keeps the connection, closes only this dialog and gives focus back.
+  await page.keyboard.press('Escape');
+  await expect(off).toHaveJSProperty('open', false);
+  await expect(s).toHaveJSProperty('open', true);
+  await expect(s.locator('#chat-disconnect')).toBeFocused();
+  // Cancel does the same.
+  await s.locator('#chat-disconnect').click();
+  await off.getByRole('button', { name: 'Cancel' }).click();
+  await expect(off).toHaveJSProperty('open', false);
+  await expect(s.locator('#chat-disconnect')).toBeFocused();
   expect(rec.chatCalls).not.toContain('DELETE /api/bubbles');
-  page.once('dialog', (d) => d.accept());
+
   await s.locator('#chat-disconnect').click();
+  await off.getByRole('button', { name: 'Disconnect' }).click();
+  await expect(off).toHaveJSProperty('open', false);
   await expect(s.locator('#chat-status')).toHaveText('Status: Not connected');
   await expect(s.locator('#chat-connect')).toBeFocused();
   await expect(page.locator('#chat-tool')).toBeHidden();
   expect(rec.chatCalls).toContain('DELETE /api/bubbles');
+  expect(rec.unmatched).toEqual([]);
+});
+
+test('a saved connection this computer cannot open says so, not that the admin removed netdiag', async ({ page }) => {
+  const rec = await open(page, { chat: 'needs_reconnect', chatExtra: { reason: 'unreadable',
+    lastError: "netdiag can't open its saved team chat key on this computer, so it has to be connected again." } });
+  await openSettings(page);
+  const s = settingsDlg(page);
+  await expect(s.locator('#chat-status .hs')).toHaveText('Needs reconnecting');
+  await expect(s.locator('#chat-trouble')).toHaveText("netdiag can't open its saved team chat connection on this computer (it may have been copied from another computer or Windows user), so it has to be connected again. Click Reconnect. Your chat admin may see a second netdiag app; they can remove the old one in Admin > Apps.");
+  await expect(s.locator('#chat-where')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(s).toHaveJSProperty('open', false);
+  // A token the server refused (401) keeps the 4.10 words.
+  rec.chat = fx.bubblesStatus('needs_reconnect');
+  await openSettings(page);
+  await expect(s.locator('#chat-trouble')).toContainText('The chat server no longer accepts netdiag (your chat admin may have removed it). Click Reconnect.');
+  expect(rec.unmatched).toEqual([]);
+});
+
+test('a channel that refuses netdiag: no "Sending to", and what to do', async ({ page }) => {
+  const rec = await open(page, { chat: 'no_channel', chatExtra: { reason: 'not_allowed' } });
+  await expect(page.locator('#chat-tool')).toHaveAttribute('title', 'Team chat: no channel');
+  await expect(page.locator('#chat-tool use')).toHaveAttribute('href', 'icons.svg#i-chat-off');
+  await openSettings(page);
+  const s = settingsDlg(page);
+  await expect(s.locator('#chat-status .hs')).toHaveText('No channel');
+  await expect(s.locator('#chat-where')).toBeHidden();
+  await expect(s.locator('#chat-trouble')).toHaveText("netdiag isn't allowed to post in #netdiag-alerts any more. Ask your chat admin to add netdiag to it again, then send a test alert, or click Change channel.");
+  // A test alert that gets through puts it right.
+  await expect(s.locator('#chat-test')).toBeVisible();
+  await expect(s.locator('#chat-change')).toBeVisible();
+  await page.keyboard.press('Escape');
+  rec.chat = fx.bubblesStatus('no_channel', { reason: 'archived' });
+  await openSettings(page);
+  await expect(s.locator('#chat-trouble')).toHaveText('The channel #netdiag-alerts is archived. Click Change channel to choose another one.');
+  await page.keyboard.press('Escape');
+  // A connection that works but could not be saved says so in any state.
+  rec.chat = fx.bubblesStatus('connected', { unsaved: 'netdiag could not save the team chat connection on this computer (the disk is full). It works until netdiag closes, and netdiag keeps trying to save it.' });
+  await openSettings(page);
+  await expect(s.locator('#chat-unsaved')).toHaveText(/^netdiag could not save the team chat connection on this computer/);
+  await expect(s.locator('#chat-where')).toHaveText('Sending to #netdiag-alerts on Office (192.168.2.20)');
+  expect(rec.unmatched).toEqual([]);
+});
+
+test('closing the wizard while netdiag asks the chat server cancels that request', async ({ page }) => {
+  const rec = await open(page, { pairStates: ['approved'] });
+  let release;
+  const held = new Promise((r) => { release = r; });
+  await page.route('**/api/bubbles/pair', async (route) => {
+    if (route.request().method() === 'POST') await held;
+    return route.fallback();
+  });
+  await startWizard(page);
+  const w = wizard(page);
+  await w.getByRole('button', { name: 'Use this server: Office' }).click();
+  await w.getByRole('button', { name: 'It matches' }).click();
+  await expect(w.getByRole('button', { name: 'It matches' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(w).toHaveJSProperty('open', false);
+  await expect(settingsDlg(page).locator('#chat-connect')).toBeFocused();
+  const cancels = () => rec.chatCalls.filter((c) => c === 'DELETE /api/bubbles/pair').length;
+  await expect.poll(cancels).toBe(1);
+  // The answer comes after the wizard closed: netdiag cancels it again once
+  // it knows it went out, never waits for the admin, never connects and
+  // never turns Send alerts on.
+  release();
+  await expect.poll(cancels).toBe(2);
+  expect(rec.chatCalls.slice(-3)).toEqual(['DELETE /api/bubbles/pair', 'POST /api/bubbles/pair', 'DELETE /api/bubbles/pair']);
+  await page.waitForTimeout(2500);
+  expect(rec.requests.filter((r) => r.path === '/api/bubbles/pair/status')).toHaveLength(0);
+  expect(puts(rec)).toHaveLength(0);
+  await expect(w).toHaveJSProperty('open', false);
+  await expect(page.locator('#chat-tool')).toBeHidden();
+  expect(rec.unmatched).toEqual([]);
+});
+
+test('an approval with an error stops on the channel step and says so', async ({ page }) => {
+  const msg = 'netdiag could not save the team chat connection on this computer (the disk is full). It works until netdiag closes, and netdiag keeps trying to save it.';
+  const rec = await open(page, { pairError: msg });
+  await startWizard(page);
+  const w = wizard(page);
+  await w.getByRole('button', { name: 'Use this server: Office' }).click();
+  await w.getByRole('button', { name: 'It matches' }).click();
+  await expect(w.locator('#wiz-error')).toHaveText(msg, { timeout: 10_000 });
+  await expect(w.locator('#wiz-channel')).toBeVisible();
+  await expect(w.locator('#wiz-ready')).toBeHidden();
+  expect(puts(rec)).toHaveLength(0);
+  // Choosing the channel saves it again; then the wizard goes on.
+  await expect(w.getByRole('radio', { name: '#netdiag-alerts' })).toBeChecked();
+  await w.getByRole('button', { name: 'Use this channel' }).click();
+  await expect(w.locator('#wiz-ready')).toContainText('Alerts will go to #netdiag-alerts.');
+  await expect(w.locator('#wiz-error')).toBeHidden();
+  await expect.poll(() => puts(rec).length).toBe(1);
   expect(rec.unmatched).toEqual([]);
 });
 
@@ -362,6 +470,11 @@ for (const theme of THEMES) {
     await openSettings(page);
     await expect(settingsDlg(page).locator('#chat-identity')).toBeVisible();
     await runAxe(page, `chat-settings-identity-${theme}`, testInfo);
+    await settingsDlg(page).locator('#chat-disconnect').click();
+    await expect(page.locator('#chat-off-dialog')).toHaveJSProperty('open', true);
+    await runAxe(page, `chat-disconnect-${theme}`, testInfo);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#chat-off-dialog')).toHaveJSProperty('open', false);
     await page.keyboard.press('Escape');
     rec.chat = fx.bubblesStatus('off');
     await openSettings(page);

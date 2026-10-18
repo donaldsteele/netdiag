@@ -59,3 +59,42 @@ test('default motion: the animations exist and are gated by no-preference', asyn
   const fill = await page.evaluate(() => getComputedStyle(document.querySelector('.fill')).transitionDuration);
   expect(fill).not.toBe('0s');
 });
+
+// The team chat wizard's spinner (looking for the server, and waiting for
+// the chat admin) turns only under no-preference (v0.6 §7.3).
+async function wizardSpinners(page, check) {
+  await initStorage(page, { theme: 'dark', live: false });
+  await installMocks(page, { scenario: 'scan', pairStates: ['pending'] });
+  let release;
+  const held = new Promise((r) => { release = r; });
+  await page.route('**/api/bubbles/discover', async (route) => { await held; return route.fallback(); });
+  await page.goto(HOME);
+  await page.evaluate(() => document.querySelector('#nav-settings').click());
+  await page.locator('#settings-dialog #chat-connect').click();
+  const w = page.locator('#chat-dialog');
+  await expect(w.locator('#wiz-find .spinner')).toBeVisible();
+  await check('#wiz-find .spinner');
+  release();
+  await w.getByRole('button', { name: 'Use this server: Office' }).click();
+  await w.getByRole('button', { name: 'It matches' }).click();
+  await expect(w.locator('#wiz-approve .spinner')).toBeVisible();
+  await check('#wiz-approve .spinner');
+}
+
+test('reduced motion: the team chat wizard spinner stands still', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await wizardSpinners(page, async (sel) => {
+    expect(await runningAnimations(page, sel), sel).toBe('none');
+    const running = await page.evaluate(() => document.getAnimations().map(x => x.animationName || x.transitionProperty));
+    expect(running, 'running animations or transitions under reduced motion (' + sel + ')').toEqual([]);
+  });
+});
+
+test('default motion: the team chat wizard spinner turns', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await wizardSpinners(page, async (sel) => {
+    expect(await runningAnimations(page, sel), sel).not.toBe('none');
+    const names = await page.evaluate((s) => document.querySelector(s).getAnimations().map(x => x.animationName), sel);
+    expect(names, sel).toContain('spin');
+  });
+});

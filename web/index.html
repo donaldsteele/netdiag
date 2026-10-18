@@ -12,7 +12,7 @@
 </head>
 <body>
 <a class="skip" href="#main">Skip to results</a>
-<div class="shell" :class="{navopen: navOpen}" x-data="app()" @keydown.escape.window="drawerIP && !$refs.dlg.open && !$refs.restartDlg.open && !$refs.chatDlg.open && closeDrawer()">
+<div class="shell" :class="{navopen: navOpen}" x-data="app()" @keydown.escape.window="drawerIP && !$refs.dlg.open && !$refs.restartDlg.open && !$refs.chatDlg.open && !$refs.chatOffDlg.open && closeDrawer()">
   <aside class="sidebar" id="sidebar">
     <div class="brand mono" aria-hidden="true">netdiag</div>
     <nav aria-label="Main">
@@ -569,6 +569,7 @@
             <p id="chat-where" x-show="chatWhere().channel"><span x-text="chatWhere().lead"></span> <strong x-text="chatWhere().channel"></strong><span x-text="chatWhere().rest"></span></p>
             <div class="alert error" role="alert" id="chat-identity" x-show="chatState() === 'identity_changed'"><strong>Warning: the chat server's identity changed.</strong> netdiag stopped sending alerts. This happens when the chat server is reinstalled, or when something is pretending to be it. Ask your chat admin before you reconnect.</div>
             <p class="alert warn" id="chat-trouble" x-show="chatTrouble()" x-text="chatTrouble()"></p>
+            <p class="alert warn" id="chat-unsaved" x-show="chat && chat.unsaved" x-text="(chat && chat.unsaved) || ''"></p>
             <template x-if="draft.chat">
               <div>
                 <label class="check"><input type="checkbox" role="switch" id="chat-enabled" x-model="draft.chat.enabled" aria-describedby="chat-watching"> Send alerts to team chat</label>
@@ -582,10 +583,10 @@
             </template>
             <p class="sub" id="chat-watching">Alerts go to team chat only while netdiag is watching this network. Leave netdiag open with Live mode ticked.</p>
             <p class="chatacts">
-              <button type="button" id="chat-test" x-show="chatState() === 'connected' || chatState() === 'unreachable'" @click="chatTest()" :disabled="chatBusy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-send"></use></svg>Send test alert</button>
+              <button type="button" id="chat-test" x-show="chatState() === 'connected' || chatState() === 'unreachable' || (chatState() === 'no_channel' && !!(chat && chat.channel))" @click="chatTest()" :disabled="chatBusy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-send"></use></svg>Send test alert</button>
               <button type="button" id="chat-reconnect" x-show="chatState() === 'needs_reconnect' || chatState() === 'identity_changed'" aria-haspopup="dialog" @click="openChatWizard('reconnect')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-plug"></use></svg>Reconnect</button>
               <button type="button" id="chat-change" x-show="chatState() !== 'needs_reconnect' && chatState() !== 'identity_changed'" aria-haspopup="dialog" @click="openChatWizard('channel')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-chat"></use></svg>Change channel</button>
-              <button type="button" id="chat-disconnect" class="danger" @click="chatDisconnect()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-unplug"></use></svg>Disconnect</button>
+              <button type="button" id="chat-disconnect" class="danger" aria-haspopup="dialog" @click="askDisconnect()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-unplug"></use></svg>Disconnect</button>
             </p>
             <p class="sub" role="status" id="chat-msg" x-text="chatMsg"></p>
           </div>
@@ -622,6 +623,16 @@
     <p class="actions">
       <button type="button" id="restart-keep" class="primary" @click="keepWatching()">Keep watching</button>
       <button type="button" id="restart-go" @click="restartWatching()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart</button>
+    </p>
+  </div>
+</dialog>
+<dialog id="chat-off-dialog" x-ref="chatOffDlg" aria-labelledby="chat-off-h" aria-describedby="chat-off-q" @cancel.prevent="keepChat()">
+  <div class="sform">
+    <h2 id="chat-off-h">Disconnect from team chat?</h2>
+    <p id="chat-off-q">netdiag stops sending alerts. Your chat admin should also remove netdiag in bubbles under <strong>Admin &gt; Apps</strong>.</p>
+    <p class="actions">
+      <button type="button" id="chat-off-go" class="danger" @click="chatDisconnect()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-unplug"></use></svg>Disconnect</button>
+      <button type="button" id="chat-off-cancel" class="primary" @click="keepChat()">Cancel</button>
     </p>
   </div>
 </dialog>
@@ -703,7 +714,7 @@
 
     <div id="wiz-channel" x-show="wiz.step === 'channel'">
       <div x-show="!wiz.channels.length">
-        <p>netdiag isn't in any channel yet. Ask your chat admin to add netdiag to a channel, for example #netdiag-alerts.</p>
+        <p x-show="!wiz.error">netdiag isn't in any channel yet. Ask your chat admin to add netdiag to a channel, for example #netdiag-alerts.</p>
         <p class="actions"><button type="button" class="primary" @click="wizCheckChannels(false)" :disabled="wiz.busy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Check again</button>
           <button type="button" @click="closeChatWizard()">Close</button></p>
       </div>

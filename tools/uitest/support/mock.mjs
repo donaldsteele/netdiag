@@ -63,18 +63,20 @@ const matchId = (re, p) => {
 // in rec.unmatched too, so a spec that checks unmatched fails loudly.
 // chat: the team chat state GET /api/bubbles starts in ('off', 'connected',
 // 'no_channel', 'unreachable', 'needs_reconnect' or 'identity_changed',
-// fx.bubblesStatus). found: fx.discover's options for POST
+// fx.bubblesStatus; chatExtra adds fields such as reason). found: fx.discover's options for POST
 // /api/bubbles/discover. pairStates: what GET /api/bubbles/pair/status
 // answers on each poll after POST /api/bubbles/pair, the last one repeated;
 // 'approved' connects, with the one channel picked when channels has one.
-// channels: the channels netdiag's bot is in. testResult: the POST
+// channels: the channels netdiag's bot is in. pairError: the error an
+// approved pairing carries (the channels could not be listed, or the
+// connection could not be saved). testResult: the POST
 // /api/bubbles/test answer (sent alert by default). Specs may change
 // rec.chat, rec.channels, rec.pairStates and rec.testResult while the page
 // runs; rec.chatCalls lists the team chat actions in order.
 export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired, health: healthState = 'default', osOpen = 204, running = false, identity = 'ok', session = SESSION, stale = false,
-  chat = 'off', found = {}, pairStates = ['pending', 'approved'], channels = [fx.CHAT_CHANNEL], testResult = null } = {}) {
+  chat = 'off', chatExtra = {}, found = {}, pairStates = ['pending', 'approved'], channels = [fx.CHAT_CHANNEL], pairError = '', testResult = null } = {}) {
   const rec = { requests: [], unmatched: [], unauthorized: [], external: [], sse: [], running, identity, frames: null, identityCalls: 0, runningCalls: 0, scanId: fx.SCAN_ID, session,
-    chat: fx.bubblesStatus(chat), channels: [...channels], pairStates: [...pairStates], pairPolls: -1, testResult, chatCalls: [], chatReads: 0 };
+    chat: fx.bubblesStatus(chat, chatExtra), pairError, channels: [...channels], pairStates: [...pairStates], pairPolls: -1, testResult, chatCalls: [], chatReads: 0 };
   const origin = new URL(BASE_URL).origin;
   const MCP_URL = 'http://127.0.0.1:8787/mcp';
   let settings = { ...(initialSettings || fx.settings()), mcpUrl: MCP_URL };
@@ -231,7 +233,11 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
       const state = rec.pairStates[Math.min(rec.pairPolls, rec.pairStates.length - 1)];
       rec.pairPolls++;
       const words = { denied: 'Your chat admin said no.', expired: 'The request ran out of time after 10 minutes.' };
-      if (state === 'approved') { connect(); return json(route, 200, { ...chatChoice(), state, code: '123 456' }); }
+      if (state === 'approved') {
+        connect();
+        if (rec.pairError) rec.chat.unsaved = rec.pairError;
+        return json(route, 200, { ...chatChoice(), state, code: '123 456', error: rec.pairError || undefined });
+      }
       return json(route, 200, { state, code: '123 456', channels: [], error: words[state] });
     }
     if (method === 'DELETE' && p === '/api/bubbles/pair') { rec.pairPolls = -1; return empty(route); }
@@ -244,9 +250,19 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     }
     if (method === 'POST' && p === '/api/bubbles/channel') {
       if (rec.chat.state === 'off') return json(route, 400, { error: "netdiag isn't connected to team chat. Click Connect to team chat." });
-      const pick = b.channelId ? rec.channels.find((c) => c.id === b.channelId) : rec.channels.length === 1 ? rec.channels[0] : null;
+      // Like SetChannel: the chosen channel, the only one, or the current one
+      // when the bot is in it; a chosen channel takes posts again and is saved.
+      const cur = (rec.chat.channel || {}).id;
+      const pick = b.channelId ? rec.channels.find((c) => c.id === b.channelId)
+        : rec.channels.length === 1 ? rec.channels[0] : rec.channels.find((c) => c.id === cur) || null;
       if (b.channelId && !pick) return json(route, 400, { error: "netdiag isn't in that channel. Choose another one, or ask your chat admin to add netdiag to it." });
-      if (pick) { rec.chat.channel = { ...pick }; if (rec.chat.state === 'no_channel') rec.chat.state = 'connected'; }
+      if (pick) {
+        rec.chat.channel = { ...pick };
+        if (rec.chat.state === 'no_channel') rec.chat.state = 'connected';
+        if (rec.chat.state === 'connected') delete rec.chat.reason;
+        delete rec.chat.unsaved;
+        rec.pairError = '';
+      }
       return json(route, 200, chatChoice());
     }
     if (method === 'POST' && p === '/api/bubbles/test') {
