@@ -252,6 +252,16 @@ func TestDocsListEveryRunbook(t *testing.T) {
 	}
 }
 
+// TestNoToolNameClashWithBubbles: an agent connected to both servers can
+// tell every netdiag tool from a bubbles one by name.
+func TestNoToolNameClashWithBubbles(t *testing.T) {
+	for _, n := range bubblesToolNames {
+		if slices.Contains(ToolNames, n) || slices.Contains(PromptNames, n) {
+			t.Errorf("%s is both a bubbles tool and a netdiag tool or prompt", n)
+		}
+	}
+}
+
 // TestInstructionsV06: the server instructions point agents at get_status
 // and get_runbook, and say what start_scan and chat alerts never do.
 func TestInstructionsV06(t *testing.T) {
