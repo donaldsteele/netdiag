@@ -77,6 +77,26 @@ func quitServer(t *testing.T, f *bubblestest.Server) (*Server, *store.Store, *pr
 	m := chat.NewManager(chat.Options{Files: st, Ledger: l, PairPoll: 5 * time.Millisecond,
 		TrayConfig: func() (string, error) { return filepath.Join(t.TempDir(), "none.json"), nil },
 		Hostname:   func() (string, error) { return "FRONTDESK-PC", nil }, Logf: t.Logf})
+	pairChat(t, m, f)
+	m.ApplySettings(model.SettingsChat{Enabled: true, MinSeverity: model.ChatSeverityWarning})
+	waitFor(t, "the connected message", func() bool { return len(f.Messages()) == 1 })
+	sc := newWatchScan()
+	m.Attach(sc)
+	s := New(Config{Registry: scan.NewRegistry(scan.New(scan.Deps{Env: fakeEnv{}})), Store: st, Health: fakeHealth{},
+		Gateway: func() (string, error) { return "10.0.0.1", nil }, Ledger: l, Chat: m, SessionToken: testToken})
+	if err := s.Listen(0); err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- s.Serve(context.Background()) }()
+	return s, st, l, sc, served
+}
+
+// pairChat pairs m with f by its address, as the wizard does once the
+// person compared the fingerprint, and waits until the chat admin's
+// approval brought the channel.
+func pairChat(t *testing.T, m *chat.Manager, f *bubblestest.Server) {
+	t.Helper()
 	a, _ := url.Parse(f.API.URL)
 	o, _ := url.Parse(f.Onboard.URL)
 	onboard, _ := strconv.Atoi(o.Port())
@@ -90,18 +110,6 @@ func quitServer(t *testing.T, f *bubblestest.Server) (*Server, *store.Store, *pr
 	}
 	f.SetPairingState(protocol.PairingApproved)
 	waitFor(t, "the pairing", func() bool { ps := m.PairStatus(); return ps.State == chat.PairApproved && ps.Channel != nil })
-	m.ApplySettings(model.SettingsChat{Enabled: true, MinSeverity: model.ChatSeverityWarning})
-	waitFor(t, "the connected message", func() bool { return len(f.Messages()) == 1 })
-	sc := newWatchScan()
-	m.Attach(sc)
-	s := New(Config{Registry: scan.NewRegistry(scan.New(scan.Deps{Env: fakeEnv{}})), Store: st, Health: fakeHealth{},
-		Gateway: func() (string, error) { return "10.0.0.1", nil }, Ledger: l, Chat: m, SessionToken: testToken})
-	if err := s.Listen(0); err != nil {
-		t.Fatal(err)
-	}
-	served := make(chan error, 1)
-	go func() { served <- s.Serve(context.Background()) }()
-	return s, st, l, sc, served
 }
 
 func waitFor(t *testing.T, what string, cond func() bool) {

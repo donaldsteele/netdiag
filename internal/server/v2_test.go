@@ -60,6 +60,8 @@ func startStoreWith(t *testing.T, edit func(*scan.Deps)) (*Server, string, *stor
 		Interfaces:   func() ([]netinfo.Iface, error) { return []netinfo.Iface{{Name: "eth0", IP: "10.0.0.30"}}, nil },
 		SessionToken: testToken,
 		Ledger:       ledger,
+		// The team chat manager says why a call to the chat server failed.
+		Logf: t.Logf,
 	})
 	if err := s.Listen(0); err != nil {
 		t.Fatal(err)

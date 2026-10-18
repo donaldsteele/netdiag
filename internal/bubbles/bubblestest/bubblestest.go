@@ -13,6 +13,7 @@
 package bubblestest
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -23,6 +24,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -73,6 +75,7 @@ type Server struct {
 	posted   []protocol.AlertInput
 	resolved []protocol.ResolveAlertByKeyRequest
 	messages []string                    // "<channel id> <body>"
+	bodies   []string                    // "METHOD /path <body>" of every API call
 	nonces   map[string]protocol.Message // "<token> <nonce>" -> the message it made
 	polls    int
 	seq      int // the last message id
@@ -173,6 +176,11 @@ func New(t testing.TB) *Server {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		s.mu.Lock()
+		s.bodies = append(s.bodies, r.Method+" "+r.URL.Path+" "+string(body))
+		s.mu.Unlock()
 		if !s.wait(r) {
 			return
 		}
@@ -292,6 +300,15 @@ func (s *Server) Messages() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Clone(s.messages)
+}
+
+// Bodies lists every call to the HTTPS listener as "METHOD /path <body>",
+// in order, with the request body as netdiag sent it (posts that failed
+// validation and calls answered with an error among them).
+func (s *Server) Bodies() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.bodies)
 }
 
 // Alert is the latest alert card with the dedupe key. Its author is the

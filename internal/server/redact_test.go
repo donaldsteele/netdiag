@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"netdiag/internal/arp"
+	"netdiag/internal/bubbles/bubblestest"
 	"netdiag/internal/mcpserver"
 	"netdiag/internal/model"
 	"netdiag/internal/scan"
@@ -73,9 +75,10 @@ func (coverSNMP) Probe(_ context.Context, ip, _ string) (*snmpprobe.Result, erro
 // F11 (the s3cr3t-x grep test): the SNMP community, whether sent with a scan
 // or taken from the settings, must appear nowhere netdiag hands it out:
 // scan JSON, the event stream, exports, comparisons, history (API and the
-// files on disk), the open-problem ledger and network-profile.json, and MCP
-// tools and resources. GET /api/settings is the one exception, because the
-// Settings dialog edits the community.
+// files on disk), the open-problem ledger and network-profile.json, team
+// chat (bubbles.json, chat-outbox.json, every request to the chat server
+// and GET /api/bubbles), and MCP tools and resources. GET /api/settings is
+// the one exception, because the Settings dialog edits the community.
 func TestSecretCommunityAppearsNowhere(t *testing.T) {
 	const secret = "s3cr3t-x"
 	srv, u, st := startStoreWith(t, func(d *scan.Deps) { d.ARP, d.SNMP = routerARP{}, coverSNMP{} })
@@ -85,6 +88,10 @@ func TestSecretCommunityAppearsNowhere(t *testing.T) {
 			t.Errorf("%s leaks the community: %s", what, body)
 		}
 	}
+	// Team chat is connected to the bubbles fake, so the live scan's
+	// cover alert goes to chat.
+	f := bubblestest.New(t)
+	pairChat(t, srv.chat, f)
 
 	// The settings community is the secret too, and Agent access is on.
 	_, b := doj(t, "GET", u+"/api/settings", "", "")
@@ -94,16 +101,35 @@ func TestSecretCommunityAppearsNowhere(t *testing.T) {
 	}
 	set["community"] = secret
 	set["mcp"] = map[string]any{"enabled": true}
+	set["chat"] = map[string]any{"enabled": true, "minSeverity": "warning"}
 	doc, _ := json.Marshal(set)
 	if r, b := doj(t, "PUT", u+"/api/settings", string(doc), "application/json"); r.StatusCode != 200 {
 		t.Fatalf("PUT settings: %d %s", r.StatusCode, b)
 	}
 
+	// The cover alert's post waits in the outbox until the chat server
+	// answers, so chat-outbox.json is written with it.
+	release := f.Hold("POST /api/v1/alerts")
 	r, b := doj(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/28","community":"`+secret+`","live":true,"liveIntervalSec":5}`, "application/json")
 	if r.StatusCode != 202 {
 		t.Fatalf("start live: %d %s", r.StatusCode, b)
 	}
 	live := idOf(t, b)
+	waitFor(t, "the cover alert's post", func() bool { return f.Held() == 1 })
+	outbox := filepath.Join(st.Dir(), store.FileChatOutbox)
+	waitFor(t, "chat-outbox.json with the post", func() bool {
+		data, err := os.ReadFile(outbox)
+		return err == nil && strings.Contains(string(data), "printerAlert|")
+	})
+	data, _ := os.ReadFile(outbox)
+	noLeak("chat-outbox.json", string(data))
+	release()
+	waitFor(t, "the cover alert in chat", func() bool { return len(f.Posted()) == 1 })
+	r, b = doj(t, "GET", u+"/api/bubbles", "", "")
+	if r.StatusCode != 200 || !strings.Contains(b, `"state":"connected"`) {
+		t.Fatalf("GET /api/bubbles: %d %s", r.StatusCode, b)
+	}
+	noLeak("GET /api/bubbles", b)
 	stream := readEvents(t, u+"/api/scans/"+live+"/events", "live")
 	if !strings.Contains(stream, "event: snapshot") || !strings.Contains(stream, `"community":"***"`) {
 		t.Fatalf("live stream has no redacted snapshot: %s", stream)
@@ -234,6 +260,17 @@ func TestSecretCommunityAppearsNowhere(t *testing.T) {
 	// network-profile.json the network the scans saw.
 	if err := srv.svc.Close(); err != nil {
 		t.Fatal(err)
+	}
+	// Nor anything netdiag sent the chat server: the cover alert went, with
+	// the messages saying netdiag is connected.
+	sent := f.Bodies()
+	if !slices.ContainsFunc(sent, func(b string) bool {
+		return strings.HasPrefix(b, "POST /api/v1/alerts ") && strings.Contains(b, "printerAlert|")
+	}) {
+		t.Fatalf("no cover alert among the calls to the chat server: %q", sent)
+	}
+	for _, b := range sent {
+		noLeak("the chat server call "+b[:strings.Index(b+" ", " ")], b)
 	}
 	for _, name := range []string{store.FileOpenProblems, store.FileNetworkProfile} {
 		data, err := os.ReadFile(filepath.Join(st.Dir(), name))
