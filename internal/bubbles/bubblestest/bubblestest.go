@@ -71,7 +71,8 @@ type Server struct {
 	alerts   map[string]*protocol.Message
 	posted   []protocol.AlertInput
 	resolved []protocol.ResolveAlertByKeyRequest
-	messages []string // "<channel id> <body>"
+	messages []string                    // "<channel id> <body>"
+	nonces   map[string]protocol.Message // "<token> <nonce>" -> the message it made
 	polls    int
 	seq      int // the last message id
 	fail     []failure
@@ -141,7 +142,7 @@ type failure struct {
 // New starts a fake server whose bot is in one channel, C1 #netdiag-alerts.
 func New(t testing.TB) *Server {
 	t.Helper()
-	s := &Server{t: t, tokens: map[string][]string{}, alerts: map[string]*protocol.Message{}}
+	s := &Server{t: t, tokens: map[string][]string{}, alerts: map[string]*protocol.Message{}, nonces: map[string]protocol.Message{}}
 	s.AddChannel("C1", "netdiag-alerts")
 	caDER, chain := newPKI(t)
 	sum := sha256.Sum256(caDER)
@@ -612,7 +613,12 @@ func (s *Server) resolve(w http.ResponseWriter, r *http.Request, _ string) {
 	writeJSON(w, 200, *m)
 }
 
-func (s *Server) postMessage(w http.ResponseWriter, r *http.Request, _ string) {
+// postMessage is POST /channels/{id}/messages. A nonce is kept per author
+// (here, per token) for good, as bubbles v0.2.0 keeps it
+// (internal/chat/messages.go replayNonce): one seen before in the same
+// channel is answered 200 with the message it made, and nothing is posted;
+// one seen in another channel is a 400 on "nonce".
+func (s *Server) postMessage(w http.ResponseWriter, r *http.Request, tok string) {
 	var in protocol.NewMessage
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	c := s.channel(r.PathValue("id"))
@@ -626,11 +632,28 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request, _ string) {
 	case strings.TrimSpace(in.Body) == "":
 		writeFields(w, map[string]string{"body": "body must not be empty"})
 		return
+	case len(in.Nonce) > 64:
+		writeFields(w, map[string]string{"nonce": "nonce must be at most 64 characters"})
+		return
+	}
+	if in.Nonce != "" {
+		if m, ok := s.nonces[tok+" "+in.Nonce]; ok {
+			if m.ChannelID != c.ID {
+				writeFields(w, map[string]string{"nonce": "nonce was already used in another channel"})
+				return
+			}
+			writeJSON(w, 200, m)
+			return
+		}
 	}
 	s.messages = append(s.messages, c.ID+" "+in.Body)
 	s.seq++
-	writeJSON(w, 201, protocol.Message{ID: "M" + strconv.Itoa(s.seq), ChannelID: c.ID, Kind: protocol.MessageText, Body: in.Body,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)})
+	m := protocol.Message{ID: "M" + strconv.Itoa(s.seq), ChannelID: c.ID, Kind: protocol.MessageText, Body: in.Body,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	if in.Nonce != "" {
+		s.nonces[tok+" "+in.Nonce] = m
+	}
+	writeJSON(w, 201, m)
 }
 
 func (s *Server) self(w http.ResponseWriter, r *http.Request, tok string) {

@@ -193,6 +193,18 @@ var checkMeta = []struct{ id, label string }{
 	{"wifi", "Wi-Fi"},
 }
 
+// Label is the name a check's results carry ("Web server" for the check
+// webserver), or id itself for a check there is none of. Team chat names a
+// failed check with it when it has only the problem's key.
+func Label(id string) string {
+	for _, c := range checkMeta {
+		if c.id == id {
+			return c.label
+		}
+	}
+	return id
+}
+
 // Run executes all checks concurrently under a 10s cap and returns the
 // report. It never fails; problems are reported per check.
 func (r *Runner) Run(ctx context.Context, in Input) model.HealthReport {

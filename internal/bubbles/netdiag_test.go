@@ -136,6 +136,21 @@ func TestPairAndAlertAgainstV020(t *testing.T) {
 	if msgs := f.Messages(); len(msgs) != 1 || msgs[0] != "C1 netdiag on TEST-PC is connected." {
 		t.Fatalf("messages %q", msgs)
 	}
+	// A nonce is kept for good, as v0.2.0 keeps it: the same one again is
+	// answered with the message it made, and nothing is posted; in another
+	// channel it is refused.
+	first, err := c.PostMessage(ctx, "C1", protocol.NewMessage{Body: "one", Nonce: "netdiag-n1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := c.PostMessage(ctx, "C1", protocol.NewMessage{Body: "two", Nonce: "netdiag-n1"})
+	if err != nil || again.ID != first.ID || again.Body != "one" || len(f.Messages()) != 2 {
+		t.Fatalf("replay %+v %v, messages %q", again, err, f.Messages())
+	}
+	f.AddChannel("C2", "ops")
+	if _, err := c.PostMessage(ctx, "C2", protocol.NewMessage{Body: "one", Nonce: "netdiag-n1"}); apiStatus(t, err).Status != 400 {
+		t.Fatalf("nonce in another channel: %v", err)
+	}
 	// bubbles shows the first 8 characters of the token in Admin > Apps;
 	// chat.Connection.TokenPrefix assumes the same.
 	self, err := c.Self(ctx)

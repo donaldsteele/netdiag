@@ -6,7 +6,7 @@
 // Modified for netdiag: the package name and comment, the protocol import
 // path; the event-stream fields and codeForStatus are left out; Config and
 // Client print without the token (String and Format) and Config.Token is
-// never marshalled.
+// never marshalled; CloseIdleConnections is added.
 
 // Package bubbles is netdiag's built-in client for a bubbles team chat
 // server: CA-pinned TLS, pairing, alerts posted and resolved by dedupe key,
@@ -114,6 +114,11 @@ func (c *Client) String() string { return "bubbles client for " + c.base.String(
 // Format prints String for every verb, so a Client in a log line or an
 // error never shows the token.
 func (c *Client) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, c.String()) }
+
+// CloseIdleConnections closes the client's kept-alive connections that
+// carry no call now, so a client that is done with does not hold a socket
+// to the server until they time out.
+func (c *Client) CloseIdleConnections() { c.http.CloseIdleConnections() }
 
 // Config returns the settings this client was built from (without the
 // custom HTTP client).
