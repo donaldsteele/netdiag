@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 
 	"github.com/pkg/browser"
@@ -76,6 +77,7 @@ func runUI(args []string, stdout, stderr io.Writer) int {
 		deps.Profiles = scan.NewProfiles(st)
 	}
 	token, id := instance.NewToken(), instance.NewID()
+	var logMu sync.Mutex // team chat logs from its own goroutines
 	srv := server.New(server.Config{
 		Registry:     scan.NewRegistry(scan.New(deps)),
 		Static:       web.FS(),
@@ -84,6 +86,11 @@ func runUI(args []string, stdout, stderr io.Writer) int {
 		InstanceID:   id,
 		SessionToken: token,
 		Ledger:       ledger,
+		Logf: func(format string, args ...any) {
+			logMu.Lock()
+			defer logMu.Unlock()
+			fmt.Fprintf(stderr, format+"\n", args...)
+		},
 	})
 	if err := listen(srv, instance.Ports(*port, remembered, foreign)); err != nil {
 		fmt.Fprintln(stderr, "error:", err)

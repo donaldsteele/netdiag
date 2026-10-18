@@ -57,6 +57,9 @@ type Config struct {
 	// is set, New makes one that keeps bubbles.json in the Store's folder;
 	// without a Store the team chat routes answer 503.
 	Chat *chat.Manager
+	// Logf receives the team chat manager New makes its diagnostics (a
+	// file it could not read or save; never a token). nil: none.
+	Logf func(format string, args ...any)
 }
 
 // Server is the HTTP server. Create with New, then Listen and Serve.
@@ -94,7 +97,7 @@ func New(cfg Config) *Server {
 		if cfg.Ledger != nil {
 			l = cfg.Ledger
 		}
-		cfg.Chat = chat.NewManager(chat.Options{Files: cfg.Store, Ledger: l})
+		cfg.Chat = chat.NewManager(chat.Options{Files: cfg.Store, Ledger: l, Logf: cfg.Logf})
 	}
 	svc := cfg.Service
 	if svc == nil {
