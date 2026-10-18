@@ -98,7 +98,7 @@ If the file already has other entries, add `"netdiag"` inside the existing `mcpS
 
 With this option, Claude sees the same live scan you see in the netdiag window.
 
-1. Start netdiag on a fixed port: `netdiag ui --port 8787`
+1. Start netdiag. It normally uses `http://127.0.0.1:8787` (see **Live mode**, "Open netdiag again"); to be sure of the port, start it with `netdiag ui --port 8787`.
 2. In the netdiag window, open **Settings** and turn on **Agent access (MCP)** (the switch is off by default).
 3. Copy the address shown there, which looks like `http://127.0.0.1:8787/mcp`.
 4. Add it to Claude Code:
@@ -307,6 +307,8 @@ Leave **Live mode** ticked (next to **Scan**; your choice is remembered) to keep
 - Click **Stop live** to stop watching. To start again with the settings in the top bar, click **Restart watching**: netdiag asks first, and **Keep watching** (the default) leaves it as it is.
 - **Reloading the page brings the live view back.** If you reload the page, or close it and open it again at the same address, it shows the live scan again: the table, the health checks, the live status and the alert banners (an alert fixed in the meantime shows as Fixed), without playing the alert sounds again. The Activity log starts again from that point. If you reload during the first scan, the page picks that scan up again, and live mode starts when it finishes.
 - **Nothing stops watching by accident.** While netdiag is watching, **Scan** in another tab cannot stop it: netdiag asks whether to restart watching instead. An AI agent (see [docs/mcp.md](docs/mcp.md)) cannot stop watching that you started from the window, from its first scan on: it gets that scan back, and is told to ask you to click **Stop live** (or **Cancel** during the first scan).
+- **Open netdiag again to get the page back.** If you closed the browser tab, double-click netdiag again (or run it again): it opens the page of the netdiag that is already running, at the same address, and the console says "netdiag is already running at http://127.0.0.1:8787. Opened it in your browser." Only one netdiag runs at a time for each data folder. netdiag starts at the address it used last, which is `http://127.0.0.1:8787` unless that port was taken; then it picks a free port and remembers it.
+- **Buttons only work in a page netdiag opened.** Each time netdiag starts, it opens the page with a new key that its buttons send along, so other programs and other users on this computer can't press them. A page left open from before netdiag was started again still shows the results, but says "**Buttons on this page are turned off for safety.** Double-click netdiag to open a fresh page."
 - **If netdiag stops.** When netdiag is closed or stops working, the page says "**netdiag has stopped.** Open netdiag again to keep watching." within about 30 seconds. If netdiag was started again, it says "**netdiag was restarted.**" with a **Reload page** button.
 - With the page open in several tabs, every tab follows the scan that is watching (also after **Restart watching** in another tab) and shows the alerts, but only the tab you used last plays the sound and shows desktop alerts.
 
@@ -331,7 +333,7 @@ netdiag compare                               # newest scan vs the previous scan
 netdiag compare --base ID --current ID --csv diff.csv
 netdiag interfaces                            # list candidate network adapters
 netdiag ui --no-browser                       # start the UI without opening a browser
-netdiag ui --port 8765                        # fixed port (80 and 443 are refused)
+netdiag ui --port 8765                        # fixed port (80 and 443 are refused; default: the last one, else 8787, else a free one)
 netdiag mcp                                   # AI agent access over stdio (see Connect Claude)
 netdiag mcp --store-dir D:\netdiag-data       # same, using another data folder
 netdiag version

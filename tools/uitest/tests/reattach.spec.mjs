@@ -228,7 +228,8 @@ test('while live, a broken event stream checks every 5 s, so the stopped banner 
   await page.goto(HOME);
   await expect(page.locator('.livepill')).toBeVisible();
   // The mock stream ends after the replay, like a backend that went away.
-  await expect.poll(() => app(page, (a) => a.sseErr)).toBe(true);
+  // The replay draws every host first, which takes a while on a busy machine.
+  await expect.poll(() => app(page, (a) => a.sseErr), { timeout: 20_000 }).toBe(true);
   rec.identity = 'down';
   const t0 = Date.now();
   await expect(page.locator('#backend-stopped')).toBeVisible({ timeout: 30_000 });

@@ -91,6 +91,8 @@ WHAT YOU WILL SEE
   Wi-Fi extenders often do this on purpose; use "Ignore this MAC" if so.
 - Scans are saved in the History tab, and two scans can be compared.
 - Alerts (live mode) show as a banner and a beep. Use Mute to silence them.
+- If you close the browser tab, double-click netdiag again: it opens the
+  same page.
 
 Everything stays on this computer. netdiag only listens on 127.0.0.1
 (this computer). The web page makes no internet requests. The only
