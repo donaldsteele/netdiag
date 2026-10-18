@@ -375,7 +375,7 @@ func TestLedgerUnreadableNotOverwritten(t *testing.T) {
 // read at the start.
 func TestLedgerMergeKeepsFixed(t *testing.T) {
 	files := &flakyFiles{countFiles: newFiles(t)}
-	earlier, _ := openTest(t, files)
+	earlier, clock := openTest(t, files)
 	earlier.Apply(netA, []model.Notice{cover})
 	if err := earlier.Flush(); err != nil {
 		t.Fatal(err)
@@ -385,6 +385,9 @@ func TestLedgerMergeKeepsFixed(t *testing.T) {
 	if err == nil {
 		t.Fatal("the read did not fail")
 	}
+	// The fixtures' clock: on the real one, coverOK's fix is pruned once it
+	// is more than FixedFor old.
+	l.SetClock(clock.now)
 	l.delay = time.Hour
 	l.Apply(netA, []model.Notice{cover, coverOK})
 	if err := l.Flush(); err != nil {
