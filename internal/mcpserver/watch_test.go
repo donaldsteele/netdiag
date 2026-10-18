@@ -74,7 +74,7 @@ func TestCancelScanRefusesUILive(t *testing.T) {
 }
 
 // A live-mode scan from the window that is still in its first pass is about
-// to watch the network, so cancel_scan leaves it running too (v0.6-D26).
+// to watch the network, so cancel_scan leaves it running too (v0.6-D29).
 func TestCancelScanRefusesUILiveFirstPass(t *testing.T) {
 	gate := make(chan struct{})
 	defer close(gate)

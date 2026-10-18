@@ -952,7 +952,7 @@ Token: Y means the session token is required (from v0.6). Every route is mocked 
 **Changed tools**
 - **v0.6:**
   - `start_scan` returns `alreadyWatching`;
-  - `cancel_scan` refuses a live scan that wasn't started by an agent (D19), and a live-mode scan from the window that is still on its first scan (D26).
+  - `cancel_scan` refuses a live scan that wasn't started by an agent (D19), and a live-mode scan from the window that is still on its first scan (D29).
 - **v0.7:**
   - `probe_host` updates the live scan and returns `updatedLiveScan`;
   - `get_device` gains `label`, `room`, `privateAddress`, `portScan`, `wake` and `inventory{name, room, owner, notes}`;

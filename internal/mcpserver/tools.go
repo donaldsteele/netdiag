@@ -111,7 +111,7 @@ type cancelOut struct {
 
 // noteWatchingFromWindow is cancel_scan's answer for a live scan that was
 // started from the netdiag window (D19), and noteFirstPassFromWindow for one
-// in live mode that is still on its first scan (v0.6-D26): the window shows
+// in live mode that is still on its first scan (v0.6-D29): the window shows
 // Cancel until it is watching.
 const (
 	noteWatchingFromWindow  = "That scan is watching the network from the netdiag window; ask the person to click Stop live there."
@@ -380,7 +380,7 @@ func (t *tools) cancelScan(_ context.Context, _ *mcp.CallToolRequest, in scanIDI
 	cancelled := false
 	if q := sc.Request(); (state == model.StateRunning || state == model.StateLive) && q.Live && q.Origin() != model.OriginMCP {
 		// Watching started from the window stays on (D19), from its first
-		// scan on (v0.6-D26).
+		// scan on (v0.6-D29).
 		note := noteWatchingFromWindow
 		if state == model.StateRunning {
 			note = noteFirstPassFromWindow
