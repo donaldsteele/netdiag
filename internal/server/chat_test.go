@@ -3,11 +3,17 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +31,14 @@ import (
 // bubbles tray config.
 func startChat(t *testing.T, f *bubblestest.Server) (string, *store.Store) {
 	t.Helper()
+	return startChatFiles(t, f, nil, nil)
+}
+
+// startChatFiles is startChat with the manager's data folder seen through
+// files (nil: the store itself), to make its saves or removals fail, and
+// the diagnostics log going to logf (nil: none).
+func startChatFiles(t *testing.T, f *bubblestest.Server, files func(*store.Store) chat.DataFiles, logf func(string, ...any)) (string, *store.Store) {
+	t.Helper()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -36,12 +50,16 @@ func startChat(t *testing.T, f *bubblestest.Server) (string, *store.Store) {
 		return []mdns.Record{{IP: a.Hostname(), Info: model.MDNSInfo{Details: []model.MDNSService{
 			{Type: "_bubbles._tcp", Instance: "Office", Port: port, TXT: map[string]string{"onboard": o.Port()}}}}}}, nil
 	}
-	m := chat.NewManager(chat.Options{Files: st, Browse: browse, PairPoll: 5 * time.Millisecond,
+	var df chat.DataFiles = st
+	if files != nil {
+		df = files(st)
+	}
+	m := chat.NewManager(chat.Options{Files: df, Browse: browse, PairPoll: 5 * time.Millisecond,
 		TrayConfig: func() (string, error) { return filepath.Join(t.TempDir(), "none.json"), nil },
 		Hostname:   func() (string, error) { return "FRONTDESK-PC", nil }})
 	reg := scan.NewRegistry(scan.New(scan.Deps{Pinger: fakePinger{}, ARP: fakeARP{}, Ports: fakePorts{}, Web: fakeWeb{},
 		SNMP: fakeSNMP{}, DNS: fakeDNS{}, Vendors: fakeVendors{}, Env: fakeEnv{}}))
-	s := New(Config{Store: st, Chat: m, SessionToken: testToken, Registry: reg})
+	s := New(Config{Store: st, Chat: m, SessionToken: testToken, Registry: reg, Logf: logf})
 	if err := s.Listen(0); err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +169,10 @@ func TestChatRoutes(t *testing.T) {
 	if m := f.Messages(); len(m) != 1 || !strings.Contains(m[0], "netdiag on FRONTDESK-PC is connected.") {
 		t.Fatalf("messages %q", m)
 	}
+	// The status says so too, for every page open (v0.6-D51).
+	if _, b := do(t, "GET", u+"/api/bubbles", "", ""); !strings.Contains(b, `"sendAlerts":true`) {
+		t.Fatalf("status after Send alerts was saved on: %s", b)
+	}
 
 	r, b = do(t, "POST", u+"/api/bubbles/channel", `{"channelId":"C1"}`, "")
 	if r.StatusCode != 200 || decode[chat.ChannelChoice](t, b).Channel.ID != "C1" {
@@ -210,5 +232,81 @@ func TestChatRoutesWithoutStore(t *testing.T) {
 		if r, b := do(t, "POST", u+p, `{}`, ""); r.StatusCode != 503 || !strings.Contains(b, chat.NoStoreMsg) {
 			t.Errorf("%s: %d %s", p, r.StatusCode, b)
 		}
+	}
+}
+
+// noRemove is a data folder whose files cannot be removed (read-only):
+// the error names the file, as the OS's does.
+type noRemove struct{ *store.Store }
+
+func (n noRemove) RemoveFile(name string) error {
+	return &fs.PathError{Op: "remove", Path: filepath.Join(n.Dir(), name), Err: errors.New("Access is denied.")}
+}
+
+// logLines keeps what the server writes to the diagnostics log.
+type logLines struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *logLines) logf(format string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintf(format, args...))
+}
+
+func (l *logLines) has(parts ...string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.ContainsFunc(l.lines, func(line string) bool {
+		for _, p := range parts {
+			if !strings.Contains(line, p) {
+				return false
+			}
+		}
+		return true
+	})
+}
+
+// A Disconnect that cannot remove bubbles.json answers 500 with plain
+// words and a next step, which Settings shows as they are; the OS error
+// and the file's path go only to the diagnostics log (v0.6-D51).
+func TestChatDisconnectFails(t *testing.T) {
+	f := bubblestest.New(t)
+	var log logLines
+	u, _ := startChatFiles(t, f, func(st *store.Store) chat.DataFiles { return noRemove{st} }, log.logf)
+	r, b := do(t, "DELETE", u+"/api/bubbles", "", "")
+	if r.StatusCode != 500 || decode[map[string]string](t, b)["error"] != chatNoForget {
+		t.Fatalf("disconnect %d %s", r.StatusCode, b)
+	}
+	for _, raw := range []string{store.FileBubbles, "Access is denied", `\`, "/"} {
+		if strings.Contains(chatNoForget, raw) || strings.Contains(b, raw) {
+			t.Errorf("the answer has %q: %s", raw, b)
+		}
+	}
+	if !log.has("disconnect", store.FileBubbles, "Access is denied") {
+		t.Fatalf("diagnostics %q", log.lines)
+	}
+}
+
+// chatErr: words for the page (a RefusedError, also wrapped) are a 400
+// with those words; any other manager error is a 500 with plain words, and
+// what went wrong goes only to the diagnostics log.
+func TestChatErrAnswers(t *testing.T) {
+	var log logLines
+	s := &Server{cfg: Config{Logf: log.logf}}
+	w := httptest.NewRecorder()
+	s.chatErr(w, fmt.Errorf("inspect: %w", &chat.RefusedError{Msg: "Use the address of a chat server on the local network."}))
+	if w.Code != 400 || decode[map[string]string](t, w.Body.String())["error"] != "Use the address of a chat server on the local network." {
+		t.Fatalf("refused %d %s", w.Code, w.Body)
+	}
+	w = httptest.NewRecorder()
+	raw := &fs.PathError{Op: "open", Path: filepath.Join(t.TempDir(), "bubbles.json.tmp"), Err: errors.New("Access is denied.")}
+	s.chatErr(w, fmt.Errorf("save: %w", raw))
+	if w.Code != 500 || decode[map[string]string](t, w.Body.String())["error"] != chatInternal || strings.Contains(w.Body.String(), "bubbles.json") {
+		t.Fatalf("internal %d %s", w.Code, w.Body)
+	}
+	if !log.has("team chat", "bubbles.json.tmp", "Access is denied") {
+		t.Fatalf("diagnostics %q", log.lines)
 	}
 }

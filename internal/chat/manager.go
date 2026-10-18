@@ -332,8 +332,12 @@ type ServerView struct {
 // the last things the outbox and the polling had to say, for the page's
 // Activity log; their ids count up within Run, which names this run of
 // netdiag, so a page open across a restart knows the ids started again.
+// SendAlerts is Send alerts to team chat as the manager last applied it
+// (absent before the first ApplySettings): every page open says whether
+// alerts go, also after another page saved the switch.
 type Status struct {
 	State       string      `json:"state"`
+	SendAlerts  *bool       `json:"sendAlerts,omitempty"`
 	Reason      string      `json:"reason,omitempty"`
 	Since       string      `json:"since,omitempty"`
 	Server      *ServerView `json:"server,omitempty"`
@@ -395,6 +399,10 @@ func (m *Manager) status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	st := Status{State: StateOff}
+	if m.known {
+		on := m.enabled
+		st.SendAlerts = &on
+	}
 	c := m.conn
 	switch {
 	case c != nil:

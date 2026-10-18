@@ -949,6 +949,34 @@ func TestFirstConnectBurst(t *testing.T) {
 	}
 }
 
+// The status says whether the manager sends (the switch it last applied),
+// so a page whose own copy of the settings is out of date, because
+// another page saved them, never claims alerts go when they don't (v0.6-D51).
+func TestStatusSendAlerts(t *testing.T) {
+	f := bubblestest.New(t)
+	st, _ := newStore(t)
+	m := newManager(t, st)
+	if s := m.Status(); s.SendAlerts != nil {
+		t.Fatalf("sendAlerts before the settings were applied: %v", *s.SendAlerts)
+	}
+	b, _ := json.Marshal(m.Status())
+	if strings.Contains(string(b), "sendAlerts") {
+		t.Fatalf("status before the settings were applied: %s", b)
+	}
+	pairWith(t, m, f)
+	for _, on := range []bool{true, false, true} {
+		m.ApplySettings(model.SettingsChat{Enabled: on, MinSeverity: model.ChatSeverityWarning})
+		s := m.Status()
+		if s.State != StateConnected || s.SendAlerts == nil || *s.SendAlerts != on {
+			t.Fatalf("Send %v: %+v", on, s)
+		}
+		b, _ := json.Marshal(s)
+		if want := fmt.Sprintf(`"sendAlerts":%v`, on); !strings.Contains(string(b), want) {
+			t.Fatalf("Send %v: %s", on, b)
+		}
+	}
+}
+
 // The ledger drops a problem of a network netdiag has not been on for 7
 // days: its card is resolved with words that say so.
 func TestSevenDayDropResolves(t *testing.T) {
