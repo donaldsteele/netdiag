@@ -17,6 +17,27 @@ type sevCtx struct {
 	swap    bool   // ipConflict: the devices were seen taking turns
 }
 
+// TriggerSeverity is the severity map's answer for a trigger that needs no
+// more context (offline, supplies, new devices, the storm guard).
+func TriggerSeverity(trigger string) string { return severityFor(trigger, sevCtx{}) }
+
+// HealthSeverity is the severity of failed health check check.
+func HealthSeverity(check string) string {
+	return severityFor(model.TriggerHealthFailed, sevCtx{check: check})
+}
+
+// AlertSeverity is the severity of printer alert a.
+func AlertSeverity(a model.Alert) string {
+	return severityFor(model.TriggerPrinterAlert, sevCtx{printer: a.Severity})
+}
+
+// ConflictSeverity is the severity of conflict c. The analyzer marks a
+// mac_flap "fail" only when the MACs were seen taking turns (a swap), not on
+// a single change.
+func ConflictSeverity(c model.Conflict) string {
+	return severityFor(model.TriggerIPConflict, sevCtx{kind: c.Kind, swap: c.Kind == model.ConflictMACFlap && c.Severity == "fail"})
+}
+
 // severityFor is the one severity map (v0.6 §4.7, README §8.2) for local
 // banners and team chat alike (v0.6-D3). Critical reaches chat members who
 // only want mentions, so only a dead gateway, a printer that declares an

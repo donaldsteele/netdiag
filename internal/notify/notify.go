@@ -375,6 +375,10 @@ func label(h model.Host) string {
 	return h.IP
 }
 
+// Name is the best name netdiag has for h, as notices carry it ("" for
+// none). v0.7 replaces it with names.Best.
+func Name(h model.Host) string { return bestName(h) }
+
 // bestName is the best name netdiag has for h: its mDNS instance, SNMP
 // system name, host name or printer model, in that order ("" for none).
 func bestName(h model.Host) string {
@@ -556,6 +560,22 @@ func stops(a model.Alert) bool {
 
 func alertID(a model.Alert) string { return a.Code + "|" + a.Description }
 
+// OwnAlerts are the printer alerts that are problems of their own: all of
+// them, except a general "offline or paused" flag next to a specific error
+// that stops the printer, which is part of that error (v0.6-D25).
+func OwnAlerts(alerts []model.Alert) []model.Alert {
+	if !slices.ContainsFunc(alerts, stops) {
+		return alerts
+	}
+	var out []model.Alert
+	for _, a := range alerts {
+		if !general(a) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // printerAlerts reports each alert the printer newly raises under its own key
 // and closes each one as soon as the printer stops reporting it. A general
 // alert (see general) that comes with a specific error is not reported: the
@@ -647,10 +667,7 @@ func (e *Engine) ObserveConflicts(cur []model.Conflict, cycle bool) []model.Noti
 		if c.Kind == model.ConflictMACMultiIP {
 			mac = strings.ToUpper(first(c.MACs))
 		}
-		// The analyzer marks a mac_flap "fail" only when the MACs were seen
-		// taking turns (a swap), not on a single change.
-		ctx := sevCtx{kind: c.Kind, swap: c.Kind == model.ConflictMACFlap && c.Severity == "fail"}
-		out = e.emit(out, model.Notice{Trigger: model.TriggerIPConflict, Severity: severityFor(model.TriggerIPConflict, ctx),
+		out = e.emit(out, model.Notice{Trigger: model.TriggerIPConflict, Severity: ConflictSeverity(c),
 			IP: first(c.IPs), MAC: mac, Name: c.Name, Title: "Network conflict", Message: c.Detail, Key: k}, "")
 	}
 	if !cycle {

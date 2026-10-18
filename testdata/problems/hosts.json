@@ -1,0 +1,73 @@
+{
+  "about": "Shared golden cases for the Problems tab and the Problems right now card (v0.6 M8). internal/problems TestHostIssuesGolden checks problems.HostIssues and tools/uitest problems.spec checks the page's hostIssues (web/app.js) against issues, per case; TestCurrentGolden checks problems.Current with the default Alerts settings against card. Hosts use the server's JSON field names.",
+  "conflicts": [
+    {"id": "k1", "kind": "mac_flap", "severity": "warn", "ips": ["10.0.1.3"], "macs": ["02:00:5E:00:01:03", "02:00:5E:00:01:33"], "name": "", "detail": "10.0.1.3 changed MAC address"},
+    {"id": "k2", "kind": "mac_multi_ip", "severity": "warn", "ips": ["10.0.1.4", "10.0.1.8"], "macs": ["02:00:5E:00:01:04"], "name": "", "detail": "MAC 02:00:5E:00:01:04 answers for 10.0.1.4 and 10.0.1.8"}
+  ],
+  "hosts": [
+    {"ip": "10.0.1.1", "alive": true, "online": true, "mac": "02:00:5E:00:01:01", "hostname": "healthy"},
+    {"ip": "10.0.1.2", "alive": true, "online": false, "mac": "02:00:5E:00:01:02", "deviceType": "phone", "offlineSince": "2026-10-17T10:30:00Z"},
+    {"ip": "10.0.1.3", "alive": true, "online": true, "mac": "02:00:5E:00:01:03"},
+    {"ip": "10.0.1.4", "alive": true, "online": true, "mac": "02:00:5E:00:01:04", "conflicts": ["k2"]},
+    {"ip": "10.0.1.5", "alive": true, "online": false, "isSelf": true, "mac": "02:00:5E:00:01:05"},
+    {"ip": "10.0.1.6", "alive": false, "online": false},
+    {"ip": "10.0.1.7", "alive": true, "online": true, "mac": "02:00:5E:00:01:07", "conflicts": ["gone"]},
+    {"ip": "10.0.1.9", "alive": true, "online": false, "mac": "02:00:5E:00:01:09", "isPrinter": true, "offlineSince": "2026-10-17T10:20:00Z",
+      "printer": {"model": "Front Desk Laser", "alerts": [{"severity": "warning", "code": "toner-low", "description": "Toner low"}], "supplies": []}},
+    {"ip": "10.0.2.1", "alive": true, "online": true, "mac": "02:00:5E:00:02:01", "isPrinter": true,
+      "printer": {"model": "ZD621", "alerts": [
+        {"severity": "critical", "code": "hrPrinterDetectedErrorState.doorOpen", "description": "Cover open"},
+        {"severity": "warning", "code": "hrPrinterDetectedErrorState.offline", "description": "Offline or paused"}], "supplies": []}},
+    {"ip": "10.0.2.2", "alive": true, "online": true, "mac": "02:00:5E:00:02:02", "isPrinter": true,
+      "printer": {"alerts": [], "supplies": [{"description": "Black Toner", "percent": 20, "state": "ok"}]}},
+    {"ip": "10.0.2.3", "alive": true, "online": true, "mac": "02:00:5E:00:02:03", "isPrinter": true,
+      "printer": {"alerts": [], "supplies": [{"description": "Black Toner", "percent": 15, "state": "ok"}]}},
+    {"ip": "10.0.2.4", "alive": true, "online": true, "mac": "02:00:5E:00:02:04", "isPrinter": true,
+      "printer": {"alerts": [], "supplies": [{"description": "Drum", "percent": -1, "state": "unknown"}]}},
+    {"ip": "10.0.2.5", "alive": true, "online": true, "mac": "02:00:5E:00:02:05", "isPrinter": true,
+      "printer": {"alerts": [], "supplies": [{"description": "Cyan Ink", "percent": -1, "state": "empty"}]}},
+    {"ip": "10.0.2.6", "alive": true, "online": true, "mac": "02:00:5E:00:02:06", "isPrinter": true,
+      "printer": {"alerts": [], "supplies": [{"description": "Waste Toner", "percent": 40, "state": "low"}]}},
+    {"ip": "10.0.2.7", "alive": true, "online": true, "mac": "02:00:5E:00:02:07", "isPrinter": true,
+      "printer": {"state": "stopped", "alerts": [], "supplies": []}},
+    {"ip": "10.0.2.8", "alive": true, "online": true, "mac": "02:00:5E:00:02:08",
+      "printer": {"alerts": [{"severity": "warning", "code": "x", "description": "not a printer"}], "supplies": []}},
+    {"ip": "10.0.3.1", "alive": true, "online": true, "mac": "02:00:5E:00:03:01", "web": [{"url": "http://10.0.3.1/", "status": 200, "error": ""}]},
+    {"ip": "10.0.3.2", "alive": true, "online": true, "mac": "02:00:5E:00:03:02", "web": [{"url": "http://10.0.3.2/", "status": 301, "error": ""}]},
+    {"ip": "10.0.3.3", "alive": true, "online": true, "mac": "02:00:5E:00:03:03", "web": [{"url": "http://10.0.3.3/", "status": 404, "error": ""}]},
+    {"ip": "10.0.3.4", "alive": true, "online": true, "mac": "02:00:5E:00:03:04", "web": [{"url": "https://10.0.3.4/", "status": 503, "error": ""}]},
+    {"ip": "10.0.3.5", "alive": true, "online": true, "mac": "02:00:5E:00:03:05", "web": [{"url": "http://10.0.3.5/", "status": 0, "error": "timeout"}]},
+    {"ip": "10.0.3.6", "alive": true, "online": true, "mac": "02:00:5E:00:03:06", "web": [{"url": "http://10.0.3.6/", "status": 0, "error": ""}]}
+  ],
+  "cases": [
+    {"name": "default threshold (15%)", "supplyThresholdPct": 15, "issues": {
+      "10.0.1.2": ["offline"], "10.0.1.3": ["conflict"], "10.0.1.4": ["conflict"],
+      "10.0.1.9": ["offline", "printerAlert"],
+      "10.0.2.1": ["printerAlert", "printerAlert"], "10.0.2.3": ["supplyLow"], "10.0.2.5": ["supplyLow"], "10.0.2.6": ["supplyLow"],
+      "10.0.3.3": ["web"], "10.0.3.4": ["web"], "10.0.3.5": ["web"], "10.0.3.6": ["web"]}},
+    {"name": "threshold 25%", "supplyThresholdPct": 25, "issues": {
+      "10.0.1.2": ["offline"], "10.0.1.3": ["conflict"], "10.0.1.4": ["conflict"],
+      "10.0.1.9": ["offline", "printerAlert"],
+      "10.0.2.1": ["printerAlert", "printerAlert"], "10.0.2.2": ["supplyLow"], "10.0.2.3": ["supplyLow"], "10.0.2.5": ["supplyLow"], "10.0.2.6": ["supplyLow"],
+      "10.0.3.3": ["web"], "10.0.3.4": ["web"], "10.0.3.5": ["web"], "10.0.3.6": ["web"]}},
+    {"name": "threshold 14%: only what the printer calls low or empty", "supplyThresholdPct": 14, "issues": {
+      "10.0.1.2": ["offline"], "10.0.1.3": ["conflict"], "10.0.1.4": ["conflict"],
+      "10.0.1.9": ["offline", "printerAlert"],
+      "10.0.2.1": ["printerAlert", "printerAlert"], "10.0.2.5": ["supplyLow"], "10.0.2.6": ["supplyLow"],
+      "10.0.3.3": ["web"], "10.0.3.4": ["web"], "10.0.3.5": ["web"], "10.0.3.6": ["web"]}},
+    {"name": "a threshold out of range counts as 15%", "supplyThresholdPct": 0, "issues": {
+      "10.0.1.2": ["offline"], "10.0.1.3": ["conflict"], "10.0.1.4": ["conflict"],
+      "10.0.1.9": ["offline", "printerAlert"],
+      "10.0.2.1": ["printerAlert", "printerAlert"], "10.0.2.3": ["supplyLow"], "10.0.2.5": ["supplyLow"], "10.0.2.6": ["supplyLow"],
+      "10.0.3.3": ["web"], "10.0.3.4": ["web"], "10.0.3.5": ["web"], "10.0.3.6": ["web"]}}
+  ],
+  "card": [
+    {"key": "printerAlert|02:00:5E:00:02:01|hrPrinterDetectedErrorState.doorOpen|e136702f", "kind": "printerAlert", "severity": "critical", "title": "Printer alert", "ip": "10.0.2.1"},
+    {"key": "printerOffline|02:00:5E:00:01:09|", "kind": "printerOffline", "severity": "warning", "title": "Printer offline", "ip": "10.0.1.9"},
+    {"key": "supplyLow|02:00:5E:00:02:03|1c3936d3", "kind": "supplyLow", "severity": "warning", "title": "Supply low", "ip": "10.0.2.3"},
+    {"key": "supplyLow|02:00:5E:00:02:05|41dba9b9", "kind": "supplyLow", "severity": "warning", "title": "Supply low", "ip": "10.0.2.5"},
+    {"key": "supplyLow|02:00:5E:00:02:06|cdfeb27e", "kind": "supplyLow", "severity": "warning", "title": "Supply low", "ip": "10.0.2.6"},
+    {"key": "ipConflict|mac_flap|10.0.1.3", "kind": "ipConflict", "severity": "warning", "title": "Possible conflict", "ip": "10.0.1.3"},
+    {"key": "ipConflict|mac_multi_ip|02:00:5E:00:01:04", "kind": "ipConflict", "severity": "warning", "title": "Possible conflict", "ip": "10.0.1.4"}
+  ]
+}

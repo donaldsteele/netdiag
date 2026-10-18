@@ -25,6 +25,27 @@ func Key(trigger string, h model.Host, part string) string {
 	return keyFor(trigger, hostID(h), part)
 }
 
+// HostKeys lists the alert keys a problem of trigger on host h may be open
+// under: Key first, then the "ip:" key a problem opened under before the
+// MAC was known, or while another device behind the same MAC had the MAC
+// key open. The Problems card (internal/problems) matches the ledger with
+// them, so it shows the key team chat has.
+func HostKeys(trigger string, h model.Host, part string) []string {
+	ids := hostIDs(h)
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = keyFor(trigger, id, part)
+	}
+	return out
+}
+
+// SupplyParts are the key parts of a printer's supplies, in list order (see
+// Key): the same parts the engine opens supplyLow problems under.
+func SupplyParts(ss []model.Supply) []string { return supplyParts(ss) }
+
+// AlertPart is the key part of one printer alert (see Key).
+func AlertPart(a model.Alert) string { return alertPart(a) }
+
 // HealthKey is the alert key of a failed health check:
 // healthFailed||<check id>.
 func HealthKey(check string) string {
