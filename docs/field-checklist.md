@@ -8,7 +8,9 @@ Status: **PARTLY EXECUTED.** Sections 1 to 5 are unchecked. In section 6,
 6.1 (the Zebra and team chat) and the release candidate scan in 6.6 were run
 on 2026-10-18 on the Windows 11 PC that also ran the bubbles server, with the
 person next to the Zebra; 6.2 to 6.5 (standard-user Windows 11 with the
-firewall on, macOS 15, mDNS devices, Claude) are not run yet. Items must be
+firewall on, macOS 15, mDNS devices, Claude) were not run: the product owner
+waived them for the v0.6.0 release on 2026-10-18 (master roadmap v0.6-D58),
+so they stay unticked and are open for a later run. Items must be
 completed by a person on physical hardware. Do not tick an item without
 observing it; tick each one only with its date, OS and result filled in.
 
