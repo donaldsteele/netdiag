@@ -479,7 +479,9 @@ func TestIconSpriteBudgetAndRefs(t *testing.T) {
 		"i-radar", "i-circle-plus", "i-wifi-off", "i-heart-pulse", "i-bell", "i-globe", "i-radio-tower",
 		"i-printer", "i-chevron-down", "i-chevron-right",
 		// actionIcon (advice buttons, v0.6 M7).
-		"i-refresh-cw", "i-settings", "i-monitor", "i-map-pin", "i-external-link"}
+		"i-refresh-cw", "i-settings", "i-monitor", "i-map-pin", "i-external-link",
+		// chatIcon: the team chat status tool's three shapes (v0.6 M10).
+		"i-chat", "i-chat-warn", "i-chat-off"}
 	for _, id := range dynamic {
 		if !has(id) {
 			t.Errorf("icons.svg missing dynamically referenced symbol %s", id)
@@ -501,6 +503,58 @@ func TestIconLicenseAndVersionsEmbedded(t *testing.T) {
 	}
 	if !strings.Contains(string(ver), "lucide-static") {
 		t.Errorf("vendor/VERSIONS.txt does not mention lucide-static")
+	}
+}
+
+// Team chat (v0.6 M10, 4.10): the one section name, the wizard dialog with
+// its fingerprint, code and Done steps, the header status tool (not a
+// seventh health pill), and the plain words that chat alerts flow only
+// while netdiag is watching (D10). The page reads the status and pairing
+// state through api(), so they carry the session token, and every link to
+// the chat server comes from the server (no URL literal in app.js).
+func TestTeamChatUI(t *testing.T) {
+	js, _ := readAsset("app.js")
+	html, _ := readAsset("index.html")
+	for _, want := range []string{
+		"Team chat (bubbles)</legend>", `<dialog id="chat-dialog"`, `x-ref="chatDlg"`, `@cancel.prevent="closeChatWizard()"`,
+		`id="chat-tool"`, `class="iconbtn tool chattool"`, "Connect to team chat", "Is this the right server?",
+		"Looking for your team chat on the local network…", "No chat server found automatically. Windows Firewall or a separate Wi-Fi network can hide it.",
+		"Type the address", "Paste a connection string", "It matches", "It doesn't",
+		"Stop here and tell your chat admin.", "Ask your chat admin to approve netdiag", "Open bubbles admin page",
+		"netdiag isn't in any channel yet.", "Check again", "Send test alert", "<strong>while it is watching this network</strong>",
+		"Alerts go to team chat only while netdiag is watching this network.", `id="chat-enabled"`, `role="switch"`,
+		`<option value="warning">Problems and warnings</option>`, `<option value="critical">Only urgent problems</option>`,
+		`<option value="info">Everything, including notes</option>`, "Takes effect when you click Save.",
+		"Warning: the chat server's identity changed.", "Disconnect", "Change channel", "Reconnect",
+		`:href="wiz.adminUrl || null"`, `!$refs.chatDlg.open`,
+	} {
+		if !strings.Contains(string(html), want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"this.api('GET', '/api/bubbles')", "this.api('GET', '/api/bubbles/pair/status')", "'/api/bubbles/discover'",
+		"'/api/bubbles/inspect'", "'/api/bubbles/pair'", "this.api('DELETE', '/api/bubbles/pair')", "'/api/bubbles/connect'",
+		"'/api/bubbles/channel'", "this.api('POST', '/api/bubbles/test', {})", "this.api('DELETE', '/api/bubbles')",
+		"confirmed: true", "{reconnect: true}", "'Disconnect from team chat?",
+		"Your chat admin should also remove netdiag in bubbles under Admin > Apps.",
+		"s === 'connected' ? 'chat' : s === 'unreachable' ? 'chat-warn' : 'chat-off'",
+		"setInterval(() => this.loadChat(), 30000)", "}, 2000);",
+	} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+	// The fingerprint step never presents the TXT prefix as a check.
+	if strings.Contains(string(html), "fpPrefixMatches") || strings.Contains(string(js), "fpPrefixMatches") {
+		t.Error("the page must not show the mDNS fingerprint hint as verification")
+	}
+	// The wizard spinner turns only when motion is allowed.
+	css, _ := readAsset("styles.css")
+	i := strings.Index(string(css), ".spinner{animation:")
+	j := strings.LastIndex(string(css[:max(i, 0)]), "@media (prefers-reduced-motion:no-preference)")
+	if i < 0 || j < 0 || strings.Contains(string(css[j:i]), "}}") {
+		t.Error("styles.css: the spinner animation must sit inside @media (prefers-reduced-motion:no-preference)")
 	}
 }
 

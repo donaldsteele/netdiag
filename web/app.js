@@ -4,6 +4,7 @@ let hbTimer = 0; // next heartbeat
 let tabs = null; // BroadcastChannel shared by every open netdiag tab
 let restartOpener = null; // element that opened the restart dialog
 let session = ''; // this launch's session token, when the browser keeps no storage
+let pairTimer = 0; // next poll of the team chat pairing request
 document.addEventListener('alpine:init', () => {
   Alpine.data('app', () => ({
     ifaces: [], ifaceName: '', cidr: '', community: 'public',
@@ -20,6 +21,8 @@ document.addEventListener('alpine:init', () => {
     shown: {},
     remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
     sessionOff: false, settingsLocked: false,
+    chat: null, chatMsg: '', chatBusy: false, wiz: {step: 'closed', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
+      code: '', expiresAt: '', adminUrl: '', channels: [], channelId: '', channel: null, testMsg: '', testOk: false, fresh: false, stopped: '', retry: ''},
     watching: null, restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: null, focusAt: 0, starting: false,
     log: [], logSeq: 0, logHidden: {}, logStick: true, logSeen: {},
     logKinds: [{id: 'scan', label: 'Scan'}, {id: 'host', label: 'New host'}, {id: 'offline', label: 'Offline'}, {id: 'online', label: 'Online'},
@@ -120,6 +123,8 @@ document.addEventListener('alpine:init', () => {
       this.loadSettings();
       this.loadHealth();
       this.loadRemoteCaps();
+      this.loadChat();
+      setInterval(() => this.loadChat(), 30000);
       this.startHeartbeat();
     },
     // The settings read needs the session token (v0.6-D14). A page whose
@@ -308,12 +313,15 @@ document.addEventListener('alpine:init', () => {
       this.draft.mcp = this.draft.mcp || {enabled: false};
       this.draft.mcp.enabled = !!this.draft.mcp.enabled;
       this.draft.noInternetNetworks = this.draft.noInternetNetworks || [];
+      this.draft.chat = Object.assign({enabled: false, minSeverity: 'warning'}, this.draft.chat || {});
       this.noInternetHere = this.noInternetOn(this.draft);
       this.repairedNote = this.repairedText();
       const focus = {webserver: 'set-weburl', health: 'set-internet', noInternet: 'set-nointernet'}[section];
+      this.loadChat();
       this.$nextTick(() => {
         const d = this.$refs.dlg; if (d && !d.open) d.showModal();
         const f = focus && document.getElementById(focus); if (f) f.focus();
+        if (section === 'chat') this.focusChat();
       });
     },
     // Settings fields that were not valid in the settings file and were
@@ -344,9 +352,9 @@ document.addEventListener('alpine:init', () => {
       chat: 'Team chat', 'chat.enabled': 'Send alerts to team chat', 'chat.minSeverity': 'Team chat alert level',
     },
     // Reset fields that have no control in Settings, so the notice names
-    // them without sending people to look for them: team chat until its
-    // Settings section exists, and a trusted certificate, which shows only
-    // while one is set.
+    // them without sending people to look for them: team chat until it is
+    // set up (its switch and Send level show only then), and a trusted
+    // certificate, which shows only while one is set.
     repairedOffPage: ['chat', 'chat.enabled', 'chat.minSeverity', 'webServer.trustedCert'],
     repairedText() {
       const rep = this.repairedPending;
@@ -355,7 +363,9 @@ document.addEventListener('alpine:init', () => {
       this.repairedPending = [];
       const label = p => this.repairedLabels[p] || p;
       const names = [...new Set(rep.map(label))];
-      const here = [...new Set(rep.filter(p => !this.repairedOffPage.includes(p)).map(label))];
+      // Team chat has controls in Settings only once it is set up.
+      const off = p => this.repairedOffPage.includes(p) && !(p.startsWith('chat') && this.chatState() !== 'off');
+      const here = [...new Set(rep.filter(p => !off(p)).map(label))];
       let t = 'Some settings were not valid and were reset: ' + names.join(', ') + '.';
       if (here.length === names.length) t += ' Check them below.';
       else if (here.length) t += ' Check ' + here.join(', ') + ' below.';
@@ -410,6 +420,259 @@ document.addEventListener('alpine:init', () => {
       } catch (e) { if (showErr) this.settingsError = 'Could not save settings: ' + e.message; return false; }
     },
     removeIgnored(i) { this.draft.ignoredConflictMACs.splice(i, 1); },
+    // ---- team chat (bubbles), v0.6 4.10 ----
+    // The status (GET /api/bubbles, which needs the session token like the
+    // settings) is read at start, every 30 s and when Settings opens. Alerts
+    // reach team chat only while netdiag is watching (v0.6-D10).
+    async loadChat() {
+      try {
+        const r = await this.api('GET', '/api/bubbles');
+        if (r.ok) this.chat = await r.json();
+      } catch (e) {}
+    },
+    chatState() { return (this.chat && this.chat.state) || 'off'; },
+    // The header tool shows only once team chat is set up.
+    chatShown() { return this.chatState() !== 'off'; },
+    // Each state has its own shape: connected, can't reach, or stopped.
+    chatIcon() {
+      const s = this.chatState();
+      return s === 'connected' ? 'chat' : s === 'unreachable' ? 'chat-warn' : 'chat-off';
+    },
+    chatSince() { const t = this.clock(this.chat && this.chat.since); return t ? ' since ' + t : ''; },
+    chatStateWord() {
+      return {off: 'Not connected', connected: 'Connected', unreachable: "Can't reach the server" + this.chatSince(),
+        needs_reconnect: 'Needs reconnecting', no_channel: 'No channel', identity_changed: 'Server identity changed'}[this.chatState()] || this.chatState();
+    },
+    chatTitle() {
+      const w = this.chatStateWord();
+      return 'Team chat: ' + (this.chatState() === 'unreachable' ? "can't reach the server" + this.chatSince() : w.charAt(0).toLowerCase() + w.slice(1));
+    },
+    chatStatusClass() {
+      return {off: 'hs-info', connected: 'hs-ok', unreachable: 'hs-warn'}[this.chatState()] || 'hs-fail';
+    },
+    // "Sending to #netdiag-alerts on Office (192.168.1.20)", in parts.
+    chatWhere() {
+      const c = this.chat || {}, s = c.server, ch = c.channel;
+      if (!ch || !s) return {lead: '', channel: '', rest: ''};
+      const host = s.host + (s.port && s.port !== 28225 ? ':' + s.port : '');
+      return {lead: 'Sending to', channel: '#' + ch.name, rest: ' on ' + (s.name ? s.name + ' (' + host + ')' : host)};
+    },
+    // What is wrong with the connection, in words; identity changed has its own box.
+    chatTrouble() {
+      const s = this.chatState();
+      if (s === 'unreachable') return "Can't reach the chat server" + this.chatSince() + '. Check that it is running, then send a test alert.';
+      if (s === 'needs_reconnect') return 'The chat server no longer accepts netdiag (your chat admin may have removed it). Click Reconnect. Your chat admin may see a second netdiag app; they can remove the old one in Admin > Apps.';
+      if (s === 'no_channel') return "netdiag isn't posting anywhere yet. Click Change channel to choose where alerts go.";
+      return '';
+    },
+    chatPending() {
+      const was = (this.settings && this.settings.chat) || {enabled: false, minSeverity: 'warning'};
+      const d = (this.draft && this.draft.chat) || was;
+      return !!d.enabled !== !!was.enabled || (d.minSeverity || 'warning') !== (was.minSeverity || 'warning');
+    },
+    // Focus the team chat section's first button (the header tool's target).
+    focusChat() {
+      const s = this.chatState();
+      const id = s === 'off' ? 'chat-connect' : s === 'needs_reconnect' || s === 'identity_changed' ? 'chat-reconnect'
+        : s === 'no_channel' ? 'chat-change' : 'chat-test';
+      const el = document.getElementById('set-chat');
+      if (el) el.scrollIntoView({block: 'nearest'});
+      this.focusShown([document.getElementById(id)]);
+    },
+    async chatTest() {
+      this.chatBusy = true; this.chatMsg = 'Sending a test alert...';
+      this.chatMsg = await this.sendTest();
+      this.chatBusy = false;
+      this.loadChat();
+      this.$nextTick(() => this.focusShown([document.getElementById('chat-test')]));
+    },
+    // Posts the test alert and closes it again; the answer in words.
+    async sendTest() {
+      try {
+        const r = await this.api('POST', '/api/bubbles/test', {});
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && j.ok) return 'Test alert sent to #' + j.channel + ' and closed again. Check that it appeared in bubbles.';
+        return j.error || ('Could not send the test alert (HTTP ' + r.status + ').');
+      } catch (e) { return 'Could not send the test alert: ' + e.message; }
+    },
+    async chatDisconnect() {
+      if (!window.confirm('Disconnect from team chat?\n\nnetdiag stops sending alerts. Your chat admin should also remove netdiag in bubbles under Admin > Apps.')) return;
+      try {
+        const r = await this.api('DELETE', '/api/bubbles');
+        this.chatMsg = r.ok ? 'Disconnected from team chat.' : 'Could not disconnect (HTTP ' + r.status + ').';
+      } catch (e) { this.chatMsg = 'Could not disconnect: ' + e.message; }
+      await this.loadChat();
+      this.$nextTick(() => this.focusChat());
+    },
+
+    // The connect wizard (<dialog id="chat-dialog">). It opens from Settings,
+    // which it closes and opens again (with any changes not yet saved) when
+    // it closes. mode: connect (find the server), reconnect (pair again with
+    // the server netdiag knows) or channel (Change channel).
+    openChatWizard(mode) {
+      clearTimeout(pairTimer);
+      this.chatMsg = '';
+      Object.assign(this.wiz, {step: '', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
+        code: '', expiresAt: '', adminUrl: '', channels: [], channelId: '', channel: null, testMsg: '', testOk: false, fresh: false, stopped: '', retry: ''});
+      const s = this.$refs.dlg; if (s && s.open) s.close();
+      this.$nextTick(() => { const d = this.$refs.chatDlg; if (d && !d.open) d.showModal(); });
+      if (mode === 'channel') return this.wizCheckChannels(true);
+      if (mode === 'reconnect') return this.wizReconnect();
+      return this.wizFind();
+    },
+    // Esc, Close and Cancel: stop waiting for the admin and go back to Settings.
+    closeChatWizard() {
+      clearTimeout(pairTimer);
+      if (this.wiz.step === 'approve') this.api('DELETE', '/api/bubbles/pair').catch(() => {});
+      this.wiz.step = 'closed';
+      const d = this.$refs.chatDlg; if (d && d.open) d.close();
+      this.loadChat().then(() => this.$nextTick(() => {
+        const s = this.$refs.dlg; if (s && !s.open && this.draft) s.showModal();
+        this.focusChat();
+      }));
+    },
+    wizGo(step) {
+      this.wiz.step = step; this.wiz.error = '';
+      // Focus the step's first shown field, ticked channel or main button
+      // (the heading when it has none), trying for a few frames while x-show
+      // catches up.
+      const pick = (tries) => {
+        if (this.wiz.step !== step) return;
+        const box = document.getElementById('wiz-' + step);
+        const shown = sel => [...(box ? box.querySelectorAll(sel) : [])].find(e => e.offsetParent !== null);
+        const el = shown('input:not([type=radio])') || shown('input[type=radio]:checked') || shown('input[type=radio]') ||
+          shown('button.primary') || shown('button, a[href]');
+        if (el) el.focus();
+        else if (tries < 10) requestAnimationFrame(() => pick(tries + 1));
+        else { const h = document.getElementById('chat-h'); if (h) h.focus(); }
+      };
+      this.$nextTick(() => pick(0));
+    },
+    // A wizard call: the JSON answer, or null with the error shown.
+    async wizCall(method, url, body, what) {
+      this.wiz.busy = true; this.wiz.error = '';
+      try {
+        const r = await this.api(method, url, body);
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { this.wiz.error = j.error || (what + ' (HTTP ' + r.status + ').'); return null; }
+        return j;
+      } catch (e) { this.wiz.error = what + ': ' + e.message; return null; }
+      finally { this.wiz.busy = false; }
+    },
+    async wizFind() {
+      this.wizGo('find');
+      const j = await this.wizCall('POST', '/api/bubbles/discover', {interface: this.ifaceName}, 'Could not look for chat servers');
+      if (this.wiz.step !== 'find') return;
+      const err = this.wiz.error;
+      if (j) { this.wiz.servers = j.servers || []; this.wiz.tray = j.trayServer || null; }
+      this.wizGo('list');
+      this.wiz.error = err;
+    },
+    wizUse(f) { return this.wizInspect(f.address + ':' + f.port, f.onboardPort); },
+    async wizInspect(address, onboardPort) {
+      const j = await this.wizCall('POST', '/api/bubbles/inspect', {address: String(address).trim(), onboardPort: onboardPort || 0}, 'Could not check the chat server');
+      if (j) { this.wiz.insp = j; this.wizGo('fingerprint'); }
+    },
+    async wizMatch() {
+      const i = this.wiz.insp;
+      this.wizApprove(await this.wizCall('POST', '/api/bubbles/pair', {address: i.address, fingerprint: i.fingerprint, confirmed: true}, 'Could not ask the chat server'), 'match');
+    },
+    // Reconnect: pair again with the server and pin netdiag knows. After
+    // the server's identity changed, the fingerprint is compared again first.
+    async wizReconnect() {
+      const s = (this.chat && this.chat.server) || null;
+      if (this.chatState() === 'identity_changed' && s) {
+        this.wizGo('find');
+        await this.wizInspect(s.host + ':' + s.port, s.onboardPort);
+        if (this.wiz.step === 'find') { const err = this.wiz.error; this.wizGo('address'); this.wiz.address = s.host + ':' + s.port; this.wiz.error = err; }
+        return;
+      }
+      this.wizGo('find');
+      this.wizApprove(await this.wizCall('POST', '/api/bubbles/pair', {reconnect: true}, 'Could not ask the chat server'), 'reconnect');
+    },
+    wizApprove(j, retry) {
+      if (!j) {
+        if (this.wiz.step === 'find') this.wizStop(this.wiz.error, retry);
+        return;
+      }
+      Object.assign(this.wiz, {code: j.code, expiresAt: j.expiresAt || '', adminUrl: j.adminUrl || '', retry: retry});
+      this.wizGo('approve');
+      this.wizPoll();
+    },
+    // "This code works for 9:41 more."
+    wizLeft() {
+      const t = Date.parse(this.wiz.expiresAt);
+      if (isNaN(t)) return '';
+      const s = Math.max(0, Math.round((t - this.nowMs) / 1000));
+      return ' This code works for ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + ' more.';
+    },
+    wizPoll() {
+      clearTimeout(pairTimer);
+      pairTimer = setTimeout(async () => {
+        if (this.wiz.step !== 'approve') return;
+        let j = null;
+        try { const r = await this.api('GET', '/api/bubbles/pair/status'); if (r.ok) j = await r.json(); } catch (e) {}
+        if (this.wiz.step !== 'approve') return;
+        const st = j ? j.state : 'pending';
+        if (st === 'pending') return this.wizPoll();
+        if (st === 'approved') {
+          this.wiz.fresh = true;
+          return this.wizChannels(j, false);
+        }
+        this.wizStop((j && j.error) || 'The request stopped.', st === 'denied' ? '' : this.wiz.retry);
+      }, 2000);
+    },
+    wizStop(msg, retry) { this.wiz.stopped = msg; this.wiz.retry = retry || ''; this.wizGo('stopped'); },
+    wizRetry() {
+      if (this.wiz.retry === 'reconnect') return this.wizReconnect();
+      if (this.wiz.insp) return this.wizMatch();
+      return this.wizFind();
+    },
+    async wizConnectString() {
+      const j = await this.wizCall('POST', '/api/bubbles/connect', {connectionString: this.wiz.connString.trim()}, 'Could not connect');
+      if (!j) return;
+      this.wiz.fresh = true; this.wiz.connString = '';
+      this.wizChannels(j, false);
+    },
+    // Step 6: one channel is used by itself, several are a choice (always
+    // for Change channel), none asks the admin to add netdiag to one.
+    wizChannels(j, choose) {
+      this.wiz.channels = j.channels || [];
+      this.wiz.channelId = (j.channel && j.channel.id) || '';
+      if (j.channel && !(choose && this.wiz.channels.length > 1)) return this.wizReady(j.channel);
+      this.wizGo('channel');
+    },
+    async wizCheckChannels(choose) {
+      if (!this.wiz.step) this.wizGo('find');
+      const j = await this.wizCall('POST', '/api/bubbles/channel', {}, 'Could not list the channels');
+      if (j) this.wizChannels(j, choose);
+      else if (this.wiz.step === 'find') this.wizStop(this.wiz.error, '');
+    },
+    async wizPick() {
+      const j = await this.wizCall('POST', '/api/bubbles/channel', {channelId: this.wiz.channelId}, 'Could not choose the channel');
+      if (j && j.channel) this.wizReady(j.channel);
+    },
+    // Alerts have a channel. A new connection turns Send alerts to team chat
+    // on, so the Done screen tells the truth (v0.6-D36).
+    async wizReady(ch) {
+      this.wiz.channel = ch;
+      this.wizGo('ready');
+      if (this.wiz.fresh && this.settings && !(this.settings.chat || {}).enabled) {
+        const doc = JSON.parse(JSON.stringify(this.settings));
+        doc.chat = Object.assign({minSeverity: 'warning'}, doc.chat || {}, {enabled: true});
+        if (await this.putSettings(doc, false) && this.draft) this.draft.chat = Object.assign({}, this.draft.chat || {}, {enabled: true});
+      }
+      this.loadChat();
+    },
+    async wizTest() {
+      this.wiz.busy = true; this.wiz.testMsg = 'Sending a test alert...'; this.wiz.testOk = false;
+      const msg = await this.sendTest();
+      this.wiz.testOk = msg.startsWith('Test alert sent');
+      this.wiz.testMsg = msg; this.wiz.busy = false;
+      this.loadChat();
+      // The button was disabled while the alert went out: give it focus back.
+      this.$nextTick(() => this.focusShown([document.getElementById('wiz-test')]));
+    },
     // Before the settings load the default (sound on) holds, but a page that
     // may not read them cannot know the person muted alerts: it stays silent.
     soundOn() { return this.settings ? this.settings.alerts.sound : !this.settingsLocked; },

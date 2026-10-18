@@ -563,7 +563,7 @@ func TestDiscover(t *testing.T) {
 	port, _ := strconv.Atoi(portText)
 	fp16 := strings.TrimPrefix(f.CAFingerprint, "sha256:")[:16]
 	tray := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(tray, []byte(fmt.Sprintf(`{"server_url":%q,"onboarding_url":%q,"ca_fingerprint":%q,"device_id":"d1"}`,
+	if err := os.WriteFile(tray, []byte(fmt.Sprintf(`{"server_url":%q,"onboarding_url":%q,"ca_fingerprint":%q,"device_id":"tray-device-7"}`,
 		f.API.URL, f.Onboard.URL, f.CAFingerprint)), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -598,7 +598,7 @@ func TestDiscover(t *testing.T) {
 		t.Fatalf("tray %+v", d.TrayServer)
 	}
 	b, _ := json.Marshal(d)
-	if strings.Contains(string(b), "d1") {
+	if strings.Contains(string(b), "tray-device-7") {
 		t.Fatalf("discovery shows the tray's device: %s", b)
 	}
 	in, err := m.Inspect(context.Background(), addr, onboard)

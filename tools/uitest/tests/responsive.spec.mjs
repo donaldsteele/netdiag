@@ -62,9 +62,11 @@ for (const width of [360, 390]) {
   test(`settings Save stays reachable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: HEIGHT });
     await initStorage(page, { theme: 'dark', live: false });
-    await installMocks(page, { scenario: 'scan' });
+    // Team chat set up: its section (switch, Send level, buttons) is the longest.
+    await installMocks(page, { scenario: 'scan', chat: 'connected' });
     await page.goto(HOME);
     await navTo(page, '#nav-settings');
+    await expect(page.locator('#chat-enabled')).toBeAttached();
     const dialog = page.locator('#settings-dialog');
     await expect(dialog).toBeVisible();
     const save = dialog.getByRole('button', { name: 'Save', exact: true });

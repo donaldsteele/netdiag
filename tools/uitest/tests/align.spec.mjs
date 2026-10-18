@@ -165,3 +165,55 @@ for (const width of [360, 390, 768, 1100, 1440]) for (const theme of ['dark', 'l
     expect(all).toEqual([]);
   });
 }
+
+// Team chat (v0.6 M10): the 34 px header tool, the Settings section in each
+// state, and the connect wizard's steps, at every width, with nothing
+// nested scrolling inside the wizard but the dialog itself.
+for (const width of [360, 390, 768, 1100, 1440]) {
+  test(`alignment team chat ${width}`, async ({ page }) => {
+    await initStorage(page, { theme: 'dark', live: false });
+    const rec = await installMocks(page, { chat: 'connected', found: { servers: 2, tray: true },
+      channels: [fx.CHAT_CHANNEL, { id: 'C2', name: 'front-desk' }], pairStates: ['approved'] });
+    await page.setViewportSize({ width, height: 800 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(HOME);
+    await expect(page.locator('#chat-tool')).toBeVisible();
+    const all = [...await measure(page, 'chat-tool')];
+    const settings = page.locator('#settings-dialog');
+    for (const state of ['connected', 'unreachable', 'needs_reconnect', 'identity_changed', 'off']) {
+      rec.chat = fx.bubblesStatus(state);
+      await page.evaluate(() => document.querySelector('#nav-settings').click());
+      await expect(settings).toHaveJSProperty('open', true);
+      await expect(settings.locator('#chat-status .hs')).toHaveText(state === 'off' ? 'Not connected' : /\w/);
+      await settings.locator('#set-chat').scrollIntoViewIfNeeded();
+      all.push(...await measure(page, 'settings-chat-' + state));
+      if (state !== 'off') { await page.keyboard.press('Escape'); await expect(settings).toHaveJSProperty('open', false); }
+    }
+    const wiz = page.locator('#chat-dialog');
+    const nested = () => page.evaluate(() => [...document.querySelectorAll('#chat-dialog *')].filter((el) => {
+      const s = getComputedStyle(el);
+      return ['auto', 'scroll'].includes(s.overflowY) && el.scrollHeight > el.clientHeight + 1;
+    }).map((el) => el.id || el.className));
+    await settings.locator('#chat-connect').click();
+    await expect(wiz.locator('#wiz-list')).toBeVisible();
+    all.push(...await measure(page, 'wizard-list'));
+    expect(await nested(), 'wizard list').toEqual([]);
+    await wiz.getByRole('button', { name: 'Use this server' }).first().click();
+    await expect(wiz.locator('#wiz-fp-start')).toBeVisible();
+    all.push(...await measure(page, 'wizard-fingerprint'));
+    await wiz.getByRole('button', { name: 'It matches' }).click();
+    await expect(wiz.locator('#wiz-code')).toBeVisible();
+    all.push(...await measure(page, 'wizard-code'));
+    await expect(wiz.getByRole('radio')).toHaveCount(2, { timeout: 10_000 });
+    await expect(wiz.locator('#wiz-channel')).toBeVisible();
+    all.push(...await measure(page, 'wizard-channel'));
+    await wiz.getByRole('radio', { name: '#front-desk' }).check();
+    await wiz.getByRole('button', { name: 'Use this channel' }).click();
+    await expect(wiz.locator('#wiz-ready')).toBeVisible();
+    await wiz.getByRole('button', { name: 'Send test alert' }).click();
+    await expect(wiz.locator('#wiz-test-msg')).toContainText('Test alert sent');
+    all.push(...await measure(page, 'wizard-ready'));
+    expect(await nested(), 'wizard ready').toEqual([]);
+    expect(all).toEqual([]);
+  });
+}

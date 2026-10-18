@@ -342,3 +342,23 @@ details.btry .advice{margin-top:var(--s1)}
 .cpair{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);margin:var(--s2) 0}
 @media (max-width:559px){.cpair{grid-template-columns:1fr}}
 .ccard{border:1px solid var(--line-strong);border-radius:var(--radius);padding:var(--s2);background:var(--bg-elev);overflow-wrap:anywhere;font-size:13px}
+/* v0.6 team chat (bubbles): the header tool, the Settings section and the connect wizard */
+.chattool.cs-connected{color:var(--ok)}.chattool.cs-unreachable{color:var(--warn);border-color:var(--warn)}
+.chattool.cs-no_channel,.chattool.cs-needs_reconnect,.chattool.cs-identity_changed{color:var(--bad);border-color:var(--bad)}
+.chatacts{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin:var(--s2) 0}
+#set-chat p{margin:var(--s2) 0;overflow-wrap:anywhere}
+#chat-dialog{max-width:560px}
+.chatwiz p{margin:var(--s2) 0;overflow-wrap:anywhere}
+.chatwiz h3{display:flex;align-items:center;gap:6px;margin:var(--s2) 0;font-size:16px}
+.chatwiz h3>.ico{color:inherit}
+.chatlist{display:grid;gap:var(--s2);margin:var(--s2) 0}
+.chatcard{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--s2);border:1px solid var(--line-strong);border-radius:var(--radius);padding:var(--s2) var(--s3);background:var(--bg-elev);overflow-wrap:anywhere}
+.chatcard p{margin:var(--s1) 0}
+.fpbig{font-size:24px;font-weight:700;letter-spacing:.04em;margin:var(--s3) 0 var(--s1);overflow-wrap:anywhere}
+.fprest{font-size:13px;color:var(--fg-muted);overflow-wrap:anywhere}
+.paircode{font-size:32px;font-weight:700;letter-spacing:.08em;margin:var(--s3) 0}
+.chanlist{border:1px solid var(--line);border-radius:var(--radius);padding:var(--s2) var(--s3);margin:var(--s2) 0}
+.chanlist legend{font-weight:600;padding:0 var(--s1)}
+.chanlist label.check{flex-direction:row;align-items:center;gap:var(--s2);color:var(--fg);font-size:15px}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--line-strong);border-top-color:var(--accent);border-radius:50%;vertical-align:-2px}
+@media (prefers-reduced-motion:no-preference){.spinner{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}}

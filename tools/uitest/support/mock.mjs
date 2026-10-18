@@ -61,8 +61,20 @@ const matchId = (re, p) => {
 // request without it gets 401 and is listed in rec.unauthorized and, unless
 // stale is set (a spec that opens the page with an old token on purpose),
 // in rec.unmatched too, so a spec that checks unmatched fails loudly.
-export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired, health: healthState = 'default', osOpen = 204, running = false, identity = 'ok', session = SESSION, stale = false } = {}) {
-  const rec = { requests: [], unmatched: [], unauthorized: [], external: [], sse: [], running, identity, frames: null, identityCalls: 0, runningCalls: 0, scanId: fx.SCAN_ID, session };
+// chat: the team chat state GET /api/bubbles starts in ('off', 'connected',
+// 'no_channel', 'unreachable', 'needs_reconnect' or 'identity_changed',
+// fx.bubblesStatus). found: fx.discover's options for POST
+// /api/bubbles/discover. pairStates: what GET /api/bubbles/pair/status
+// answers on each poll after POST /api/bubbles/pair, the last one repeated;
+// 'approved' connects, with the one channel picked when channels has one.
+// channels: the channels netdiag's bot is in. testResult: the POST
+// /api/bubbles/test answer (sent alert by default). Specs may change
+// rec.chat, rec.channels, rec.pairStates and rec.testResult while the page
+// runs; rec.chatCalls lists the team chat actions in order.
+export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired, health: healthState = 'default', osOpen = 204, running = false, identity = 'ok', session = SESSION, stale = false,
+  chat = 'off', found = {}, pairStates = ['pending', 'approved'], channels = [fx.CHAT_CHANNEL], testResult = null } = {}) {
+  const rec = { requests: [], unmatched: [], unauthorized: [], external: [], sse: [], running, identity, frames: null, identityCalls: 0, runningCalls: 0, scanId: fx.SCAN_ID, session,
+    chat: fx.bubblesStatus(chat), channels: [...channels], pairStates: [...pairStates], pairPolls: -1, testResult, chatCalls: [], chatReads: 0 };
   const origin = new URL(BASE_URL).origin;
   const MCP_URL = 'http://127.0.0.1:8787/mcp';
   let settings = { ...(initialSettings || fx.settings()), mcpUrl: MCP_URL };
@@ -94,8 +106,10 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     if ((method === 'POST' || method === 'PUT') && ctype.split(';')[0].trim() !== 'application/json') {
       return json(route, 415, { error: 'Content-Type must be application/json' });
     }
-    // Mirrors sessionGuard: actions and the settings read need this launch's token.
-    if ((method !== 'GET' || p === '/api/settings') && token !== rec.session) {
+    // Mirrors sessionGuard: actions and the reads in sessionReads (the
+    // settings, the team chat status and pairing state) need this launch's token.
+    const gatedRead = p === '/api/settings' || p === '/api/bubbles' || p === '/api/bubbles/pair/status';
+    if ((method !== 'GET' || gatedRead) && token !== rec.session) {
       const what = `${method} ${p} (X-Netdiag-Session: ${token ? 'wrong' : 'missing'})`;
       rec.unauthorized.push(what);
       if (!stale) rec.unmatched.push(what);
@@ -156,6 +170,7 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
       if (pg !== 'location') return json(route, 400, { error: 'unknown settings page' });
       return osOpen === 204 ? empty(route) : json(route, osOpen, { error: "netdiag can't open this settings page on this computer" });
     }
+    if (p === '/api/bubbles' || p.startsWith('/api/bubbles/')) return chatRoute(route, method, p, JSON.parse(body || '{}'));
     if (method === 'POST' && p === '/api/quit') return empty(route);
     if (method === 'POST' && /^\/api\/scans\/[^/]+\/cancel$/.test(p)) return empty(route);
 
@@ -180,6 +195,63 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
       return empty(route);
     }
 
+    rec.unmatched.push(`${method} ${p}`);
+    return json(route, 404, { error: 'mock: no route' });
+  }
+
+  // Mirrors internal/server/handlers_chat.go and chat.Manager for the wizard,
+  // the Settings section and the header status tool.
+  const LOCAL = /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)|^[a-z0-9.-]+\.local(:|$)/i;
+  const chatChoice = () => ({ state: rec.chat.state, channel: rec.chat.channel || undefined, channels: rec.channels });
+  const connect = () => {
+    rec.chat = fx.bubblesStatus('connected');
+    if (rec.channels.length === 1) rec.chat.channel = { ...rec.channels[0] };
+    else { delete rec.chat.channel; rec.chat.state = 'no_channel'; }
+  };
+  async function chatRoute(route, method, p, b) {
+    if (method !== 'GET') rec.chatCalls.push(method + ' ' + p);
+    if (method === 'GET' && p === '/api/bubbles') { rec.chatReads++; return json(route, 200, rec.chat); }
+    if (method === 'DELETE' && p === '/api/bubbles') { rec.chat = fx.bubblesStatus('off'); return empty(route); }
+    if (method === 'POST' && p === '/api/bubbles/discover') return json(route, 200, fx.discover(found));
+    if (method === 'POST' && p === '/api/bubbles/inspect') {
+      if (!LOCAL.test(String(b.address || ''))) {
+        return json(route, 400, { error: 'Use the address of a chat server on the local network, for example 192.168.1.20 or office.local.' });
+      }
+      const a = String(b.address).includes(':') ? b.address : b.address + ':28225';
+      return json(route, 200, fx.inspection(a));
+    }
+    if (method === 'POST' && p === '/api/bubbles/pair') {
+      if (!b.confirmed && !b.reconnect) return json(route, 400, { error: "Compare the chat server's fingerprint first." });
+      rec.pairPolls = 0;
+      return json(route, 200, { code: '123 456', expiresAt: new Date(Date.now() + 10 * 60000).toISOString(),
+        adminUrl: 'https://' + fx.CHAT_SERVER.host + ':28225/admin/pairing' });
+    }
+    if (method === 'GET' && p === '/api/bubbles/pair/status') {
+      if (rec.pairPolls < 0) return json(route, 200, { state: 'none', channels: [] });
+      const state = rec.pairStates[Math.min(rec.pairPolls, rec.pairStates.length - 1)];
+      rec.pairPolls++;
+      const words = { denied: 'Your chat admin said no.', expired: 'The request ran out of time after 10 minutes.' };
+      if (state === 'approved') { connect(); return json(route, 200, { ...chatChoice(), state, code: '123 456' }); }
+      return json(route, 200, { state, code: '123 456', channels: [], error: words[state] });
+    }
+    if (method === 'DELETE' && p === '/api/bubbles/pair') { rec.pairPolls = -1; return empty(route); }
+    if (method === 'POST' && p === '/api/bubbles/connect') {
+      if (!String(b.connectionString || '').startsWith('bubbles://')) {
+        return json(route, 400, { error: 'This is not a team chat connection string. It starts with bubbles://' });
+      }
+      connect();
+      return json(route, 200, chatChoice());
+    }
+    if (method === 'POST' && p === '/api/bubbles/channel') {
+      if (rec.chat.state === 'off') return json(route, 400, { error: "netdiag isn't connected to team chat. Click Connect to team chat." });
+      const pick = b.channelId ? rec.channels.find((c) => c.id === b.channelId) : rec.channels.length === 1 ? rec.channels[0] : null;
+      if (b.channelId && !pick) return json(route, 400, { error: "netdiag isn't in that channel. Choose another one, or ask your chat admin to add netdiag to it." });
+      if (pick) { rec.chat.channel = { ...pick }; if (rec.chat.state === 'no_channel') rec.chat.state = 'connected'; }
+      return json(route, 200, chatChoice());
+    }
+    if (method === 'POST' && p === '/api/bubbles/test') {
+      return json(route, 200, rec.testResult || { ok: true, transition: 'created', channel: (rec.chat.channel || {}).name });
+    }
     rec.unmatched.push(`${method} ${p}`);
     return json(route, 404, { error: 'mock: no route' });
   }

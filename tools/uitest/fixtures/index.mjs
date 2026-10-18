@@ -595,3 +595,35 @@ export function replayFrames() {
     ...byType('notice').map((f) => ({ type: 'notice', data: { ...f.data, replay: true } })),
   ];
 }
+
+// ---- team chat (bubbles), v0.6 M10 ----
+export const CHAT_SERVER = { name: 'Office', host: '192.168.2.20', port: 28225, onboardPort: 28226 };
+export const CHAT_CHANNEL = { id: 'C1', name: 'netdiag-alerts' };
+// The CA fingerprint the fake chat server hands out, in the 16 groups bubbles shows.
+export const CHAT_GROUPS = ['3F2A', '9C10', '77B4', 'E0D1', '5D41', '402A', 'BC4B', '2A76', 'B971', '9D91', '1017', 'C592', '7D79', '3FCB', '0AB1', 'E6B2'];
+export const CHAT_FP = 'sha256:' + CHAT_GROUPS.join('').toLowerCase();
+export const CHAT_SINCE = '2026-10-10T08:40:00Z';
+
+// GET /api/bubbles in each state the status tool shows.
+export function bubblesStatus(state = 'off') {
+  if (state === 'off') return { state: 'off', waiting: 0, dropped: 0 };
+  const st = { state, server: { ...CHAT_SERVER }, channel: { ...CHAT_CHANNEL }, appName: 'netdiag', tokenPrefix: 'bub_0001',
+    scopes: ['alerts:write', 'channels:read', 'messages:write', 'files:write'], waiting: 0, dropped: 0 };
+  if (state === 'no_channel') delete st.channel;
+  if (state === 'unreachable') { st.since = CHAT_SINCE; st.lastError = "netdiag can't reach the chat server."; }
+  if (state === 'needs_reconnect') st.lastError = 'The chat server no longer accepts netdiag. Click Reconnect.';
+  if (state === 'identity_changed') { st.since = CHAT_SINCE; st.lastError = "Warning: the chat server's identity changed."; }
+  return st;
+}
+
+// POST /api/bubbles/discover: the chat servers mDNS found, and the one the bubbles tray uses.
+export function discover({ servers = 1, tray = false } = {}) {
+  const list = [{ name: 'Office', address: CHAT_SERVER.host, port: 28225, onboardPort: 28226, fpPrefix: CHAT_FP.slice(7, 23) },
+    { name: 'Warehouse', address: '192.168.2.21', port: 28225, onboardPort: 28226, fpPrefix: '0000000000000000' }].slice(0, servers);
+  return { servers: list, trayServer: tray ? { name: 'Office', address: CHAT_SERVER.host, port: 28225, onboardPort: 28226 } : null };
+}
+
+// POST /api/bubbles/inspect for an address.
+export function inspection(address = CHAT_SERVER.host + ':28225') {
+  return { address, fingerprint: CHAT_FP, groups: [...CHAT_GROUPS], serverName: 'Office', thisComputer: SELF_IP, fpPrefixMatches: true };
+}

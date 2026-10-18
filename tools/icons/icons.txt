@@ -90,3 +90,12 @@ i-type-iot lightbulb
 i-type-server server
 i-type-self monitor
 i-type-unknown circle-help
+
+# Team chat (bubbles), v0.6
+i-chat messages-square
+i-chat-off message-square-off
+i-chat-warn message-square-warning
+i-send send
+i-plug plug
+i-unplug unplug
+i-fingerprint fingerprint

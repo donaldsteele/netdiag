@@ -173,9 +173,10 @@ var errNoStore = refused("netdiag can't keep a team chat connection because its 
 
 // ServerView is the chat server as the page shows it.
 type ServerView struct {
-	Name string `json:"name"`
-	Host string `json:"host"`
-	Port int    `json:"port"`
+	Name        string `json:"name"`
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	OnboardPort int    `json:"onboardPort"`
 }
 
 // Status is the answer of GET /api/bubbles. It never holds the token,
@@ -222,7 +223,7 @@ func (m *Manager) Status() Status {
 		return st
 	}
 	if t, err := targetOf(c.Server.BaseURL, c.Server.OnboardingURL); err == nil {
-		st.Server = &ServerView{Name: c.Server.Name, Host: t.Host, Port: t.Port}
+		st.Server = &ServerView{Name: c.Server.Name, Host: t.Host, Port: t.Port, OnboardPort: t.OnboardPort}
 	}
 	if c.Channel.ID != "" {
 		ch := c.Channel
