@@ -285,8 +285,10 @@ func Current(r model.ScanResult, set model.Settings) []Problem {
 	if tr.IPConflict {
 		for _, c := range activeConflicts(r.Conflicts, set) {
 			p := Problem{Key: notify.ConflictKey(c), Kind: model.TriggerIPConflict, Severity: cardSeverity(notify.ConflictSeverity(c)),
-				Title: "Network conflict", Detail: strings.Join(c.IPs, ", "), Advice: c.Advice}
-			if !advice.SwapSeen(c, x) {
+				Title: notify.ConflictTitle(c), Detail: strings.Join(c.IPs, ", "), Advice: c.Advice}
+			// One device on several addresses keeps its own title (a note,
+			// v0.6-D51); the others are a conflict only when the swap was seen.
+			if p.Title == notify.TitleConflict && !advice.SwapSeen(c, x) {
 				p.Title = TitlePossible
 			}
 			if len(c.IPs) > 0 {
@@ -594,6 +596,12 @@ func NewView(in Input) View {
 			if l := model.HealthLabel(strings.TrimPrefix(f.Key, notify.HealthKey(""))); l != "" {
 				it.Detail = l
 			}
+		}
+		if kind == model.TriggerIPConflict {
+			// The ledger keeps a conflict's MACs as its detail, for team
+			// chat; the card names a conflict by its device (an open one by
+			// its addresses), in plain words.
+			it.Detail = ""
 		}
 		if f.IP != "" {
 			it.Device = &DeviceRef{IP: f.IP, Name: f.Name}

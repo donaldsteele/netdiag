@@ -41,7 +41,9 @@ func ConflictSeverity(c model.Conflict) string {
 // severityFor is the one severity map (v0.6 §4.7, README §8.2) for local
 // banners and team chat alike (v0.6-D3). Critical reaches chat members who
 // only want mentions, so only a dead gateway, a printer that declares an
-// error and two devices seen swapping one address are critical.
+// error and two devices seen swapping one address are critical. One device
+// on several addresses is a note, which team chat gets only at the
+// Everything level.
 func severityFor(trigger string, ctx sevCtx) string {
 	switch trigger {
 	case model.TriggerPrinterOffline, model.TriggerSupplyLow, model.TriggerNetdiagLink:
@@ -52,8 +54,14 @@ func severityFor(trigger string, ctx sevCtx) string {
 		}
 		return sevWarn
 	case model.TriggerIPConflict:
-		if ctx.kind == model.ConflictMACFlap && ctx.swap {
+		switch {
+		case ctx.kind == model.ConflictMACFlap && ctx.swap:
 			return sevCritical
+		case ctx.kind == model.ConflictMACMultiIP:
+			// One device on several addresses is often normal (an
+			// extender or mesh point): a note, as the window says it
+			// (v0.6-D51).
+			return sevInfo
 		}
 		return sevWarn
 	case model.TriggerHealthFailed:

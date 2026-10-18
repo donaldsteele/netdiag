@@ -90,6 +90,6 @@
     {"key": "printerAlert|02:00:5E:00:04:03|toner-low|bc26457c", "kind": "printerAlert", "severity": "warning", "title": "Printer alert", "ip": "10.0.4.3"},
     {"key": "printerAlert|ip:10.0.4.4|toner-low|bc26457c", "kind": "printerAlert", "severity": "warning", "title": "Printer alert", "ip": "10.0.4.4"},
     {"key": "ipConflict|mac_flap|10.0.1.3", "kind": "ipConflict", "severity": "warning", "title": "Possible conflict", "ip": "10.0.1.3"},
-    {"key": "ipConflict|mac_multi_ip|02:00:5E:00:01:04", "kind": "ipConflict", "severity": "warning", "title": "Possible conflict", "ip": "10.0.1.4"}
+    {"key": "ipConflict|mac_multi_ip|02:00:5E:00:01:04", "kind": "ipConflict", "severity": "info", "title": "One device uses several addresses", "ip": "10.0.1.4"}
   ]
 }

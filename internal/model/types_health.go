@@ -113,7 +113,7 @@ const (
 	ReasonContent  = "content"  // the page lacks the expected text
 	ReasonRequest  = "request"  // no answer
 	ReasonTLS      = "tls"      // the certificate is not trusted
-	ReasonRedirect = "redirect" // it sends visitors to another address
+	ReasonRedirect = "redirect" // it sends visitors to another server (a loop, or a redirect when one is expected, is status)
 	ReasonInvalid  = "invalid"  // also internet: the address in Settings is not valid
 	ReasonExpired  = "expired"  // the certificate the user trusted has expired
 

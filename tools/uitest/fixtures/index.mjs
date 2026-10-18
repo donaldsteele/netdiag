@@ -176,7 +176,7 @@ export function flapConflict(alternations = 2) {
       ["In netdiag, press Show device and compare the two devices (Device A and Device B).", "Restart one of them so it gets a new address.",
         "If it keeps happening, ask whoever looks after the router to reserve an address for one of them."], [showDevice(FLAP_IP)], detail)
     : advice("The device answering at 192.168.2.44 changed.",
-      ["If you just replaced a device, this is expected.", "If it happens again, netdiag will mark it as a conflict."], [showDevice(FLAP_IP)], detail);
+      ["If you just replaced a device, this is expected.", "If it happens again, netdiag will tell you."], [showDevice(FLAP_IP)], detail);
   return { id: FLAP_ID, kind: 'mac_flap', severity: 'fail', ips: [FLAP_IP], macs: [...FLAP_MACS], name: '',
     firstSeen: T0, lastSeen: T1, detail, vendors: { ...FLAP_VENDORS }, advice: a };
 }
@@ -270,6 +270,29 @@ export function webCheck(state = 'unset', url = WEB_URL) {
       advice: advice("The web server sends visitors to another address, so the page you set isn't the one that answers.",
         ["It sends you to https://portal.example.com/login. If that is the right page, set it as \"Web server URL\" in Settings."],
         [RECHECK, settingsAction('webserver')], detail) };
+  }
+  if (state === 'redirect-query') {
+    // A redirect to a sign-in page with a one-time ticket: the server's
+    // step (banner, chat) leaves the address out; the card names it.
+    const loc = 'https://portal.example.com/login?ticket=ST-1234';
+    const detail = 'HTTP 302 (expected 200): it redirects to another server, ' + loc;
+    return { ...base, status: 'fail', detail, latencyMs: 0,
+      data: { configured: true, url, status: 302, location: loc, reason: 'redirect' },
+      advice: advice("The web server sends visitors to another address, so the page you set isn't the one that answers.",
+        ["It sends you to another address. If that is the right page, set it as \"Web server URL\" in Settings."],
+        [RECHECK, settingsAction('webserver')], detail) };
+  }
+  if (state === 'loop' || state === 'redirect-expected') {
+    // A redirect loop on the server, or another redirect than the one
+    // expected: the web check calls both a status answer (no address to
+    // move to), though it records where the server pointed.
+    const loop = state === 'loop';
+    const loc = loop ? 'https://intranet.local/loop?n=6' : 'https://intranet.local/new';
+    const detail = loop ? 'HTTP 302 (expected 200): more than 5 redirects, the last one to ' + loc : 'HTTP 301 (expected 302): it redirects to ' + loc;
+    return { ...base, status: 'fail', detail, latencyMs: 0,
+      data: { configured: true, url, status: loop ? 302 : 301, location: loc, reason: 'status' },
+      advice: advice(loop ? "The web server isn't answering as expected (HTTP 302)." : "The web server isn't answering as expected (HTTP 301).",
+        ["Check that the server is switched on.", "Ask whoever looks after it."], [RECHECK, settingsAction('webserver')], detail) };
   }
   if (state === 'tls-other') {
     // Another address of the server, with another certificate, answered.
@@ -467,7 +490,7 @@ export function problemItems() {
       detail: 'Black Toner at 15%', device: { ...BROTHER }, advice: notice(1).advice },
     { key: 'supplyLow|64:EB:8C:20:00:20|41dba9b9', kind: 'supplyLow', severity: 'warning', title: 'Supply low',
       detail: 'Cyan Ink at 0%', device: { ip: ip(20), mac: '64:EB:8C:20:00:20', name: 'WF-4745' } },
-    { key: 'ipConflict|mac_multi_ip|00:1B:A9:AA:00:30', kind: 'ipConflict', severity: 'warning', title: 'Possible conflict',
+    { key: 'ipConflict|mac_multi_ip|00:1B:A9:AA:00:30', kind: 'ipConflict', severity: 'info', title: 'One device uses several addresses',
       detail: `${ip(30)}, ${ip(31)}`, device: { ip: ip(30), mac: '00:1B:A9:AA:00:30' }, advice: conflict().advice },
   ];
 }

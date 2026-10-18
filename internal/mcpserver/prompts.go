@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"netdiag/internal/model"
+	"netdiag/internal/notify"
 	"netdiag/internal/service"
 )
 
@@ -281,6 +282,7 @@ var runbooks = []runbook{
 				"4. Use netdiag's own verdict, as the netdiag window shows it. Say \"Conflict\" only when netdiag saw a swap: the conflict's advice.meaning says two devices are taking turns using the address, "+
 				"and list_problems titles it \"Network conflict\". netdiag decides this from macHistory (the address went back and forth between two MACs at least twice: A, B, A) "+
 				"or, for a scan without a macHistory, from the conflict's severity \"fail\", which netdiag gives only to MACs seen taking turns. "+
+				"For mac_multi_ip say \"Note\", as the window does: list_problems titles it \""+notify.TitleSeveralAddresses+"\", a note (severity info), because it is usually an extender or mesh point. "+
 				"Otherwise say \"Possible conflict\", as list_problems titles it: the device answering at the address changed, which is expected after replacing a device.\n"+
 				"5. Describe the two devices side by side: maker (vendor), MAC, the other addresses each one uses, and when each was seen (the macHistory times).\n"+
 				"6. Use the conflict's advice (advice.meaning, advice.steps) for what it means and what to try.\n"+

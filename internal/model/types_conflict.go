@@ -75,8 +75,11 @@ type Notice struct {
 	Code string `json:"code,omitempty"`
 	// Detail names what the fault is about: the printer alert's or the
 	// low supply's description (printerAlert and supplyLow faults), or the
-	// health check's name (healthFailed faults, model.HealthLabel). An OK
-	// notice carries its fault's, so a fixed problem still says which one.
+	// health check's name (healthFailed faults, model.HealthLabel), or the
+	// conflict's MACs, comma separated (ipConflict faults, for team chat).
+	// An OK notice carries its fault's, so a fixed problem still says which
+	// one (a fixed conflict's Problems right now item says it by its
+	// device instead, problems.Current).
 	Detail string `json:"detail,omitempty"`
 	// Advice says what the fault means and what to try (nil on OK notices).
 	Advice *Advice `json:"advice,omitempty"`

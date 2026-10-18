@@ -667,8 +667,12 @@ func (e *Engine) ObserveConflicts(cur []model.Conflict, cycle bool) []model.Noti
 		if c.Kind == model.ConflictMACMultiIP {
 			mac = strings.ToUpper(first(c.MACs))
 		}
+		// Detail carries every MAC of the conflict (both devices of a
+		// mac_flap) for team chat, whose alert has no Technical details:
+		// whoever reserves an address for one of them needs them.
 		out = e.emit(out, model.Notice{Trigger: model.TriggerIPConflict, Severity: ConflictSeverity(c),
-			IP: first(c.IPs), MAC: mac, Name: c.Name, Title: "Network conflict", Message: ConflictMessage(c), Key: k}, "")
+			IP: first(c.IPs), MAC: mac, Name: c.Name, Title: ConflictTitle(c), Message: ConflictMessage(c), Key: k,
+			Detail: conflictMACs(c)}, "")
 	}
 	if !cycle {
 		return out
@@ -689,9 +693,38 @@ func (e *Engine) ObserveConflicts(cur []model.Conflict, cycle bool) []model.Noti
 	return out
 }
 
+// Conflict notice titles. One device on several addresses is often normal
+// (an extender or mesh point), so it is not called a conflict: the window
+// says Note (v0.6-D51).
+const (
+	TitleConflict         = "Network conflict"
+	TitleSeveralAddresses = "One device uses several addresses"
+)
+
+// ConflictTitle is the title of conflict c's notice, and of its Problems
+// right now item when the swap was seen (problems.Current).
+func ConflictTitle(c model.Conflict) string {
+	if c.Kind == model.ConflictMACMultiIP {
+		return TitleSeveralAddresses
+	}
+	return TitleConflict
+}
+
+// conflictMACs lists c's MACs for its notice's Detail ("" for none).
+func conflictMACs(c model.Conflict) string {
+	ms := make([]string, 0, len(c.MACs))
+	for _, m := range c.MACs {
+		if m = strings.ToUpper(strings.TrimSpace(m)); m != "" {
+			ms = append(ms, m)
+		}
+	}
+	return strings.Join(ms, ", ")
+}
+
 // ConflictMessage is the conflict notice's message in plain words, for the
-// banner, the desktop notification and team chat. The MACs stay in the
-// conflict's detail, which the advice keeps as its Technical details.
+// banner, the desktop notification and team chat. The MACs are in the
+// notice's Detail (a team chat field) and the conflict's detail, which the
+// advice keeps as its Technical details.
 func ConflictMessage(c model.Conflict) string {
 	at := strings.Join(c.IPs, ", ")
 	switch c.Kind {
@@ -701,10 +734,11 @@ func ConflictMessage(c model.Conflict) string {
 		}
 		return "Two devices may be using the same address."
 	case model.ConflictMACMultiIP:
+		// The title says "One device uses several addresses".
 		if at != "" {
-			return "One device uses several addresses: " + at + "."
+			return "The same device answers at " + at + "."
 		}
-		return "One device uses several addresses."
+		return "The same device answers at several addresses."
 	case model.ConflictDuplicateName:
 		if c.Name != "" {
 			return `Two devices use the same name, "` + c.Name + `".`

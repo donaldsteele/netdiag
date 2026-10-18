@@ -702,7 +702,8 @@ func TestConflictLifecycle(t *testing.T) {
 	c := multiIP("10.0.0.5", "10.0.0.6")
 	n := e.ObserveConflicts([]model.Conflict{c}, true)
 	if len(n) != 1 || n[0].Trigger != model.TriggerIPConflict || n[0].IP != "10.0.0.5" ||
-		n[0].Key != "ipConflict|mac_multi_ip|AA:BB:CC:00:00:01" || n[0].Severity != "warn" {
+		n[0].Key != "ipConflict|mac_multi_ip|AA:BB:CC:00:00:01" || n[0].Severity != "info" ||
+		n[0].Title != TitleSeveralAddresses || n[0].Message != "The same device answers at 10.0.0.5, 10.0.0.6." || n[0].Detail != "AA:BB:CC:00:00:01" {
 		t.Fatalf("raise: %v", n)
 	}
 	if n := e.ObserveConflicts([]model.Conflict{c}, true); len(n) != 0 {
@@ -993,7 +994,7 @@ func TestSeverityMap(t *testing.T) {
 		{model.TriggerPrinterAlert, sevCtx{}, "warn"},
 		{model.TriggerIPConflict, sevCtx{kind: model.ConflictMACFlap, swap: true}, "critical"},
 		{model.TriggerIPConflict, sevCtx{kind: model.ConflictMACFlap}, "warn"},
-		{model.TriggerIPConflict, sevCtx{kind: model.ConflictMACMultiIP, swap: true}, "warn"},
+		{model.TriggerIPConflict, sevCtx{kind: model.ConflictMACMultiIP, swap: true}, "info"},
 		{model.TriggerIPConflict, sevCtx{kind: model.ConflictDuplicateName}, "warn"},
 		{model.TriggerHealthFailed, sevCtx{check: "gateway"}, "critical"},
 		{model.TriggerHealthFailed, sevCtx{check: "dhcp"}, "warn"},
@@ -1060,7 +1061,7 @@ func TestConflictMessage(t *testing.T) {
 			Detail: "10.0.0.5 keeps alternating between 2 MAC addresses"}, "Two devices may be using 10.0.0.5."},
 		{model.Conflict{Kind: model.ConflictMACFlap}, "Two devices may be using the same address."},
 		{model.Conflict{Kind: model.ConflictMACMultiIP, IPs: []string{"10.0.0.5", "10.0.0.6"}, MACs: []string{"AA:00:00:00:00:01"}},
-			"One device uses several addresses: 10.0.0.5, 10.0.0.6."},
+			"The same device answers at 10.0.0.5, 10.0.0.6."},
 		{model.Conflict{Kind: model.ConflictDuplicateName, Name: "printer-2", IPs: []string{"10.0.0.5", "10.0.0.6"}},
 			`Two devices use the same name, "printer-2".`},
 		{model.Conflict{Kind: "new_kind", Detail: "raw"}, "raw"},
@@ -1074,9 +1075,18 @@ func TestConflictMessage(t *testing.T) {
 	}
 	e := New(DefaultConfig(), nil)
 	c := model.Conflict{ID: "c-1", Kind: model.ConflictMACFlap, Severity: "fail", IPs: []string{"10.0.0.5"},
-		MACs: []string{"AA:00:00:00:00:01", "AA:00:00:00:00:02"}, Detail: "10.0.0.5 keeps alternating"}
-	if n := e.ObserveConflicts([]model.Conflict{c}, true); len(n) != 1 || n[0].Message != "Two devices may be using 10.0.0.5." {
+		MACs: []string{"aa:00:00:00:00:01", "AA:00:00:00:00:02"}, Detail: "10.0.0.5 keeps alternating"}
+	// The notice carries both MACs (for team chat, which never shows the
+	// conflict's detail) and is titled a conflict.
+	if n := e.ObserveConflicts([]model.Conflict{c}, true); len(n) != 1 || n[0].Message != "Two devices may be using 10.0.0.5." ||
+		n[0].Detail != "AA:00:00:00:00:01, AA:00:00:00:00:02" || n[0].Title != TitleConflict || n[0].MAC != "" {
 		t.Fatalf("notice: %+v", n)
+	}
+	for kind, want := range map[string]string{model.ConflictMACFlap: TitleConflict, model.ConflictDuplicateName: TitleConflict,
+		model.ConflictMACMultiIP: TitleSeveralAddresses} {
+		if got := ConflictTitle(model.Conflict{Kind: kind}); got != want {
+			t.Errorf("%s: title %q, want %q", kind, got, want)
+		}
 	}
 }
 

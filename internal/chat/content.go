@@ -159,13 +159,22 @@ func alertFor(n model.Notice, h *model.Host) protocol.AlertInput {
 		fs = addField(fs, "Device", name)
 		fs = addField(fs, "Address", n.IP)
 	}
-	mac := n.MAC
+	mac, macField := n.MAC, "MAC address"
 	if h != nil {
 		if mac == "" {
 			mac = h.MAC
 		}
 	}
-	fs = addField(fs, "MAC address", mac)
+	if n.Trigger == model.TriggerIPConflict && n.Detail != "" {
+		// The conflict's own MACs (notify.ObserveConflicts): both devices
+		// of a mac_flap, which whoever reserves an address needs, not
+		// only the one answering now.
+		mac = n.Detail
+		if strings.Contains(mac, ",") {
+			macField = "MAC addresses"
+		}
+	}
+	fs = addField(fs, macField, mac)
 	if h != nil {
 		fs = addField(fs, "Maker", h.Vendor)
 		if h.Printer != nil {

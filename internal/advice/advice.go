@@ -255,7 +255,10 @@ func health(c model.HealthCheck, reason string, x Ctx) *model.Advice {
 	case "webserver|" + model.ReasonRedirect:
 		// A redirect to another server may be a sign-in page: the step
 		// names the address, and switching to it is the person's choice.
-		first := "Set the address it sends you to as " + fieldWebURL + " in Settings, if that is the right page."
+		// The web check gives this reason only for another server, and
+		// only when the expected answer is not a redirect itself (a loop,
+		// or a redirect being checked, is a status answer).
+		first := "It sends you to another address. If that is the right page, set it as " + fieldWebURL + " in Settings."
 		if u := shownURL(c.Data["location"]); u != "" {
 			first = "It sends you to " + u + ". If that is the right page, set it as " + fieldWebURL + " in Settings."
 		}
@@ -329,11 +332,15 @@ func webSteps() []string {
 }
 
 // shownURL is a web address from check data, for a step: an absolute
-// http(s) URL, or "". The check hides any password in it already.
+// http(s) URL, or "". A step goes to the banner, team chat and Claude, and
+// a person may type it into Settings, so an address with a user name (the
+// check shows its password as xxxxx), a query (a sign-in page's one-time
+// ticket) or a fragment is left out; the Web server card still offers it
+// (web/app.js webNewURL).
 func shownURL(v any) string {
 	s, _ := v.(string)
 	u, err := url.Parse(strings.TrimSpace(s))
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
 		return ""
 	}
 	if sc := strings.ToLower(u.Scheme); sc != "http" && sc != "https" {
@@ -565,8 +572,11 @@ func Conflict(c model.Conflict, x Ctx) *model.Advice {
 				showDevice(ip)...)
 		} else {
 			a = adv(fmt.Sprintf("The device answering at %s changed.", orAddress(ip)),
+				// True under any title: the banner and team chat already
+				// call it a Network conflict (ConflictSeverity has no MAC
+				// history to tell a swap).
 				steps("If you just replaced a device, this is expected.",
-					"If it happens again, netdiag will mark it as a conflict."),
+					"If it happens again, netdiag will tell you."),
 				showDevice(ip)...)
 		}
 	case model.ConflictMACMultiIP:

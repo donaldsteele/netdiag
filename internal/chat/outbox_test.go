@@ -446,13 +446,13 @@ func TestAlertContentLimits(t *testing.T) {
 	}
 	// The steps say where to look, since chat readers can't open Health.
 	if in.Title != "Health check failed: Web server" || check != "Web server" ||
-		in.Text != "Web server check failed.\n\nWhat to try:\n1. Open Health in netdiag to see what to try." || *in.OccurredAt != e.OpenedAt {
+		in.Text != "Web server check failed.\n\nWhat to try:\n1. In netdiag, press Open Health to see what to try." || *in.OccurredAt != e.OpenedAt {
 		t.Fatalf("health from the ledger %+v", in)
 	}
 	ce := problems.Entry{Key: "ipConflict|mac_flap|192.168.1.50", Trigger: model.TriggerIPConflict, Severity: "warn",
 		Title: "Network conflict", IP: "192.168.1.50", Network: "n"}
 	if in = alertForEntry(ce, nil); in.Text != "Two devices may be trying to use the same address, so they can work badly.\n\n"+
-		"What to try:\n1. Open this address in netdiag to see the details." {
+		"What to try:\n1. In netdiag, press Show device to see the two devices." {
 		t.Fatalf("conflict from the ledger %q", in.Text)
 	}
 	pe := problems.Entry{Key: "printerOffline|ip:192.168.1.50|", Trigger: model.TriggerPrinterOffline, Severity: "warn",
@@ -481,6 +481,30 @@ func TestAlertContentLimits(t *testing.T) {
 		if got := downFor(d); got != want {
 			t.Errorf("downFor(%v) = %q, want %q", d, got, want)
 		}
+	}
+	// A mac_flap alert names both devices' MACs (the notice's Detail), not
+	// only the MAC answering now, so whoever reserves an address for one
+	// of them has them; it stays within the field limit.
+	cf.Detail, cf.Message = "24:6F:28:AA:BB:CC, 3C:52:82:11:22:33", "Two devices may be using 192.168.1.50."
+	in = alertFor(cf, &model.Host{IP: "192.168.1.50", MAC: "3C:52:82:11:22:33", Vendor: "Hewlett Packard"})
+	field := func(in protocol.AlertInput, name string) string {
+		for _, f := range in.Fields {
+			if f.Name == name {
+				return f.Value
+			}
+		}
+		return ""
+	}
+	if field(in, "MAC addresses") != cf.Detail || field(in, "MAC address") != "" || field(in, "Maker") != "Hewlett Packard" ||
+		len(in.Fields) > protocol.MaxAlertFields || !strings.HasPrefix(in.Text, "Two devices may be using 192.168.1.50.") {
+		t.Fatalf("conflict MACs %+v", in)
+	}
+	// One MAC (one device on several addresses) is the MAC address field.
+	multi := model.Notice{Trigger: model.TriggerIPConflict, Severity: "info", IP: "192.168.1.30", MAC: "00:1B:A9:AA:00:30",
+		Title: "One device uses several addresses", Key: "ipConflict|mac_multi_ip|00:1B:A9:AA:00:30", Detail: "00:1B:A9:AA:00:30"}
+	if in := alertFor(multi, nil); field(in, "MAC address") != "00:1B:A9:AA:00:30" || field(in, "MAC addresses") != "" ||
+		in.Severity != protocol.SeverityInfo || in.Title != "One device uses several addresses: 192.168.1.30" {
+		t.Fatalf("one MAC %+v", in)
 	}
 	if !sends("critical", "") || sends("info", "warning") || !sends("warn", "warning") || sends("warn", "critical") {
 		t.Fatal("sends")

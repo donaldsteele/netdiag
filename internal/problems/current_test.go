@@ -307,6 +307,32 @@ func TestCurrentPrinterAndConflicts(t *testing.T) {
 	}
 }
 
+// TestCurrentSeveralAddresses: one device on several addresses (an extender
+// or mesh point) is a note under its own title, as the drawer's Note says
+// it, whatever its MAC history; it leaves everything fine (v0.6-D51).
+func TestCurrentSeveralAddresses(t *testing.T) {
+	ext := model.Host{IP: "10.0.0.30", Alive: true, Online: true, MAC: "02:00:5E:00:00:30", Conflicts: []string{"c-m"},
+		MACHistory: []model.MACObservation{{MAC: "02:00:5E:00:00:30"}, {MAC: "02:00:5E:00:00:99"}, {MAC: "02:00:5E:00:00:30"}}}
+	multi := model.Conflict{ID: "c-m", Kind: model.ConflictMACMultiIP, Severity: "warn", IPs: []string{"10.0.0.30", "10.0.0.31"},
+		MACs: []string{"02:00:5E:00:00:30"}}
+	r := model.ScanResult{Hosts: []model.Host{ext}, Conflicts: []model.Conflict{multi}, Health: fineHealth()}
+	set := store.DefaultSettings()
+	ps := Current(r, set)
+	if len(ps) != 1 || ps[0].Severity != SevInfo || ps[0].Title != notify.TitleSeveralAddresses || ps[0].Title == TitlePossible ||
+		ps[0].Key != "ipConflict|mac_multi_ip|02:00:5E:00:00:30" || ps[0].Detail != "10.0.0.30, 10.0.0.31" {
+		t.Fatalf("mac_multi_ip: %+v", ps)
+	}
+	if !EverythingFine(ps) {
+		t.Error("a note keeps everything fine")
+	}
+	// A duplicate name is still a possible conflict.
+	dup := model.Conflict{ID: "c-d", Kind: model.ConflictDuplicateName, Severity: "warn", Name: "printer-2", IPs: []string{"10.0.0.30", "10.0.0.32"}}
+	r.Conflicts = []model.Conflict{dup}
+	if ps := Current(r, set); len(ps) != 1 || ps[0].Severity != SevWarning || ps[0].Title != TitlePossible {
+		t.Errorf("duplicate_name: %+v", ps)
+	}
+}
+
 // TestEverythingFine: only an offline phone (Any device goes offline off,
 // the default) leaves everything fine, and so does a local network without
 // internet once the "This network has no internet" switch is on (D15: its

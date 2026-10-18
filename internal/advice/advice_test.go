@@ -316,9 +316,20 @@ func TestHealthAdvice(t *testing.T) {
 		{check("webserver", model.ReasonRedirect, map[string]any{"location": "https://portal.example.com/login"}),
 			`It sends you to https://portal.example.com/login. If that is the right page, set it as "Web server URL" in Settings.`},
 		{check("webserver", model.ReasonRedirect, map[string]any{"location": "javascript:alert(1)"}),
-			`Set the address it sends you to as "Web server URL" in Settings, if that is the right page.`},
+			`It sends you to another address. If that is the right page, set it as "Web server URL" in Settings.`},
 		{check("webserver", model.ReasonRedirect, nil),
-			`Set the address it sends you to as "Web server URL" in Settings, if that is the right page.`},
+			`It sends you to another address. If that is the right page, set it as "Web server URL" in Settings.`},
+		// A user name (its password shown as xxxxx), which someone would
+		// type into Settings, and a one-time ticket in the query, which
+		// would reach team chat, are never in a step.
+		{check("webserver", model.ReasonRedirect, map[string]any{"location": "http://admin:xxxxx@nas.local/new"}),
+			`It sends you to another address. If that is the right page, set it as "Web server URL" in Settings.`},
+		{check("webserver", model.ReasonRedirect, map[string]any{"location": "https://sso.example.com/login?ticket=ST-1234"}),
+			`It sends you to another address. If that is the right page, set it as "Web server URL" in Settings.`},
+		{check("webserver", model.ReasonRedirect, map[string]any{"location": "https://sso.example.com/login#top"}),
+			`It sends you to another address. If that is the right page, set it as "Web server URL" in Settings.`},
+		{check("webserver", model.ReasonTLS, map[string]any{"finalURL": "https://sso:xxxxx@intranet.local:8443/"}),
+			`The server sends you to another address that uses a different certificate. If that is the right page, set it as "Web server URL" in Settings.`},
 		{check("webserver", model.ReasonTLS, map[string]any{"finalURL": "https://intranet.local:8443/portal"}),
 			`The server sends you to https://intranet.local:8443/portal, which uses a different certificate. If that is the right page, set it as "Web server URL" in Settings.`},
 		{check("webserver", model.ReasonTLS, nil),
@@ -327,6 +338,18 @@ func TestHealthAdvice(t *testing.T) {
 		if a := Health(tc.c, x); a == nil || len(a.Steps) == 0 || a.Steps[0] != tc.want {
 			t.Errorf("%s %v: %+v, want step %q", model.HealthReason(tc.c), tc.c.Data, a, tc.want)
 		}
+		// The Web server card finds this step by its end and says it in its
+		// own words, naming its Use this address button (web/app.js cardSteps).
+		if !strings.HasSuffix(tc.want, ` If that is the right page, set it as "Web server URL" in Settings.`) {
+			t.Errorf("%q: the card can't find the address step", tc.want)
+		}
+	}
+	// A redirect loop, or a redirect when one is expected, is a status
+	// answer (internal/health web.go): it names no address to move to.
+	loop := check("webserver", model.ReasonStatus, map[string]any{"status": float64(302), "location": "http://nas.local/loop?n=6"})
+	if a := Health(loop, x); a == nil || a.Meaning != "The web server isn't answering as expected (HTTP 302)." ||
+		slices.ContainsFunc(a.Steps, func(s string) bool { return strings.Contains(s, "nas.local") || strings.Contains(s, "sends you") }) {
+		t.Errorf("status with a location: %+v", a)
 	}
 	// Steps name Settings fields by their exact label, in quotes.
 	labels := []string{`"Web server URL"`, `"Internet check URL"`, `"This network has no internet"`}
@@ -530,7 +553,7 @@ func TestConflictAdvice(t *testing.T) {
 			t.Errorf("%s: actions %+v", tc.name, a.Actions)
 		}
 		// The drawer already shows both devices: no step promises them later.
-		want := []string{"If you just replaced a device, this is expected.", "If it happens again, netdiag will mark it as a conflict."}
+		want := []string{"If you just replaced a device, this is expected.", "If it happens again, netdiag will tell you."}
 		if tc.want == swap {
 			want = []string{StepCompareDevices, "Restart one of them so it gets a new address.",
 				"If it keeps happening, ask whoever looks after the router to reserve an address for one of them."}
@@ -620,6 +643,10 @@ func TestUITestFixtureAdvice(t *testing.T) {
 		"dns no_internet, no network": Health(model.HealthCheck{ID: "dns", Status: model.HealthWarn,
 			Data: map[string]any{"reason": model.ReasonNoInternet}}, Ctx{GOOS: "windows"}),
 		"web redirect": hc("webserver", model.HealthFail, model.ReasonRedirect, map[string]any{"location": "https://portal.example.com/login"}),
+		"web redirect, query": hc("webserver", model.HealthFail, model.ReasonRedirect,
+			map[string]any{"location": "https://portal.example.com/login?ticket=ST-1234"}),
+		"web loop":              hc("webserver", model.HealthFail, model.ReasonStatus, map[string]any{"status": 302}),
+		"web redirect expected": hc("webserver", model.HealthFail, model.ReasonStatus, map[string]any{"status": 301}),
 		"web tls, another address": hc("webserver", model.HealthFail, model.ReasonTLS,
 			map[string]any{"finalURL": "https://intranet.local:8443/"}),
 		"gateway tcp_only": hc("gateway", model.HealthOK, model.ReasonTCPOnly, nil),

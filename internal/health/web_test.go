@@ -70,8 +70,15 @@ func TestWebFollowsSameHostRedirects(t *testing.T) {
 
 	c = check(Config{WebURL: src.URL + "/away"})
 	want := "HTTP 302 (expected 200): it redirects to another server, " + otherHostURL(dst.URL) + "/sso"
-	if c.Status != model.HealthFail || c.Detail != want || c.Data["finalURL"] != nil {
+	if c.Status != model.HealthFail || c.Detail != want || c.Data["finalURL"] != nil ||
+		c.Data["reason"] != model.ReasonRedirect || c.Data["location"] != otherHostURL(dst.URL)+"/sso" {
 		t.Fatalf("other host: %+v", c)
+	}
+	// Expecting a redirect: one to another server is the answer being
+	// checked, not a page to move the URL to.
+	c = check(Config{WebURL: src.URL + "/away", ExpectStatus: 301})
+	if c.Status != model.HealthFail || c.Data["reason"] != model.ReasonStatus || c.Data["location"] != otherHostURL(dst.URL)+"/sso" {
+		t.Fatalf("other host, expected 301: %+v", c)
 	}
 
 	c = check(Config{WebURL: src.URL + "/five"})
@@ -80,8 +87,10 @@ func TestWebFollowsSameHostRedirects(t *testing.T) {
 	}
 
 	c = check(Config{WebURL: src.URL + "/loop"})
+	// A loop: its last address loops too, so the advice must not offer it
+	// (a status answer, not a redirect).
 	if c.Status != model.HealthFail || !strings.Contains(c.Detail, "more than 5 redirects, the last one to "+src.URL+"/loop?n=6") ||
-		c.Data["finalURL"] != src.URL+"/loop?n=5" {
+		c.Data["finalURL"] != src.URL+"/loop?n=5" || c.Data["reason"] != model.ReasonStatus {
 		t.Fatalf("redirect loop: %+v", c)
 	}
 
@@ -91,7 +100,8 @@ func TestWebFollowsSameHostRedirects(t *testing.T) {
 		t.Fatalf("expected 301: %+v", c)
 	}
 	c = check(Config{WebURL: src.URL + "/moved", ExpectStatus: 302})
-	if c.Status != model.HealthFail || c.Detail != "HTTP 301 (expected 302): it redirects to "+src.URL+"/new" {
+	if c.Status != model.HealthFail || c.Detail != "HTTP 301 (expected 302): it redirects to "+src.URL+"/new" ||
+		c.Data["reason"] != model.ReasonStatus || c.Data["location"] != src.URL+"/new" {
 		t.Fatalf("expected 302: %+v", c)
 	}
 }

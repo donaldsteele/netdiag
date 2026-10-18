@@ -135,12 +135,20 @@ func (r *Runner) checkWeb(ctx context.Context, in Input) model.HealthCheck {
 		if loc, err := resp.Location(); err == nil && resp.StatusCode >= 300 && resp.StatusCode <= 399 {
 			shown := loc.Redacted()
 			c.Data["location"] = shown
-			c.Data["reason"] = model.ReasonRedirect
 			switch {
 			case tooMany:
+				// A loop on this server: its last address loops too, so
+				// it stays a status answer, which offers no address.
 				c.Detail += fmt.Sprintf(": more than %d redirects, the last one to %s", maxWebRedirects, shown)
 			case !strings.EqualFold(loc.Hostname(), host):
 				c.Detail += ": it redirects to another server, " + shown
+				// The page you set is not the one that answers, unless
+				// the expected answer is a redirect itself: then the
+				// redirect is what is being checked, and moving the URL
+				// to its target would not check it.
+				if follow {
+					c.Data["reason"] = model.ReasonRedirect
+				}
 			default:
 				c.Detail += ": it redirects to " + shown
 			}
