@@ -258,8 +258,8 @@ func TestFingerprintSaved(t *testing.T) {
 	s.Cancel()
 	res := s.Wait()
 	want := model.NetworkID("10.0.0.0/24", "10.0.0.1", gwMAC)
-	if stat.Network != want || res.Health == nil || res.Health.Network != want {
-		t.Fatalf("live network %q, health network %v, want %q", stat.Network, res.Health, want)
+	if stat.Network != want || res.Health == nil || res.Health.Network != want || s.Network() != want {
+		t.Fatalf("live network %q, health network %v, scan network %q, want %q", stat.Network, res.Health, s.Network(), want)
 	}
 	list, err := prof.List()
 	if err != nil || len(list) != 1 {

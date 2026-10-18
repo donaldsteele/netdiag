@@ -77,6 +77,9 @@ type Fixed struct {
 	Network  string `json:"network"`
 	OpenedAt string `json:"openedAt,omitempty"`
 	FixedAt  string `json:"fixedAt"`
+	// Chat is the open problem's team chat state when it was fixed, so the
+	// chat router can still tell whether a card waits for its resolve.
+	Chat string `json:"chat,omitempty"`
 }
 
 // ledgerFile is open-problems.json.
@@ -112,36 +115,79 @@ type Ledger struct {
 	dirty   bool
 	timer   *time.Timer
 	onDrop  func([]Entry)
+	// unread is why open-problems.json could not be read (or, unreadable,
+	// could not be set aside): until a read works, nothing is written over
+	// the file, so the problems it holds are not lost.
+	unread error
 }
 
 // OpenLedger reads open-problems.json. It always returns a usable ledger:
 // a missing file starts it empty, and an unreadable one is set aside as
-// <name>.bad-<time> (the error says so) and it starts empty too.
+// <name>.bad-<time> (the error says so) and it starts empty too. A file
+// that could not be read at all (a sharing violation, access denied) or
+// could not be set aside is never written over: the ledger keeps its
+// changes in memory, reads the file again before each save and adds what
+// it holds.
 func OpenLedger(files Files) (*Ledger, error) {
 	l := &Ledger{files: files, now: time.Now, delay: SaveDelay, open: map[string]*Entry{}}
-	data, err := files.ReadFile(store.FileOpenProblems)
+	f, bad, err := l.read()
+	if err != nil {
+		l.unread = err
+		return l, err
+	}
+	if f != nil {
+		l.merge(*f)
+	}
+	if bad != "" {
+		return l, fmt.Errorf("problems: %s was unreadable and is now %s", store.FileOpenProblems, bad)
+	}
+	return l, nil
+}
+
+// read reads open-problems.json without l.mu: the file (nil when there is
+// none), where an unreadable one was set aside, or why it could not be read
+// or set aside.
+func (l *Ledger) read() (*ledgerFile, string, error) {
+	data, err := l.files.ReadFile(store.FileOpenProblems)
 	if errors.Is(err, fs.ErrNotExist) {
-		return l, nil
+		return nil, "", nil
 	}
 	if err != nil {
-		return l, err
+		return nil, "", fmt.Errorf("problems: %s could not be read: %w", store.FileOpenProblems, err)
 	}
 	var f ledgerFile
 	if err := json.Unmarshal(data, &f); err != nil || f.SchemaVersion < 1 {
-		bad, qerr := files.QuarantineFile(store.FileOpenProblems)
+		bad, qerr := l.files.QuarantineFile(store.FileOpenProblems)
 		if qerr != nil {
-			return l, fmt.Errorf("problems: %s is unreadable and could not be set aside: %v", store.FileOpenProblems, qerr)
+			return nil, "", fmt.Errorf("problems: %s is unreadable and could not be set aside: %v", store.FileOpenProblems, qerr)
 		}
-		return l, fmt.Errorf("problems: %s was unreadable and is now %s", store.FileOpenProblems, bad)
+		return nil, bad, nil
 	}
-	l.network = f.Network
+	return &f, "", nil
+}
+
+// merge adds the file f's problems to the ledger. What the ledger already
+// has wins: a problem it has open, or fixed since it started, is not taken
+// from the file. l.mu must be held (or l not shared yet).
+func (l *Ledger) merge(f ledgerFile) {
+	if l.network == "" {
+		l.network = f.Network
+	}
+	fixed := map[string]bool{}
+	for _, x := range l.fixed {
+		fixed[slot(x.Network, x.Key)] = true
+	}
 	for i := range f.Open {
-		if e := f.Open[i]; e.Key != "" {
-			l.open[slot(e.Network, e.Key)] = &e
+		e := f.Open[i]
+		k := slot(e.Network, e.Key)
+		if e.Key == "" || l.open[k] != nil || fixed[k] {
+			continue
 		}
+		l.open[k] = &e
 	}
-	l.fixed = f.Fixed
-	return l, nil
+	all := append(append([]Fixed(nil), f.Fixed...), l.fixed...)
+	sort.SliceStable(all, func(i, j int) bool { return all[i].FixedAt < all[j].FixedAt })
+	l.fixed = all
 }
 
 // SetClock replaces the clock (tests).
@@ -192,7 +238,7 @@ func (l *Ledger) Apply(network string, ns []model.Notice) {
 			fx := Fixed{Key: n.Key, Title: n.Title, IP: n.IP, Name: n.Name, Network: network,
 				OpenedAt: n.OpenedAt, FixedAt: stamp(n.At, at)}
 			if e != nil {
-				fx.Title, fx.Network = e.Title, e.Network
+				fx.Title, fx.Network, fx.Chat = e.Title, e.Network, e.Chat
 				if fx.OpenedAt == "" {
 					fx.OpenedAt = e.OpenedAt
 				}
@@ -328,18 +374,57 @@ func (l *Ledger) entries() []Entry {
 	return out
 }
 
-// MarkChat records the team chat state (ChatPending, ChatPosted or "") of
-// an open problem on the network of the last Apply.
-func (l *Ledger) MarkChat(key, state string) {
+// Chat returns the team chat state (ChatPending, ChatPosted or "") of the
+// problem key on network: the open one's, else the one fixed last's, so the
+// chat router can tell, when it sees an OK, whether a card waits for its
+// resolve. A scan names its network with scan.Scan.Network.
+func (l *Ledger) Chat(network, key string) string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if e := l.open[slot(l.network, key)]; e != nil && e.Chat != state {
-		e.Chat = state
+	if e := l.open[slot(network, key)]; e != nil {
+		return e.Chat
+	}
+	if i := l.fixedAt(network, key); i >= 0 {
+		return l.fixed[i].Chat
+	}
+	return ""
+}
+
+// MarkChat records the team chat state (ChatPending, ChatPosted or "") of
+// the problem key on network: the open one, else the one fixed last (its
+// card was resolved). network is the problem's own, which an outbox item
+// keeps: netdiag may be on another network by the time the item is sent.
+func (l *Ledger) MarkChat(network, key, state string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if e := l.open[slot(network, key)]; e != nil {
+		if e.Chat != state {
+			e.Chat = state
+			l.changed()
+		}
+		return
+	}
+	if i := l.fixedAt(network, key); i >= 0 && l.fixed[i].Chat != state {
+		l.fixed[i].Chat = state
 		l.changed()
 	}
 }
 
+// fixedAt is the index of the problem key on network fixed last, or -1.
+// l.mu must be held.
+func (l *Ledger) fixedAt(network, key string) int {
+	for i := len(l.fixed) - 1; i >= 0; i-- {
+		if l.fixed[i].Network == network && l.fixed[i].Key == key {
+			return i
+		}
+	}
+	return -1
+}
+
 // Flush writes the ledger now if it changed since the last save (on Quit).
+// When open-problems.json could not be read before, it reads it first and
+// adds what it holds; while it still cannot be read, Flush writes nothing
+// and says why (the changes stay for the next save).
 func (l *Ledger) Flush() error {
 	l.wmu.Lock()
 	defer l.wmu.Unlock()
@@ -352,6 +437,23 @@ func (l *Ledger) Flush() error {
 		l.mu.Unlock()
 		return nil
 	}
+	unread := l.unread != nil
+	l.mu.Unlock()
+	if unread {
+		f, _, err := l.read() // without l.mu: Apply never waits on the disk
+		l.mu.Lock()
+		if err != nil {
+			l.unread = err
+			l.mu.Unlock()
+			return err
+		}
+		l.unread = nil
+		if f != nil {
+			l.merge(*f)
+		}
+		l.mu.Unlock()
+	}
+	l.mu.Lock()
 	f := ledgerFile{SchemaVersion: ledgerSchema, Network: l.network, UpdatedAt: l.now().UTC().Format(time.RFC3339),
 		Open: l.entries(), Fixed: append([]Fixed{}, l.fixed...)}
 	l.dirty = false

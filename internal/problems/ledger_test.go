@@ -2,6 +2,7 @@ package problems
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,7 +152,7 @@ func TestLedgerSaveDebounce(t *testing.T) {
 	if err := l.Flush(); err != nil || files.writes.Load() != 1 {
 		t.Fatalf("flush with nothing new: %v, writes %d", err, files.writes.Load())
 	}
-	l.MarkChat(cover.Key, ChatPosted)
+	l.MarkChat(netA, cover.Key, ChatPosted)
 	if err := l.Flush(); err != nil || files.writes.Load() != 2 {
 		t.Fatalf("flush: %v, writes %d", err, files.writes.Load())
 	}
@@ -243,5 +244,148 @@ func TestLedgerCorruptFile(t *testing.T) {
 	}
 	if l2, err := OpenLedger(files); err != nil || len(l2.OpenFor(netA)) != 1 {
 		t.Fatalf("after the next save: %v", err)
+	}
+}
+
+// The team chat state is kept per network and key: an outbox item for
+// network A marks A's problem even after netdiag moved to B, and an OK
+// keeps the state on the fixed entry, so the router can still resolve a
+// posted card.
+func TestLedgerChatState(t *testing.T) {
+	l, _ := openTest(t, newFiles(t))
+	l.Apply(netA, []model.Notice{dns})
+	l.Apply(netB, []model.Notice{dns}) // netdiag is on B now
+	l.MarkChat(netA, dns.Key, ChatPosted)
+	if a, b := l.Chat(netA, dns.Key), l.Chat(netB, dns.Key); a != ChatPosted || b != "" {
+		t.Fatalf("chat A %q, B %q", a, b)
+	}
+	ok := model.Notice{Trigger: dns.Trigger, Key: dns.Key, OK: true, Title: "Health check OK again", At: "2026-10-17T09:20:00Z"}
+	l.Apply(netA, []model.Notice{ok})
+	if got := l.Chat(netA, dns.Key); got != ChatPosted {
+		t.Fatalf("after the OK: %q", got)
+	}
+	_, fixed := l.Snapshot()
+	if len(fixed) != 1 || fixed[0].Network != netA || fixed[0].Chat != ChatPosted {
+		t.Fatalf("fixed %+v", fixed)
+	}
+	l.MarkChat(netA, dns.Key, "") // the card was resolved
+	if _, fixed := l.Snapshot(); fixed[0].Chat != "" || l.Chat(netA, dns.Key) != "" || l.Chat(netB, dns.Key) != "" {
+		t.Fatalf("after the resolve: %+v", fixed)
+	}
+	if l.Chat(netA, "nothing||here") != "" {
+		t.Fatal("unknown key has a state")
+	}
+}
+
+// flakyFiles is a store whose reads fail while readFails > 0 and whose
+// set-aside fails while noSetAside is set.
+type flakyFiles struct {
+	*countFiles
+	readFails  atomic.Int32
+	noSetAside atomic.Bool
+}
+
+func (f *flakyFiles) ReadFile(name string) ([]byte, error) {
+	if f.readFails.Add(-1) >= 0 {
+		return nil, errors.New("the process cannot access the file because it is being used by another process")
+	}
+	return f.countFiles.ReadFile(name)
+}
+
+func (f *flakyFiles) QuarantineFile(name string) (string, error) {
+	if f.noSetAside.Load() {
+		return "", errors.New("access is denied")
+	}
+	return f.countFiles.QuarantineFile(name)
+}
+
+// A file that could not be read (another program had it open) or, unreadable,
+// could not be set aside is never written over: the ledger keeps its
+// changes, reads the file again before each save and, once it can, adds
+// the problems the file holds.
+func TestLedgerUnreadableNotOverwritten(t *testing.T) {
+	t.Run("read fails", func(t *testing.T) {
+		files := &flakyFiles{countFiles: newFiles(t)}
+		earlier, _ := openTest(t, files)
+		earlier.Apply(netA, []model.Notice{cover})
+		if err := earlier.Flush(); err != nil {
+			t.Fatal(err)
+		}
+		before, _ := os.ReadFile(filepath.Join(files.Dir(), store.FileOpenProblems))
+		files.readFails.Store(2) // the start and the first save
+		l, err := OpenLedger(files)
+		if err == nil || l == nil || !strings.Contains(err.Error(), "could not be read") {
+			t.Fatalf("open: %v", err)
+		}
+		l.Apply(netB, []model.Notice{dns})
+		writes := files.writes.Load()
+		if err := l.Flush(); err == nil || files.writes.Load() != writes {
+			t.Fatalf("save while unreadable: %v, writes %d", err, files.writes.Load()-writes)
+		}
+		if now, _ := os.ReadFile(filepath.Join(files.Dir(), store.FileOpenProblems)); string(now) != string(before) {
+			t.Fatalf("file written over: %s", now)
+		}
+		if err := l.Flush(); err != nil {
+			t.Fatal(err)
+		}
+		l2, err := OpenLedger(files)
+		if err != nil || len(l2.OpenFor(netA)) != 1 || len(l2.OpenFor(netB)) != 1 {
+			t.Fatalf("after the read worked: %v, A %v, B %v", err, l2.OpenFor(netA), l2.OpenFor(netB))
+		}
+	})
+	t.Run("cannot set aside", func(t *testing.T) {
+		files := &flakyFiles{countFiles: newFiles(t)}
+		if err := files.Store.WriteFile(store.FileOpenProblems, []byte("{not json")); err != nil {
+			t.Fatal(err)
+		}
+		files.noSetAside.Store(true)
+		l, err := OpenLedger(files)
+		if err == nil || !strings.Contains(err.Error(), "could not be set aside") {
+			t.Fatalf("open: %v", err)
+		}
+		l.Apply(netA, []model.Notice{cover})
+		if err := l.Flush(); err == nil {
+			t.Fatal("saved over a file it could not set aside")
+		}
+		if now, _ := os.ReadFile(filepath.Join(files.Dir(), store.FileOpenProblems)); string(now) != "{not json" {
+			t.Fatalf("file written over: %s", now)
+		}
+		files.noSetAside.Store(false)
+		if err := l.Flush(); err != nil {
+			t.Fatal(err)
+		}
+		ents, _ := os.ReadDir(files.Dir())
+		bad := false
+		for _, e := range ents {
+			bad = bad || strings.HasPrefix(e.Name(), store.FileOpenProblems+".bad-")
+		}
+		if l2, err := OpenLedger(files); err != nil || len(l2.OpenFor(netA)) != 1 || !bad {
+			t.Fatalf("after set aside: %v, bad %v", err, bad)
+		}
+	})
+}
+
+// A problem this run fixed is not taken back from the file it could not
+// read at the start.
+func TestLedgerMergeKeepsFixed(t *testing.T) {
+	files := &flakyFiles{countFiles: newFiles(t)}
+	earlier, _ := openTest(t, files)
+	earlier.Apply(netA, []model.Notice{cover})
+	if err := earlier.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	files.readFails.Store(1)
+	l, err := OpenLedger(files)
+	if err == nil {
+		t.Fatal("the read did not fail")
+	}
+	l.delay = time.Hour
+	l.Apply(netA, []model.Notice{cover, coverOK})
+	if err := l.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	open, fixed := l.Snapshot()
+	if len(open) != 0 || len(fixed) != 1 {
+		t.Fatalf("open %+v fixed %+v", open, fixed)
 	}
 }

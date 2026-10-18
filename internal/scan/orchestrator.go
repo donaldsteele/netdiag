@@ -317,6 +317,7 @@ type Scan struct {
 	result    *model.ScanResult
 	apply     func(model.Settings) bool // set while the pipeline runs
 	liveSince string                    // when the scan went live (RFC 3339); "" before
+	network   string                    // the fingerprint id, set at the end of the first pass
 }
 
 // Request returns the scan's request with the SNMP community hidden. Its
@@ -340,6 +341,19 @@ func (s *Scan) LiveSince() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.liveSince
+}
+
+// Network is the id (model.NetworkID) of the network the scan watches,
+// taken at the end of its first pass: "" before, and when netdiag cannot
+// tell the network apart (the router's MAC is unknown). The notices of a
+// scan with a ledger are all about this network (they wait for the end of
+// the first pass, and stop when this computer is on another network), and
+// the ledger keeps them under it, so the team chat router (v0.6 M11) passes
+// it to Ledger.Chat and MarkChat.
+func (s *Scan) Network() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.network
 }
 
 // ApplySettings applies changed settings (alert triggers, threshold,
@@ -847,6 +861,9 @@ func gatewayMAC(entries []arp.Entry, gateway string) string {
 // others are kept open as they are. A cancelled pass checks nothing.
 func (r *runner) finishFirstPass(complete bool) {
 	r.fp = NewFingerprint(r.self.CIDR, r.gateway, r.gatewayMAC)
+	r.s.mu.Lock()
+	r.s.network = r.fp.ID // before the reconcile lets the first notices out
+	r.s.mu.Unlock()
 	var check, keep []notify.OpenFault
 	if r.d.Ledger != nil && r.fp.ID != "" {
 		whole := r.coversNetwork()
