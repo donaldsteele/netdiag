@@ -163,7 +163,7 @@ var fieldSections = []struct {
 }
 
 // v06Items are the v0.6 field checks, by their bold title: the real
-// hardware runs of v0.6 §7.4 (1-6), the standard-user runs of §7.5, the
+// hardware runs of v0.6 §7.4 (1-7), the standard-user runs of §7.5, the
 // checks earlier milestones left for the test rig, and Defender (§7.6).
 var v06Items = []string{
 	// §7.4
@@ -178,6 +178,8 @@ var v06Items = []string{
 	"No Location button on a Mac.", "The Mac build.",
 	// §7.5 both
 	"Separate data folders, separate netdiags.", "Another user's netdiag does not take your page.",
+	// §7.4 item 7, mDNS on a real network, run on both (M2's F14 types)
+	"A phone shows as a phone.", "Macs, Apple TVs and HomePods keep their types.", "The connect wizard finds bubbles by its mDNS name.",
 	// M9's and M12's checks with a live agent
 	"Claude Code explains the problems.", "Claude checks the chat alerts.", "Claude Desktop sees the window.",
 	// §7.6

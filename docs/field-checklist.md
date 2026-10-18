@@ -232,6 +232,12 @@ When testing, stop only the netdiag you started, by its process ID or its path, 
   Date: · OS: · Result:
 - [ ] **Another user's netdiag does not take your page.** Steps: sign in as a second user on the same computer (fast user switching) and start netdiag there first, then start netdiag as the first user. The first user's page is their own netdiag (their settings and history), on another port if 8787 is taken.
   Date: · OS: · Result:
+- [ ] **A phone shows as a phone.** Steps: on the local network, have an iPhone or iPad awake with Wi-Fi on (not on a guest network) and scan. Its row's Type reads "Phone/tablet". Open its details panel: the mDNS section lists `_companion-link._tcp`, and the Type's reason names an mDNS service (for example "mdns _companion-link"). Record the model and whether `_apple-mobdev2._tcp` was listed too. Run it on Windows and on the Mac.
+  Date: · OS: · Result:
+- [ ] **Macs, Apple TVs and HomePods keep their types.** Steps: with a Mac (not this computer), an Apple TV and a HomePod awake on the local network, scan. Their mDNS sections may list `_companion-link._tcp`, but none of them reads "Phone/tablet": the Mac reads "Computer", and the Apple TV and the HomePod read "TV/streamer". Record each device's Type and the reason under it, and note any device that is missing.
+  Date: · OS: · Result:
+- [ ] **The connect wizard finds bubbles by its mDNS name.** Steps: on a computer where the bubbles tray app has never been set up (so the wizard cannot read the tray's server), open Settings > Team chat (bubbles) > **Connect to team chat**. The bubbles server on another computer is listed under the chat servers found on the local network, without typing its address and without the "This computer already uses the chat server" line. Then scan the local network: the bubbles server's details panel lists `_bubbles._tcp` in its mDNS section. Run it on Windows (firewall on) and on the Mac.
+  Date: · OS: · Result:
 
 ### 6.5 Claude with the netdiag window and team chat
 
