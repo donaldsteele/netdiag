@@ -199,9 +199,31 @@ func writeAtomic(path string, data []byte) error {
 		os.Remove(name)
 		return err
 	}
-	if err := os.Rename(name, path); err != nil {
+	if err := replaceFile(name, path); err != nil {
 		os.Remove(name)
 		return err
 	}
 	return nil
+}
+
+// renameTries is how many times replaceFile tries; renameWait is its first
+// pause, doubled after each try (about 300 ms in all).
+const renameTries = 6
+
+var renameWait = 10 * time.Millisecond
+
+// replaceFile renames tmp over path. While another process reads path
+// (`netdiag mcp` over stdio reads the files the window saves), Windows
+// refuses the rename; the reader lets go within milliseconds, so it is
+// tried again a few times before the save fails.
+func replaceFile(tmp, path string) error {
+	wait := renameWait
+	for i := 1; ; i++ {
+		err := os.Rename(tmp, path)
+		if err == nil || i == renameTries || !renameBusy(err) {
+			return err
+		}
+		time.Sleep(wait)
+		wait *= 2
+	}
 }

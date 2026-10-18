@@ -395,3 +395,58 @@ func TestLedgerMergeKeepsFixed(t *testing.T) {
 		t.Fatalf("open %+v fixed %+v", open, fixed)
 	}
 }
+
+// busyFiles is a store whose writes fail while writeFails > 0, as a save
+// does on Windows while another process reads the file.
+type busyFiles struct {
+	*countFiles
+	writeFails atomic.Int32
+}
+
+func (f *busyFiles) WriteFile(name string, data []byte) error {
+	if f.writeFails.Add(-1) >= 0 {
+		f.writes.Add(1)
+		return errors.New("access is denied")
+	}
+	return f.countFiles.WriteFile(name, data)
+}
+
+// A save that fails is tried again on its own: the change reaches the file
+// without another change or Flush.
+func TestLedgerRetriesFailedSave(t *testing.T) {
+	files := &busyFiles{countFiles: newFiles(t)}
+	l, _ := openTest(t, files)
+	l.delay = 20 * time.Millisecond
+	saved := func(what, want string) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			data, err := os.ReadFile(filepath.Join(files.Dir(), store.FileOpenProblems))
+			if err == nil && strings.Contains(string(data), want) {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: not saved (writes %d): %s", what, files.writes.Load(), data)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	files.writeFails.Store(2)
+	l.Apply(netA, []model.Notice{cover})
+	saved("after two failed saves", cover.Key)
+	if n := files.writes.Load(); n != 3 {
+		t.Errorf("writes = %d, want 2 failed and 1 good", n)
+	}
+	// Once saved, nothing more is written.
+	time.Sleep(60 * time.Millisecond)
+	if n := files.writes.Load(); n != 3 {
+		t.Errorf("writes after the save = %d", n)
+	}
+	// A failed Flush (on Quit) schedules a retry too.
+	files.writeFails.Store(1)
+	l.MarkChat(netA, cover.Key, ChatPosted)
+	if err := l.Flush(); err == nil {
+		t.Fatal("the save did not fail")
+	}
+	saved("after a failed Flush", `"chat": "posted"`)
+}

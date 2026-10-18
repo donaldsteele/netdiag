@@ -463,8 +463,22 @@ func (l *Ledger) fixedAt(network, key string) int {
 // Flush writes the ledger now if it changed since the last save (on Quit).
 // When open-problems.json could not be read before, it reads it first and
 // adds what it holds; while it still cannot be read, Flush writes nothing
-// and says why (the changes stay for the next save).
+// and says why. A save that fails keeps the changes and schedules another
+// one, so they reach the file without waiting for the next change.
 func (l *Ledger) Flush() error {
+	err := l.flush()
+	if err != nil {
+		l.mu.Lock()
+		if l.dirty {
+			l.changed()
+		}
+		l.mu.Unlock()
+	}
+	return err
+}
+
+// flush is Flush without the retry.
+func (l *Ledger) flush() error {
 	l.wmu.Lock()
 	defer l.wmu.Unlock()
 	l.mu.Lock()
@@ -503,7 +517,7 @@ func (l *Ledger) Flush() error {
 	}
 	if err != nil {
 		l.mu.Lock()
-		l.dirty = true // written with the next change or Flush
+		l.dirty = true // Flush schedules the next try
 		l.mu.Unlock()
 	}
 	return err

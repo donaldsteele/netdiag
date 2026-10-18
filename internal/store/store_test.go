@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -509,4 +510,62 @@ func TestRedactFileNullRequestDuplicate(t *testing.T) {
 		}
 	}()
 	_ = s.redactFile(fileInfo{name: name}, data)
+}
+
+// A reader holding a data file open (on Windows, `netdiag mcp` reading what
+// the window saves) delays a save instead of failing it.
+func TestWriteAtomicWhileRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileOpenProblems)
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := make(chan struct{})
+	go func() {
+		time.Sleep(40 * time.Millisecond)
+		f.Close()
+		close(closed)
+	}()
+	if err := writeAtomic(path, []byte("new")); err != nil {
+		t.Fatalf("save while read: %v", err)
+	}
+	<-closed
+	if b, err := os.ReadFile(path); err != nil || string(b) != "new" {
+		t.Fatalf("after the save: %q %v", b, err)
+	}
+}
+
+// A reader that never lets go fails the save after the retries (Windows
+// only: elsewhere a rename replaces an open file), and no temp file is
+// left behind.
+func TestWriteAtomicReaderNeverCloses(t *testing.T) {
+	renameWait = time.Millisecond
+	t.Cleanup(func() { renameWait = 10 * time.Millisecond })
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileOpenProblems)
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = writeAtomic(path, []byte("new"))
+	f.Close()
+	if runtime.GOOS == "windows" {
+		if err == nil {
+			t.Fatal("replaced a file another process holds open")
+		}
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		if strings.HasPrefix(e.Name(), ".tmp-") {
+			t.Errorf("temp file left: %s", e.Name())
+		}
+	}
 }

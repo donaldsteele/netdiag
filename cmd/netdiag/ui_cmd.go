@@ -66,7 +66,9 @@ func runUI(args []string, stdout, stderr io.Writer) int {
 	}
 	// One open-problem ledger and one network profile store per process,
 	// shared by every scan and the service, so each file has one writer.
-	// They open after the start lock, so a second launch never reads them.
+	// They open after the start lock, so a second launch never reads them;
+	// `netdiag mcp` over stdio does read open-problems.json (MCP
+	// list_problems), and a save waits briefly for such a read to end.
 	deps := scan.DefaultDeps()
 	var ledger *problems.Ledger
 	if st != nil {
