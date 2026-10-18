@@ -79,8 +79,8 @@ Tick only after observing the behaviour on real hardware.
 - [ ] A live scan left running overnight on a busy network still alerts again for a device that goes offline after the cooldown has passed
 
 ### Health checks (v0.5.8)
-- [ ] With ping to the router getting no reply, the Gateway row is `ok` and says "answers on port 80" (or 443), with "(it does not reply to ping)" or, when this computer blocks the ping, "(ping could not run on this computer)". To get there, use a router or access point whose ping reply on the local network side can be turned off (a "WAN ping" setting does not affect pings from the local network), or block outgoing ping (ICMP echo request) to the router's address on the test computer, for example with a Windows Firewall outbound rule. Write down which method you used and the detail shown
-- [ ] With the router unplugged, the Gateway row is `fail` and says it did not reply to ping or on ports 80 and 443, within about 5 seconds
+- [ ] With ping to the router getting no reply, the Router row is `ok` and says "answers on port 80" (or 443), with "(it does not reply to ping)" or, when this computer blocks the ping, "(ping could not run on this computer)". To get there, use a router or access point whose ping reply on the local network side can be turned off (a "WAN ping" setting does not affect pings from the local network), or block outgoing ping (ICMP echo request) to the router's address on the test computer, for example with a Windows Firewall outbound rule. Write down which method you used and the detail shown
+- [ ] With the router unplugged, the Router row is `fail` and says it did not reply to ping or on ports 80 and 443, within about 5 seconds
 - [ ] A Web server URL starting with `http://` on a server that redirects to `https://` on the same name is `ok` and shows "redirected to https://..."
 - [ ] A Web server URL that redirects to a sign-in page on another server is `fail` and the detail names that server
 - [ ] A Web server URL with a user name and password (`http://user:password@server/`, on a device that asks for them) is `ok`; the Web server row, the scan export, its `history` file and MCP `get_health` / `get_settings` show the password as `xxxxx`, and only Settings shows it
@@ -89,27 +89,27 @@ Tick only after observing the behaviour on real hardware.
 - [ ] After **OK** the row turns `ok` at once, stays `ok` after quitting and starting netdiag again, and Settings shows "Trusted certificate" with the first part of the fingerprint
 - [ ] After the device gets a new certificate (regenerate it in its admin page), the row says "the certificate changed since you trusted it" and offers to trust the new one
 - [ ] On a server whose https address redirects to another https port with a different self-signed certificate (for example a NAS that sends `https://nas/` on to `https://nas:5001/`), after trusting the first certificate the row names the second address and says it uses a different certificate that is not trusted, with no **Trust this certificate** button
-- [ ] **Forget** in Settings, then **Save**, makes the row fail again without pressing Recheck
-- [ ] After changing the Web server URL in Settings and pressing **Save**, the Web server row describes the new address within about 10 seconds without pressing Recheck, and **Trust this certificate** is never offered for the old address
+- [ ] **Forget** in Settings, then **Save**, makes the row fail again without pressing **Check again**
+- [ ] After changing the Web server URL in Settings and pressing **Save**, the Web server row describes the new address within about 10 seconds without pressing **Check again**, and **Trust this certificate** is never offered for the old address
 - [ ] An `https://` Web server with a normal public certificate is `ok` without any trust step
 - [ ] The Web server card's "Set the web server URL in Settings" link shows when no URL is set and opens Settings
-- [ ] On a computer with a VPN or a second network adapter (wired and Wi-Fi on different networks), after scanning one network, **Recheck** and the MCP `run_health_check` tool check that network: the Gateway row names its router, and the Wi-Fi and DHCP rows describe that adapter
+- [ ] On a computer with a VPN or a second network adapter (wired and Wi-Fi on different networks), after scanning one network, **Check again** and the MCP `run_health_check` tool check that network: the Router row names its router, and the Wi-Fi and DHCP rows describe that adapter
 - [ ] Before any scan, MCP `run_health_check` checks the adapter that carries the default route (the one marked as default in the interface list), not a VPN or virtual adapter
-- [ ] On a computer with wired and Wi-Fi on different networks, choose the adapter that does not carry the default route and press **Recheck**: the Gateway row never names the other network's router; when no router on that adapter's network is known it says "no router is known for this network adapter"
+- [ ] On a computer with wired and Wi-Fi on different networks, choose the adapter that does not carry the default route and press **Check again**: the Router row never names the other network's router; when no router on that adapter's network is known it says "no router is known for this network adapter"
 
 ### Health panel
-- [ ] Gateway row shows `ok` with a latency; unplugging the router shows `fail` text, not colour alone
-- [ ] DHCP row shows `ok` on a DHCP lease and `fail` on a 169.254.x.x (APIPA) address
+- [ ] Router row shows `ok` with a latency; unplugging the router shows `fail` text, not colour alone
+- [ ] "Getting an address (DHCP)" row shows `ok` on a DHCP lease and `fail` on a 169.254.x.x (APIPA) address
 - [ ] DNS row resolves the internet test name (connectivitycheck.gstatic.com, or the internet check host) and shows a latency
-- [ ] On a local network without internet, the DNS row is `warn` (not `fail`) and names the DNS server that answers, while the router's DNS server is reachable; it is `fail` when no DNS server answers
+- [ ] On a local network without internet, the "Name lookup (DNS)" row is `warn` (not `fail`) and names the DNS server that answers, while the router's DNS server is reachable; it is `fail` when no DNS server answers
 - [ ] Web server row shows HTTP status, latency and the must-contain result, once a URL is set in Settings
 - [ ] Web server row shows "not configured" (info) when no URL is set
 - [ ] Internet row is `info` (never `fail`) on an offline local network
 - [ ] Wi-Fi row shows SSID, signal and channel on Wi-Fi; "not on Wi-Fi" on a cable
 - [ ] Wi-Fi and DHCP rows show real data (not "unavailable") on a non-English Windows install
 - [ ] macOS Wi-Fi row shows "hidden by macOS" without Location permission
-- [ ] Recheck finishes within about 10 seconds
-- [ ] Header summary chip reads "Health: N fail, M warn" (or "Health: OK")
+- [ ] **Check again** finishes within about 10 seconds
+- [ ] Header summary chip reads "Health: N failing, M notes" (or "Health: OK")
 
 ### Conflicts
 - [ ] Two devices given the same static IP produce a MAC flap conflict after two alternations within 10 minutes
@@ -175,19 +175,19 @@ Set up first (v0.6 §3, "Test rig"):
 - The Zebra ZD621 at 192.168.68.76, with someone next to it who opens and closes the cover when asked
 - For the mDNS checks in 6.4, on the same local network: an iPhone or iPad that is not set up for Wi-Fi sync; a Mac mini, Mac Studio or Mac Pro with neither "MacBook" nor "iMac" in its name and File Sharing off (a second Mac, not the macOS 15 test Mac, so it is "not this computer" on both runs); an Apple TV; and a HomePod
 - On both test computers, the user who runs netdiag has never set up the bubbles tray app (6.4, "The connect wizard finds bubbles by its mDNS name.")
-- netdiag connected to team chat (6.2, first item) before running 6.1
+- netdiag connected to team chat (6.2, "Connect to team chat without admin") before running 6.1
 
 When testing, stop only the netdiag you started, by its process ID or its path, never by its name (no `taskkill /IM`, no `pkill netdiag`).
 
 ### 6.1 Real hardware: the Zebra and team chat (v0.6 §7.4)
 
-- [ ] **Cover open, then closed.** Steps: with team chat connected and **Send alerts to team chat** on, start a live scan of the Zebra's network and wait for the first scan to finish. Ask for the Zebra's cover to be opened. Within about 5 seconds the banner reads "Printer alert: … Door or cover open" (one alert: the printer's "offline or paused" flag is part of it), and #netdiag-alerts gets exactly one alert card within 10 seconds. Ask for the cover to be closed. The banner turns into ✔ **Fixed**, with no sound, and the same chat card (same key) is resolved with "Fixed at HH:MM (after N min)" within 10 seconds (an open cover was not down). Take all five screenshots in this one run, so the site's Zebra story matches: while the cover is open, `real-zebra-fault.png` (the page with the alert banner) and `real-zebra-fault-drawer.png` (the Zebra's details panel with its alert); after it is fixed, `real-zebra-recovered.png` (the Fixed banner) and `real-zebra-activity.png` (Activity with the alert and its Fixed line), all into `docs/assets/shots/`; and a screenshot of the resolved card in bubbles as `docs/assets/shots/bubbles-resolved.png`.
+- [ ] **Cover open, then closed.** Steps: with team chat connected and **Send alerts to team chat** on, start a live scan of the Zebra's network and wait for the first scan to finish. Ask for the Zebra's cover to be opened. Within about 5 seconds the banner reads "Urgent: Printer alert <name>: Door or cover open", where <name> is how netdiag names the Zebra, for example "ZD621 (192.168.68.76)" (one alert: the printer's "offline or paused" flag is part of it), and #netdiag-alerts gets exactly one alert card within 10 seconds. Ask for the cover to be closed. The banner turns into ✔ **Fixed**, with no sound, and the same chat card (same key) is resolved with "Fixed at HH:MM (lasted N min)" within 10 seconds. Take all five screenshots in this one run, so the site's Zebra story matches: while the cover is open, `real-zebra-fault.png` (the page with the alert banner) and `real-zebra-fault-drawer.png` (the Zebra's details panel with its alert); after it is fixed, `real-zebra-recovered.png` (the Fixed banner) and `real-zebra-activity.png` (Activity with the alert and its Fixed line), all into `docs/assets/shots/`; and a screenshot of the resolved card in bubbles as `docs/assets/shots/bubbles-resolved.png`.
   Date: · OS: · Result:
-- [ ] **Printer offline, then back.** Steps: in live mode, ask for the Zebra to be switched off. After 2 missed checks (about 30 seconds at the default 15 s), "Printer offline" appears on the page and in chat, as a warning. Ask for it to be switched on: after 2 good checks the banner turns into "Fixed: Printer back online at HH:MM (was down N min)" and the chat card is resolved with the same words.
+- [ ] **Printer offline, then back.** Steps: in live mode, ask for the Zebra to be switched off. After 2 missed checks (about 30 seconds at the default 15 s), "Printer offline" appears on the page and in chat, as a warning. Ask for it to be switched on: after 2 good checks the banner turns into "Fixed: Printer back online at HH:MM (lasted N min)" and the chat card is resolved with the same words.
   Date: · OS: · Result:
 - [ ] **Restart while a problem is open.** Steps: open the cover and wait for its alert. Click **Quit**. Ask for the cover to be closed. Start netdiag again and scan with **Live mode** ticked: the first scan gives one Fixed and one chat resolve, and no new alert. Then open the cover, restart netdiag the same way with the cover still open: no second alert appears, on the page or in chat.
   Date: · OS: · Result:
-- [ ] **This computer loses the network.** Steps: in live mode, unplug this computer's network cable (or turn its Wi-Fi off) for 2 minutes. No device is reported offline; the status line says "Live · checks paused: this computer lost the network", one "netdiag lost the network" notice appears, nothing is posted to chat, and one "netdiag is back on the network" notice appears after reconnecting. Then put the laptop to sleep for 5 minutes and wake it: no devices are reported offline.
+- [ ] **This computer loses the network.** Steps: in live mode, unplug this computer's network cable (or turn its Wi-Fi off) for 2 minutes. No device is reported offline; the status line says "Live · checks paused: this computer lost the network", one "Warning: This computer lost the network" notice appears, nothing is posted to chat, and one "netdiag is back on the network" notice appears after reconnecting. Then put the laptop to sleep for 5 minutes and wake it: no devices are reported offline.
   Date: · OS: · Result:
 - [ ] **Chat server down.** Steps: stop the bubbles server. Open the cover, then close it, then start the server: nothing about it is posted. Stop the server again, open the cover, click **Quit** in netdiag, start the server, then start netdiag and scan with **Live mode**: exactly one alert is posted, and in bubbles its time is when the cover was opened, not when netdiag started again.
   Date: · OS: · Result:

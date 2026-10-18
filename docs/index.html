@@ -95,16 +95,16 @@
       <h2>Hear about the paper jam before the queue does.</h2>
       <p class="sub">Turn on <b>Live mode</b> and netdiag keeps watching after the first scan: new devices, devices that drop off, IP conflicts, failing health checks, and above all printers. A jam, an open door or a paused printer shows up within seconds, and so does the fix.</p>
 
-      <ol class="timeline" aria-label="A real fault on a Zebra ZD621, as netdiag logged it">
+      <ol class="timeline" aria-label="A real fault on a Zebra ZD621, at the times netdiag logged it">
         <li class="tick"><span class="t">12:35:55</span><b>Live monitoring starts</b><span>The first scan finishes; the Zebra is up and green.</span></li>
         <li class="tick warmup"><span class="t">cover opened</span><b>Fast status check</b><span>Every 5 s, one small SNMP request reads device status, printer status and error flags.</span></li>
-        <li class="tick hot"><span class="t">12:36:20</span><b>Two critical alerts</b><span>Door or cover open, and printer offline or paused. Red banners, a beep, a desktop notification.</span></li>
-        <li class="tick ok"><span class="t">12:36:45</span><b>Printer OK again</b><span>Cover closed: netdiag says what cleared, so you know it is safe to print.</span></li>
+        <li class="tick hot"><span class="t">12:36:20</span><b>One urgent alert</b><span>Door or cover open: a red banner, a beep, a desktop notification. The printer also says it is offline or paused; netdiag counts that as part of the open cover.</span></li>
+        <li class="tick ok"><span class="t">12:36:45</span><b>Fixed</b><span>Cover closed: the same banner turns into Fixed and says what cleared, so you know it is safe to print.</span></li>
       </ol>
-      <p class="realnote"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-camera"></use></svg>Real hardware, not a mock-up: these screenshots were captured from netdiag 0.5 watching a Zebra ZD621 label printer while someone opened and closed its cover. Since 0.6 the open cover is one alert, "Door or cover open", and its banner turns into <b>Fixed</b> when the cover closes.</p>
+      <p class="realnote"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-camera"></use></svg>Real hardware, not a mock-up: these screenshots were captured from netdiag 0.5 watching a Zebra ZD621 label printer while someone opened and closed its cover, so they still show two critical banners and a separate "Printer OK again" notice. Since 0.6 the open cover is one alert, "Door or cover open", and its banner turns into <b>Fixed</b> when the cover closes, as the timeline above says.</p>
 
       <figure class="shot live-shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Live · Zebra ZD621 · cover open</span></div>
-        <button type="button" class="zoom" aria-label="Enlarge screenshot: live mode with printer alerts"><img src="assets/shots/real-zebra-fault.png" width="2560" height="1600" loading="lazy" alt="Live mode on a real network: two critical banners for a Zebra ZD621, door or cover open and printer offline or paused. The printer row has a red status icon and names both alerts."></button></div></figure>
+        <button type="button" class="zoom" aria-label="Enlarge screenshot: live mode with printer alerts"><img src="assets/shots/real-zebra-fault.png" width="2560" height="1600" loading="lazy" alt="netdiag 0.5 in live mode on a real network: two critical banners for a Zebra ZD621, door or cover open and printer offline or paused (since 0.6 this is one Door or cover open alert). The printer row has a red status icon and names both alerts."></button></div></figure>
 
       <div class="livegrid">
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-clock"></use></svg><h3>Checks every few seconds</h3><p>Every 5 seconds by default (2 to 300, in Settings), each printer gets a tiny three-value SNMP read. A full read of supplies, trays and alerts runs when something changes, and every 60 seconds.</p></article>
@@ -121,29 +121,29 @@
           <ul class="readings"><li class="r-bad">device status down</li><li class="r-bad">doorOpen, offline</li><li>via SNMP</li></ul>
         </div>
         <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Devices · 192.168.68.76</span></div>
-          <button type="button" class="zoom" aria-label="Enlarge screenshot: printer details during a fault"><img src="assets/shots/real-zebra-fault-drawer.png" width="2560" height="1600" loading="lazy" alt="Details drawer for the Zebra during the fault: status Up, printer error; critical alerts for door or cover open and printer offline or paused; SNMP device status down, error state doorOpen, offline"></button></div></figure>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: printer details during a fault"><img src="assets/shots/real-zebra-fault-drawer.png" width="2560" height="1600" loading="lazy" alt="netdiag 0.5's details drawer for the Zebra during the fault: status Up, printer error; critical alerts for door or cover open and printer offline or paused; SNMP device status down, error state doorOpen, offline"></button></div></figure>
       </div>
 
       <div class="feature slim">
         <div class="copy">
           <p class="reading-label">And when it is fixed</p>
           <h3>Green again, with a note saying why.</h3>
-          <p>As soon as the cover closes and the flags clear, the row turns green and a <b>Printer OK again</b> notice names everything that cleared, here both the open door and the offline state. The earlier banners stay until you dismiss them, so nobody misses that something happened.</p>
-          <ul class="readings"><li class="r-ok">Printer OK again</li><li class="r-info">notice</li></ul>
+          <p>As soon as the cover closes and the flags clear, the row turns green and the alert's banner turns into <b>Fixed</b>, naming what cleared and how long it lasted. It stays until you dismiss it, so nobody misses that something happened. (The screenshot is from netdiag 0.5, which showed a separate <b>Printer OK again</b> notice instead.)</p>
+          <ul class="readings"><li class="r-ok">Fixed</li><li class="r-info">Printer alert cleared</li></ul>
         </div>
         <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Live · Zebra ZD621 · recovered</span></div>
-          <button type="button" class="zoom" aria-label="Enlarge screenshot: printer recovered"><img src="assets/shots/real-zebra-recovered.png" width="2560" height="1600" loading="lazy" alt="The Zebra back to a green status with a Printer OK again notice above the earlier critical banners"></button></div></figure>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: printer recovered"><img src="assets/shots/real-zebra-recovered.png" width="2560" height="1600" loading="lazy" alt="netdiag 0.5 with the Zebra back to a green status and a Printer OK again notice above the earlier critical banners (since 0.6 the alert's banner turns into Fixed)"></button></div></figure>
       </div>
 
       <div class="feature flip slim">
         <div class="copy">
           <p class="reading-label">The record</p>
           <h3>Every step, timestamped.</h3>
-          <p>The activity log keeps the whole story: the scan, the two alerts, a device elsewhere on the network that dropped off, and the recovery 25 seconds later, naming both alerts that cleared. Copy it into a ticket or a chat in one click.</p>
-          <ul class="readings"><li>12:36:20 alert</li><li class="r-ok">12:36:45 OK again</li></ul>
+          <p>The activity log keeps the whole story: the scan, the alert, a device elsewhere on the network that dropped off, and the fix 25 seconds later, naming what cleared. Copy it into a ticket or a chat in one click. (The screenshot is from netdiag 0.5: two alerts and Printer OK again.)</p>
+          <ul class="readings"><li>12:36:20 alert</li><li class="r-ok">12:36:45 Fixed</li></ul>
         </div>
         <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Activity</span></div>
-          <button type="button" class="zoom" aria-label="Enlarge screenshot: activity log of the printer fault"><img src="assets/shots/real-zebra-activity.png" width="2560" height="1600" loading="lazy" alt="Activity log from the real run: scan stages, two printer alerts at 12:36:20, a device going offline, and Printer OK again at 12:36:45 naming both cleared alerts"></button></div></figure>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: activity log of the printer fault"><img src="assets/shots/real-zebra-activity.png" width="2560" height="1600" loading="lazy" alt="netdiag 0.5's activity log from the real run: scan stages, two printer alerts at 12:36:20, a device going offline, and Printer OK again at 12:36:45 naming both cleared alerts (since 0.6, one alert and a Fixed line)"></button></div></figure>
       </div>
     </div>
   </section>
@@ -152,13 +152,13 @@
     <div class="wrap">
       <p class="eyebrow">New in 0.6</p>
       <h2>Chat alerts that close themselves.</h2>
-      <p class="sub">Connect netdiag to your team chat (bubbles) and the whole team sees it when something on the local network breaks: once, in plain words, with what to try. When the problem is fixed, netdiag closes the same chat card itself: “Fixed at 10:42 (was down 12 min)”.</p>
+      <p class="sub">Connect netdiag to your team chat (bubbles) and the whole team sees it when something on the local network breaks: once, in plain words, with what to try. When the problem is fixed, netdiag closes the same chat card itself: “Fixed at 10:42 (lasted 12 min)”.</p>
 
       <div class="feature slim">
         <div class="copy">
           <p class="reading-label">Connect in a few clicks</p>
           <h3>Find the server, compare four groups, ask for approval.</h3>
-          <p>netdiag finds your chat server on the local network. You compare the first four groups of its fingerprint with what your chat admin reads in bubbles, so nothing can pretend to be it, and your chat admin approves netdiag and picks the channel. A test alert checks it works. No typing, and no administrator rights on this computer.</p>
+          <p>netdiag finds your chat server on the local network. You compare the first four groups of its fingerprint with what your chat admin reads in bubbles, so nothing can pretend to be it, and your chat admin approves netdiag and picks the channel. A test alert checks it works. Usually no typing (only the server's address, when a firewall or a separate Wi-Fi network hides it), and no administrator rights on this computer.</p>
           <ul class="readings"><li class="r-ok">It matches</li><li>admin approves</li><li class="r-ok">test alert sent</li></ul>
         </div>
         <figure class="shot dialog-shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Connect to team chat</span></div>

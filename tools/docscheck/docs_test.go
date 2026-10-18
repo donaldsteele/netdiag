@@ -51,6 +51,41 @@ func TestDocsWording(t *testing.T) {
 	}
 }
 
+// retiredWords are words the page no longer shows, or that said something
+// the page does not do (the v0.6 words audit). Each must stay gone from the
+// docs and from the page itself, so a label changed in one place cannot
+// live on in another.
+var retiredWords = []struct {
+	re  *regexp.Regexp
+	why string
+}{
+	{regexp.MustCompile(`Recheck`), "the button that runs the health checks again is Check again"},
+	{regexp.MustCompile(`was down|\(after (\d+|N) min\)`), `a fixed problem says how long it lasted: "(lasted 12 min)"`},
+	{regexp.MustCompile(`Gateway reachable|DNS resolving|Internet reachability|Gateway (row|check)\b`), "the checks are Router, Getting an address (DHCP), Name lookup (DNS), Web server, Internet and Wi-Fi"},
+	{regexp.MustCompile(`netdiag lost the network`), `the notices are "This computer lost the network" and "The router stopped answering"`},
+	{regexp.MustCompile(`with (\*\*)?Live mode(\*\*)? ticked\.`), "ticking Live mode alone does not start watching: tick Live mode and press Scan"},
+	{regexp.MustCompile(`Windows Firewall or a separate`), "the wizard says a firewall on this computer, on every OS"},
+	{regexp.MustCompile(`(?i)\bno typing\b`), "typing the address is needed when netdiag can't find the server: say usually no typing"},
+	{regexp.MustCompile(`(?i)by typing the address|typed by hand`), "a typed address in the browser netdiag opened works; another browser, or a page from before a restart, is locked"},
+	{regexp.MustCompile(`Critical: |Notice: `), "the banners say Urgent, Warning, Note and Fixed, as the card does"},
+	{regexp.MustCompile(`Health: [^"]*\bwarn\b`), `the header chip says "Health: 1 failing, 2 notes"`},
+}
+
+// TestDocsRetiredWords: see retiredWords. "usually no typing" is the one
+// allowed use of "no typing".
+func TestDocsRetiredWords(t *testing.T) {
+	for _, name := range append([]string{"web/index.html", "web/app.js"}, userDocs...) {
+		for i, line := range strings.Split(read(t, name), "\n") {
+			line = strings.ReplaceAll(strings.ReplaceAll(line, "usually no typing", ""), "Usually no typing", "")
+			for _, w := range retiredWords {
+				if m := w.re.FindString(line); m != "" {
+					t.Errorf("%s:%d says %q: %s", name, i+1, m, w.why)
+				}
+			}
+		}
+	}
+}
+
 // mdImage is a Markdown image, ![alt](path); htmlImage an img src.
 var (
 	mdImage   = regexp.MustCompile(`!\[[^\]]*\]\(([^)\s]+)\)`)

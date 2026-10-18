@@ -88,7 +88,7 @@ WHAT YOU WILL SEE
 - Click the web links to open a device's own settings page.
 - Export JSON or CSV to save or send the results.
 - The Health panel shows whether the router, DHCP, DNS and the web
-  server are working. Recheck runs the checks again.
+  server are working. "Check again" runs the checks again.
 - Conflicts are listed when two devices share an address. Routers and
   Wi-Fi extenders often do this on purpose; use "Ignore this MAC" if so.
 - Scans are saved in the History tab, and two scans can be compared.
@@ -99,12 +99,14 @@ WHAT YOU WILL SEE
   same page, at the same address (normally http://127.0.0.1:8787).
 - Only one netdiag runs at a time. Starting it again does not start a
   second copy: it opens the page of the one that is running.
-- A page you open by typing the address shows the results, but its
-  buttons stay off ("Buttons on this page are turned off for safety").
-  Double-click netdiag again to get a page whose buttons work.
+- A page opened in another browser, or left open from before netdiag
+  was started again, shows the results, but its buttons stay off
+  ("Buttons on this page are turned off for safety"). Double-click
+  netdiag again to get a page whose buttons work.
 - Team chat: Settings > Team chat (bubbles) > "Connect to team chat"
   sends the alerts to your team chat too, while netdiag is open and
-  watching (Live mode). Your chat admin approves it in bubbles.
+  watching: tick Live mode and press Scan. Your chat admin approves it
+  in bubbles.
 
 Everything stays on this computer. netdiag only listens on 127.0.0.1
 (this computer). The web page makes no internet requests. The only
