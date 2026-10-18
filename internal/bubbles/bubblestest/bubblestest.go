@@ -68,6 +68,7 @@ type Server struct {
 	tokens   map[string][]string // issued, unrevoked tokens and their scopes
 	last     string              // the latest token issued
 	channels []protocol.Channel  // the channels the bot is in
+	appName  string              // the app's name, and so its bot's display name
 	alerts   map[string]*protocol.Message
 	posted   []protocol.AlertInput
 	resolved []protocol.ResolveAlertByKeyRequest
@@ -142,7 +143,7 @@ type failure struct {
 // New starts a fake server whose bot is in one channel, C1 #netdiag-alerts.
 func New(t testing.TB) *Server {
 	t.Helper()
-	s := &Server{t: t, tokens: map[string][]string{}, alerts: map[string]*protocol.Message{}, nonces: map[string]protocol.Message{}}
+	s := &Server{t: t, tokens: map[string][]string{}, alerts: map[string]*protocol.Message{}, nonces: map[string]protocol.Message{}, appName: "netdiag"}
 	s.AddChannel("C1", "netdiag-alerts")
 	caDER, chain := newPKI(t)
 	sum := sha256.Sum256(caDER)
@@ -293,7 +294,8 @@ func (s *Server) Messages() []string {
 	return slices.Clone(s.messages)
 }
 
-// Alert is the latest alert card with the dedupe key.
+// Alert is the latest alert card with the dedupe key. Its author is the
+// app's bot as it is now, as bubbles reads it.
 func (s *Server) Alert(key string) (protocol.Message, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -304,7 +306,23 @@ func (s *Server) Alert(key string) (protocol.Message, bool) {
 	c := *m
 	a := *m.Alert
 	c.Alert = &a
+	c.Author = s.bot()
 	return c, true
+}
+
+// RenameApp is the chat admin renaming the app in Admin > Apps. bubbles
+// v0.2.0 renames its bot user too (internal/apps/apps.go), so the author of
+// every card the app posted changes, and apps/self answers the new name.
+func (s *Server) RenameApp(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appName = name
+}
+
+// bot is the app's bot user, the author of what the app posts: an app
+// user whose display name is the app's name. Hold s.mu.
+func (s *Server) bot() protocol.Author {
+	return protocol.Author{ID: "U-A1", Username: "app-a1", DisplayName: s.appName, Kind: "app"}
 }
 
 // FailNext answers the next app call (one that needs the token) with this
@@ -519,12 +537,13 @@ func (s *Server) postAlert(w http.ResponseWriter, r *http.Request, _ string) {
 		}
 		m.Alert.Occurrences++
 		m.Alert.Title = in.Title
+		m.Author = s.bot()
 		writeJSON(w, 200, protocol.PostedAlert{Message: *m, Transition: protocol.AlertTransitionUpdatedOther})
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	s.seq++
-	m := &protocol.Message{ID: "M" + strconv.Itoa(s.seq), ChannelID: c.ID, Kind: protocol.MessageAlert, CreatedAt: now,
+	m := &protocol.Message{ID: "M" + strconv.Itoa(s.seq), ChannelID: c.ID, Kind: protocol.MessageAlert, Author: s.bot(), CreatedAt: now,
 		Alert: &protocol.Alert{Severity: in.Severity, State: protocol.AlertOpen, Title: in.Title, Fields: in.Fields, Link: in.Link,
 			DedupeKey: in.DedupeKey, Occurrences: 1, FirstSeenAt: now, LastSeenAt: now}}
 	s.alerts[in.DedupeKey] = m
@@ -657,7 +676,7 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request, tok string)
 }
 
 func (s *Server) self(w http.ResponseWriter, r *http.Request, tok string) {
-	writeJSON(w, 200, protocol.AppSelf{App: protocol.App{ID: "A1", Name: "netdiag", Tokens: []protocol.AppToken{}},
+	writeJSON(w, 200, protocol.AppSelf{App: protocol.App{ID: "A1", Name: s.appName, Tokens: []protocol.AppToken{}},
 		Token: protocol.AppToken{ID: "T1", AppID: "A1", Prefix: tok[:tokenPrefixLen], Scopes: slices.Clone(s.tokens[tok])}})
 }
 

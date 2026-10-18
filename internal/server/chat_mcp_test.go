@@ -63,7 +63,8 @@ func TestCheckChatAlertsWindowData(t *testing.T) {
 	cs := mcpConnect(t, s.URL())
 	status := callJSON(t, cs, "get_status", nil)
 	ch, _ := status["chat"].(map[string]any)
-	if ch["state"] != "connected" || ch["channel"] != "netdiag-alerts" || ch["appName"] == "" || ch["sendAlerts"] != true || fmt.Sprint(ch["waiting"]) != "0" {
+	appName, _ := ch["appName"].(string)
+	if ch["state"] != "connected" || ch["channel"] != "netdiag-alerts" || appName == "" || ch["sendAlerts"] != true || fmt.Sprint(ch["waiting"]) != "0" {
 		t.Fatalf("get_status.chat = %v", ch)
 	}
 	if b, _ := json.Marshal(status); strings.Contains(string(b), "bub_") || strings.Contains(strings.ToLower(string(b)), "token") {
@@ -72,11 +73,15 @@ func TestCheckChatAlertsWindowData(t *testing.T) {
 
 	lp := callJSON(t, cs, "list_problems", nil)
 	open, fixed := keysOf(lp["open"]), keysOf(lp["fixed"])
-	// The runbook's step 5, for each netdiag card in the channel.
+	// The runbook's step 5, for each netdiag card in the channel. Step 4
+	// found them by their author, the app's bot, named chat.appName.
 	for _, key := range []string{gwKey, quitKey} {
 		card, found := f.Alert(key)
 		if !found || card.Alert.DedupeKey != key || card.ChannelID != "C1" {
 			t.Fatalf("card %s: %+v", key, card)
+		}
+		if card.Author.DisplayName != appName || card.Author.Kind != "app" {
+			t.Errorf("card %s is by %+v, not chat.appName %q", key, card.Author, appName)
 		}
 		_, isOpen := open[key]
 		_, isFixed := fixed[key]
@@ -106,6 +111,19 @@ func TestCheckChatAlertsWindowData(t *testing.T) {
 	}
 	if n := len(f.Resolved()); n != 1 {
 		t.Fatalf("%d resolves, want netdiag's one", n)
+	}
+
+	// The chat admin renames netdiag's app: bubbles renames its bot, so
+	// the open card's author is the new name, which netdiag learns only
+	// when it pairs again. Step 4 keeps the card all the same, as an app's
+	// card whose key list_problems has.
+	f.RenameApp("Office netdiag")
+	card, _ := f.Alert(gwKey)
+	now2, _ := callJSON(t, cs, "get_status", nil)["chat"].(map[string]any)
+	byAuthor := card.Author.DisplayName == now2["appName"]
+	_, byKey := keysOf(callJSON(t, cs, "list_problems", nil)["open"])[gwKey]
+	if card.Author.DisplayName != "Office netdiag" || card.Author.Kind != "app" || card.Alert.State != "open" || (!byAuthor && !byKey) {
+		t.Fatalf("after the rename, step 4 loses the open card: %+v (chat %v)", card, now2)
 	}
 	quit(t, s, served)
 }
