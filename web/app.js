@@ -19,7 +19,7 @@ document.addEventListener('alpine:init', () => {
     history: [], historyError: '', baseId: '', currentId: '', diff: null, diffError: '', diffBusy: false,
     shown: {},
     remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
-    sessionOff: false,
+    sessionOff: false, settingsLocked: false,
     watching: null, restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: null, focusAt: 0, starting: false,
     log: [], logSeq: 0, logHidden: {}, logStick: true, logSeen: {},
     logKinds: [{id: 'scan', label: 'Scan'}, {id: 'host', label: 'New host'}, {id: 'offline', label: 'Offline'}, {id: 'online', label: 'Online'},
@@ -122,9 +122,14 @@ document.addEventListener('alpine:init', () => {
       this.loadRemoteCaps();
       this.startHeartbeat();
     },
+    // The settings read needs the session token (v0.6-D14). A page whose
+    // token is out of date does not know the person's alert choices, so it
+    // stays silent and leaves the beeping to a tab that does, until a
+    // working token lets it read them (api()).
     async loadSettings() {
       try {
         const r = await this.api('GET', '/api/settings');
+        if (r.status === 401) { this.settingsLocked = true; this.leaveBeeper(); return; }
         if (r.status === 503) { this.storeDown = true; return; }
         if (!r.ok) return;
         const set = await r.json();
@@ -132,6 +137,7 @@ document.addEventListener('alpine:init', () => {
         delete set.repaired;
         this.settings = set;
         if (this.settings.community) this.community = this.settings.community;
+        if (this.settingsLocked) { this.settingsLocked = false; this.offerBeeper(); }
       } catch (e) {}
     },
     async loadHealth() {
@@ -175,8 +181,10 @@ document.addEventListener('alpine:init', () => {
     // type is on in Settings: a conflict, an offline printer, any offline
     // device (off by default), a printer alert, a supply at or below the
     // threshold (v0.6-D27). M8's GET /api/problems takes this over.
+    // A page that may not read the settings does not know the person's
+    // alert types, so it speaks for the health checks alone.
     everythingFine() {
-      if (!this.healthFine()) return false;
+      if (!this.healthFine() || this.settingsLocked) return false;
       const t = (this.settings && this.settings.alerts && this.settings.alerts.triggers) || {};
       const on = (k, d) => typeof t[k] === 'boolean' ? t[k] : d;
       if (on('ipConflict', true) && this.conflicts.length) return false;
@@ -289,7 +297,11 @@ document.addEventListener('alpine:init', () => {
     // section (an advice button's target) names the part of Settings to
     // put focus on.
     openSettings(section) {
-      if (!this.settings) { this.settingsError = this.storeDown ? 'The data store is unavailable, so settings cannot be changed.' : 'Settings are not loaded yet.'; }
+      if (!this.settings) {
+        this.settingsError = this.storeDown ? 'The data store is unavailable, so settings cannot be changed.'
+          : this.settingsLocked ? 'Settings are turned off on this page for safety. Double-click netdiag to open a fresh page.'
+          : 'Settings are not loaded yet.';
+      }
       else { this.settingsError = ''; }
       this.draft = JSON.parse(JSON.stringify(this.settings || {community: '', webServer: {}, alerts: {triggers: {}}, ignoredConflictMACs: [], mcp: {enabled: false}}));
       this.draft.ignoredConflictMACs = this.draft.ignoredConflictMACs || [];
@@ -398,7 +410,9 @@ document.addEventListener('alpine:init', () => {
       } catch (e) { if (showErr) this.settingsError = 'Could not save settings: ' + e.message; return false; }
     },
     removeIgnored(i) { this.draft.ignoredConflictMACs.splice(i, 1); },
-    soundOn() { return !this.settings || this.settings.alerts.sound; },
+    // Before the settings load the default (sound on) holds, but a page that
+    // may not read them cannot know the person muted alerts: it stays silent.
+    soundOn() { return this.settings ? this.settings.alerts.sound : !this.settingsLocked; },
     async toggleSound() {
       if (!this.settings) return;
       const doc = JSON.parse(JSON.stringify(this.settings));
@@ -692,7 +706,11 @@ document.addEventListener('alpine:init', () => {
         try { localStorage.setItem('netdiag.session', session); } catch (e) {}
         try { history.replaceState(null, '', '/'); } catch (e) {}
       }
-      window.addEventListener('storage', ev => { if (ev.key === 'netdiag.session' && ev.newValue) this.sessionOff = false; });
+      window.addEventListener('storage', ev => {
+        if (ev.key !== 'netdiag.session' || !ev.newValue) return;
+        this.sessionOff = false;
+        if (this.settingsLocked) this.loadSettings();
+      });
     },
     sessionToken() {
       try { const t = localStorage.getItem('netdiag.session'); if (t) return t; } catch (e) {}
@@ -701,11 +719,14 @@ document.addEventListener('alpine:init', () => {
     // Every request that changes something, and the settings read, goes
     // through api(), which sends the session token. A 401 means this page's
     // token is out of date: buttons are off until netdiag opens a fresh page.
+    // The first call that passes again also reads the settings the page
+    // could not read before.
     async api(method, url, body) {
       const headers = {'X-Netdiag-Session': this.sessionToken()};
       if (method === 'POST' || method === 'PUT') headers['Content-Type'] = 'application/json';
       const r = await fetch(url, {method: method, headers: headers, body: body === undefined ? undefined : JSON.stringify(body)});
       this.sessionOff = r.status === 401;
+      if (!this.sessionOff && this.settingsLocked && url !== '/api/settings') this.loadSettings();
       return r;
     },
     resetScan() {
@@ -909,7 +930,7 @@ document.addEventListener('alpine:init', () => {
       if (!b || c.id === b.id || c.at > b.at || (c.at === b.at && c.id > b.id)) this.beeper = c;
     },
     offerBeeper() {
-      if (!this.attached()) return;
+      if (!this.attached() || this.settingsLocked) return;
       const c = {id: this.tabId, at: this.focusAt};
       this.adoptBeeper(c);
       this.tellTabs({type: 'offer', id: c.id, at: c.at});
@@ -922,9 +943,10 @@ document.addEventListener('alpine:init', () => {
     },
     // The tab is listening to the running scan (only one runs at a time).
     attached() { return !!this.es && this.running; },
-    // A tab that is not following the scan never beeps. No beeper known (it
+    // A tab that is not following the scan never beeps, nor one that may not
+    // read the settings (its token is out of date). No beeper known (it
     // closed) means every following tab may beep until one offers again.
-    isBeeper() { return this.attached() && (!this.beeper || this.beeper.id === this.tabId); },
+    isBeeper() { return this.attached() && !this.settingsLocked && (!this.beeper || this.beeper.id === this.tabId); },
 
     // resumed: attaching to a scan that was already running (reattach), so
     // the replay is not announced as a new start.

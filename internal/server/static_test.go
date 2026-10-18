@@ -223,7 +223,7 @@ func TestAdviceUI(t *testing.T) {
 		"/^https?:/i.test(a.target || '')", "noInternetNetworks: 'This network has no internet'",
 		"return this.alternations(hist) >= 2;", "if (c.kind !== 'mac_flap') return false;",
 		"noInternet: 'set-nointernet'", "vendors[mac] ||", "this.health && this.health.network",
-		"'Everything looks fine' : 'All health checks look fine'", "if (!this.healthFine()) return false;",
+		"'Everything looks fine' : 'All health checks look fine'", "if (!this.healthFine() || this.settingsLocked) return false;",
 		"on('deviceOffline', false)",
 	} {
 		if !strings.Contains(string(js), want) {

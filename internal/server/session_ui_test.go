@@ -31,7 +31,8 @@ func TestSessionTokenUI(t *testing.T) {
 		t.Fatal("api() has no end")
 	}
 	body, rest := js[i:i+n], js[:i]+js[i+n:]
-	for _, want := range []string{"'X-Netdiag-Session': this.sessionToken()", "fetch(url, {method: method,", "r.status === 401"} {
+	for _, want := range []string{"'X-Netdiag-Session': this.sessionToken()", "fetch(url, {method: method,", "r.status === 401",
+		"this.settingsLocked && url !== '/api/settings') this.loadSettings()"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("api() lacks %q", want)
 		}
@@ -51,7 +52,12 @@ func TestSessionTokenUI(t *testing.T) {
 		t.Error("GET /api/settings must go through api() (v0.6-D14)")
 	}
 	for _, want := range []string{"location.hash", "location.search", "localStorage.setItem('netdiag.session', session)",
-		"history.replaceState(null, '', '/')", "localStorage.getItem('netdiag.session')", "ev.key === 'netdiag.session'"} {
+		"history.replaceState(null, '', '/')", "localStorage.getItem('netdiag.session')", "ev.key !== 'netdiag.session'",
+		// A page that may not read the settings is silent and leaves the beeping
+		// to others until a call passes (v0.6-D34).
+		"if (r.status === 401) { this.settingsLocked = true; this.leaveBeeper(); return; }",
+		"if (this.settingsLocked) this.loadSettings();", "this.settings ? this.settings.alerts.sound : !this.settingsLocked",
+		"if (!this.attached() || this.settingsLocked) return;", "this.attached() && !this.settingsLocked &&"} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js missing %q", want)
 		}
