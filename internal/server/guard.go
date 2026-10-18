@@ -54,9 +54,11 @@ func (s *Server) sessionGuard(next http.Handler) http.Handler {
 	})
 }
 
-// sessionReads are the GET routes that need the session token (v0.6-D14).
-// M10's GET /api/bubbles and GET /api/bubbles/pair/status join them.
-var sessionReads = map[string]bool{"/api/settings": true}
+// sessionReads are the GET routes that need the session token (v0.6-D14):
+// the settings (the SNMP community in clear), the team chat status (which
+// server and channel netdiag posts to) and the pairing state (the code the
+// chat admin compares).
+var sessionReads = map[string]bool{"/api/settings": true, "/api/bubbles": true, "/api/bubbles/pair/status": true}
 
 // needsSession reports whether r must carry the session token. The path is
 // cleaned first, so another spelling of a gated path is gated too.

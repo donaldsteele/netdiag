@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"netdiag/internal/chat"
 	"netdiag/internal/instance"
 	"netdiag/internal/mcpserver"
 	"netdiag/internal/model"
@@ -45,13 +46,17 @@ type Config struct {
 	// id is made when it is empty.
 	InstanceID string
 	// SessionToken is this launch's token (instance.json): every POST, PUT
-	// and DELETE under /api/, and GET /api/settings, must carry it in
+	// and DELETE under /api/, and the reads in sessionReads, must carry it in
 	// X-Netdiag-Session (v0.6 4.1). A random token nobody knows is made
 	// when it is empty, so a server is never left open by mistake.
 	SessionToken string
 	// Ledger is the open-problem ledger the registry's scans write; the
 	// service saves it when netdiag quits. nil: none.
 	Ledger *problems.Ledger
+	// Chat is the team chat (bubbles) connection. When it is nil and Store
+	// is set, New makes one that keeps bubbles.json in the Store's folder;
+	// without a Store the team chat routes answer 503.
+	Chat *chat.Manager
 }
 
 // Server is the HTTP server. Create with New, then Listen and Serve.
@@ -77,6 +82,8 @@ type Server struct {
 	instanceID string // GET /api/identity
 	startedAt  string // RFC 3339
 	token      string // X-Netdiag-Session
+
+	chat *chat.Manager // nil without a data store
 }
 
 // New returns a server for cfg.
@@ -99,8 +106,11 @@ func New(cfg Config) *Server {
 	if cfg.SessionToken == "" {
 		cfg.SessionToken = instance.NewToken()
 	}
+	if cfg.Chat == nil && cfg.Store != nil {
+		cfg.Chat = chat.NewManager(chat.Options{Files: cfg.Store})
+	}
 	s := &Server{cfg: cfg, svc: svc, keepalive: 15 * time.Second, baseCtx: ctx, cancel: cancel, quit: make(chan struct{}),
-		instanceID: cfg.InstanceID, startedAt: time.Now().UTC().Format(time.RFC3339), token: cfg.SessionToken}
+		instanceID: cfg.InstanceID, startedAt: time.Now().UTC().Format(time.RFC3339), token: cfg.SessionToken, chat: cfg.Chat}
 	s.mcpSrv = mcpserver.New(svc, mcpserver.Options{Transport: "http", Version: cfg.Version})
 	s.mcpHandler = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.mcpSrv },
 		&mcp.StreamableHTTPOptions{MaxRequestBodyBytes: 1 << 20})
@@ -218,6 +228,16 @@ func (s *Server) routes() []route {
 		f("POST /api/scans/{id}/remote", s.handleRemoteOpen),
 		f("GET /api/scans/{id}/remote.rdp", s.handleRemoteRDPFile),
 		f("POST /api/os/open", s.handleOSOpen),
+		f("GET /api/bubbles", s.handleChatStatus),
+		f("DELETE /api/bubbles", s.handleChatDisconnect),
+		f("POST /api/bubbles/discover", s.handleChatDiscover),
+		f("POST /api/bubbles/inspect", s.handleChatInspect),
+		f("POST /api/bubbles/connect", s.handleChatConnect),
+		f("POST /api/bubbles/pair", s.handleChatPair),
+		f("GET /api/bubbles/pair/status", s.handleChatPairStatus),
+		f("DELETE /api/bubbles/pair", s.handleChatPairCancel),
+		f("POST /api/bubbles/channel", s.handleChatChannel),
+		f("POST /api/bubbles/test", s.handleChatTest),
 	}
 	for _, m := range []string{"GET", "POST", "DELETE"} {
 		rs = append(rs, route{m + " /mcp", s.mcpGate(s.mcpHandler)})
@@ -281,6 +301,9 @@ func (s *Server) Serve(ctx context.Context) error {
 	case <-s.quit:
 	}
 	s.cancel() // cancels running scans and open SSE streams
+	if s.chat != nil {
+		s.chat.Close() // stops waiting for a pairing approval
+	}
 	s.waitScans(5 * time.Second)
 	closeErr := s.svc.Close()
 	sctx, c := context.WithTimeout(context.Background(), 3*time.Second)

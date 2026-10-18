@@ -47,8 +47,12 @@ func TestToolSetMatchesAllowList(t *testing.T) {
 func TestNoMutatingCallsInMCPLayer(t *testing.T) {
 	// OpenOSPage( (v0.6 M7): agents never open this computer's settings pages.
 	// ReplaceLive: agents never replace a scan that is watching the network
-	// (F9); only the window's Restart watching does.
-	forbidden := []string{"SaveSettings(", "DeleteScan(", "IgnoreMAC(", "handleQuit", "Quit(", "OpenOSPage(", "ReplaceLive"}
+	// (F9); only the window's Restart watching does. The team chat actions
+	// (v0.6 M10): agents never connect or disconnect team chat, choose its
+	// channel or send test alerts (chat.Manager's StartPairing,
+	// ConnectString, SetChannel, SendTest and Disconnect).
+	forbidden := []string{"SaveSettings(", "DeleteScan(", "IgnoreMAC(", "handleQuit", "Quit(", "OpenOSPage(", "ReplaceLive",
+		"StartPairing(", "ConnectString(", "Disconnect(", "SendTest(", "SetChannel("}
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)

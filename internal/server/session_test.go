@@ -77,8 +77,9 @@ func TestSessionGuardEveryMutatingRoute(t *testing.T) {
 		sessionRefused(t, rt.pattern+" with the token in other case", r, b)
 	}
 	// The v0.6 table: scans, cancel, quit, settings, health/run, history,
-	// conflicts/ignore, remote (v0.5.7) and os/open (M7).
-	if n < 9 {
+	// conflicts/ignore, remote (v0.5.7), os/open (M7) and the eight team
+	// chat actions (M10).
+	if n < 17 {
 		t.Fatalf("only %d mutating /api routes in the table", n)
 	}
 	select {
@@ -118,12 +119,17 @@ func TestSessionGuardOtherMethodsAndSpellings(t *testing.T) {
 }
 
 // The reads that return a secret need the token (GET /api/settings has the
-// SNMP community, v0.6-D14). Other reads, the export links, the remote
+// SNMP community; the team chat status and pairing state name the chat
+// server and the code its admin compares, v0.6-D14). Other reads, the export links, the remote
 // capabilities and the page itself stay token-free GETs.
 func TestSessionGuardReads(t *testing.T) {
 	_, u, _ := start(t, nil)
 	r, b := raw(t, "GET", u+"/api/settings", "", "")
 	sessionRefused(t, "GET /api/settings", r, b)
+	for _, p := range []string{"/api/bubbles", "/api/bubbles/pair/status", "/api/bubbles/", "/api//bubbles"} {
+		r, b := raw(t, "GET", u+p, "", "")
+		sessionRefused(t, "GET "+p, r, b)
+	}
 	// The test server has no store, so a passing request gets 503.
 	if r, b := raw(t, "GET", u+"/api/settings", "", testToken); r.StatusCode != 503 {
 		t.Fatalf("GET /api/settings with the token: %d %s", r.StatusCode, b)
