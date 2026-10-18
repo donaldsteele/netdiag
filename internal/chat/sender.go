@@ -39,11 +39,36 @@ func (m *Manager) gate() (sendGate, bool) {
 		m.trouble == StateNeedsReconnect || m.trouble == StateIdentityChanged {
 		return sendGate{}, false
 	}
-	c, err := bubbles.New(m.conn.ClientConfig())
+	c, err := m.sendClientLocked()
 	if err != nil {
 		return sendGate{}, false
 	}
 	return sendGate{gen: m.gen, client: c, channel: m.conn.Channel}, true
+}
+
+// sendClientLocked is the sender's client for the connection: one for each
+// connection and address, so the items share its kept-alive connection
+// instead of each making its own. m.mu must be held and m.conn set.
+func (m *Manager) sendClientLocked() (*bubbles.Client, error) {
+	if m.sendCl != nil && m.sendGen == m.gen && m.sendURL == m.conn.Server.BaseURL {
+		return m.sendCl, nil
+	}
+	m.dropSendClientLocked()
+	c, err := bubbles.New(m.conn.ClientConfig())
+	if err != nil {
+		return nil, err
+	}
+	m.sendCl, m.sendGen, m.sendURL = c, m.gen, m.conn.Server.BaseURL
+	return c, nil
+}
+
+// dropSendClientLocked lets the sender's client go, with its idle
+// connection. m.mu must be held.
+func (m *Manager) dropSendClientLocked() {
+	if m.sendCl != nil {
+		m.sendCl.CloseIdleConnections()
+		m.sendCl = nil
+	}
 }
 
 // sender delivers the outbox until the manager closes.
@@ -88,12 +113,12 @@ func (m *Manager) deliver(g sendGate, it *Item) (int, time.Duration) {
 	case OpResolve:
 		_, err = g.client.ResolveAlertKey(ctx, it.Key, it.Text)
 	case OpMessage:
-		_, err = g.client.PostMessage(ctx, g.channel.ID, protocol.NewMessage{Body: it.Text, Nonce: "netdiag-" + it.ID})
+		_, err = g.client.PostMessage(ctx, g.channel.ID, protocol.NewMessage{Body: it.Text, Nonce: it.Nonce})
 	default:
 		return sentGone, 0
 	}
 	if m.ctx.Err() != nil {
-		return sentKeep, 0 // netdiag is closing: it stays for the next run
+		return sentClosing, 0 // netdiag is closing: it stays for the next run
 	}
 	m.note(g.gen, err)
 	if err == nil {
@@ -181,8 +206,7 @@ func (m *Manager) conflict(ctx context.Context, g sendGate, it *Item) (int, time
 		m.addNote("Team chat could not move an alert out of " + from + ".")
 		return sentGone, 0
 	case err == nil, errors.As(err, &ae) && ae.Status == http.StatusNotFound:
-		it.Moved = true
-		return sentRetry, 0
+		return sentMoved, 0 // done marks it Moved, under the outbox's lock
 	}
 	m.note(g.gen, err)
 	return sentRetry, m.backoff(it.Attempts)
@@ -268,6 +292,7 @@ func probe(ctx context.Context, baseURL, fp string) error {
 	if err != nil {
 		return err
 	}
+	defer cl.CloseIdleConnections() // one probe a minute: no socket kept for it
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	_, err = cl.Status(ctx)
@@ -386,6 +411,7 @@ func (m *Manager) TryNow(ctx context.Context) Status {
 				sctx, cancel := context.WithTimeout(ctx, callTimeout)
 				_, err := cl.Self(sctx)
 				cancel()
+				cl.CloseIdleConnections()
 				m.note(gen, err)
 			}
 		default:

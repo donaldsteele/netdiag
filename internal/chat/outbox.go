@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -56,6 +58,11 @@ type Item struct {
 	Alert *protocol.AlertInput `json:"alert,omitempty"`
 	// Text is a resolve's note or a message's body.
 	Text string `json:"text,omitempty"`
+	// Nonce is a message's client nonce, random and made when it is queued:
+	// bubbles answers a nonce it has seen with the message it made for it,
+	// so a message sent again after a restart is not posted twice, and one
+	// of a later run is never taken for an earlier one.
+	Nonce string `json:"nonce,omitempty"`
 	// Update marks a post for a key whose card is open in chat already: a
 	// resolve after it closes that card instead of dropping both (D17).
 	Update bool `json:"update,omitempty"`
@@ -69,6 +76,10 @@ type Item struct {
 
 	held    bool // left by a previous run: waits for release
 	sending bool // the sender has it
+	// fixedBy is the resolve queued while this post was on its way (its
+	// problem was fixed then): if the post does not get through, neither
+	// goes (D17).
+	fixedBy *Item
 }
 
 // outboxFile is chat-outbox.json.
@@ -79,12 +90,14 @@ type outboxFile struct {
 
 // outbox is the queue. It is safe for concurrent use. mark tells the
 // ledger the chat state of a problem (problems.ChatPending, ChatPosted or
-// ""); it is called with o.mu held, so it must not call back into the
-// outbox.
+// ""), and isOpen whether a problem is open (nil: no ledger, every post
+// counts); both are called with o.mu held, so they must not call back into
+// the outbox.
 type outbox struct {
 	files     DataFiles // nil: memory only
 	now       func() time.Time
 	mark      func(network, key, state string)
+	isOpen    func(network, key string) bool
 	saveDelay time.Duration
 	wake      chan struct{}
 
@@ -97,50 +110,108 @@ type outbox struct {
 	lastSent time.Time
 	dirty    bool
 	timer    *time.Timer
+	// unread is why chat-outbox.json could not be read at start (a sharing
+	// violation, access denied): until a read works, nothing is written
+	// over the file, so what it holds is not lost. It is read again, and
+	// its items added as held, before each save.
+	unread error
+	// released says a scan of this run reconciled its first pass, so the
+	// held resolves and messages went; liveNets are the networks whose live
+	// scan did, so the held posts of those went (release). Items found in
+	// the file later follow the same rules.
+	released bool
+	liveNets map[string]bool
 }
 
 func newOutbox(files DataFiles, now func() time.Time, mark func(network, key, state string)) *outbox {
 	if mark == nil {
 		mark = func(string, string, string) {}
 	}
-	return &outbox{files: files, now: now, mark: mark, saveDelay: outboxSaveDelay, wake: make(chan struct{}, 1)}
+	return &outbox{files: files, now: now, mark: mark, saveDelay: outboxSaveDelay, wake: make(chan struct{}, 1),
+		liveNets: map[string]bool{}}
 }
 
 // load reads chat-outbox.json. Every item it holds waits until release:
 // only a problem still open after the first pass is posted (4.9). An
-// unreadable file is set aside as <name>.bad-<time>.
+// unreadable file is set aside as <name>.bad-<time>; a file that could not
+// be read at all is never written over (unread).
 func (o *outbox) load() error {
+	f, bad, err := o.read()
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if err != nil {
+		o.unread = err
+		return err
+	}
+	if f != nil {
+		o.mergeLocked(f.Items)
+	}
+	if bad != "" {
+		return fmt.Errorf("chat: %s was unreadable and is now %s", store.FileChatOutbox, bad)
+	}
+	return nil
+}
+
+// read reads chat-outbox.json without o.mu: the file (nil when there is
+// none), where an unreadable one was set aside, or why it could not be read
+// or set aside.
+func (o *outbox) read() (*outboxFile, string, error) {
 	if o.files == nil {
-		return nil
+		return nil, "", nil
 	}
 	data, err := o.files.ReadFile(store.FileChatOutbox)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return nil, "", nil
 	}
 	if err != nil {
-		return fmt.Errorf("chat: %s could not be read: %w", store.FileChatOutbox, err)
+		return nil, "", fmt.Errorf("chat: %s could not be read: %w", store.FileChatOutbox, err)
 	}
 	var f outboxFile
 	if err := json.Unmarshal(data, &f); err != nil || f.SchemaVersion < 1 {
 		bad, qerr := o.files.QuarantineFile(store.FileChatOutbox)
 		if qerr != nil {
-			return fmt.Errorf("chat: %s is unreadable and could not be set aside: %v", store.FileChatOutbox, qerr)
+			return nil, "", fmt.Errorf("chat: %s is unreadable and could not be set aside: %v", store.FileChatOutbox, qerr)
 		}
-		return fmt.Errorf("chat: %s was unreadable and is now %s", store.FileChatOutbox, bad)
+		return nil, bad, nil
 	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	for _, it := range f.Items {
+	return &f, "", nil
+}
+
+// mergeLocked adds the items a file held, as held, before the items of
+// this run (they are older). An id this run gave already gets a new one.
+// The releases this run made apply to them at once. o.mu must be held.
+func (o *outbox) mergeLocked(items []*Item) {
+	ids := map[string]bool{}
+	for _, it := range o.items {
+		ids[it.ID] = true
+	}
+	var add []*Item
+	for _, it := range items {
 		if it == nil || it.ID == "" || (it.Op == OpPost && it.Alert == nil) {
 			continue
 		}
-		it.held = true
-		o.items = append(o.items, it)
 		if n, err := strconv.Atoi(it.ID); err == nil && n > o.seq {
 			o.seq = n
 		}
+		add = append(add, it)
 	}
-	return nil
+	for _, it := range add {
+		if ids[it.ID] {
+			o.seq++
+			it.ID = strconv.Itoa(o.seq)
+		}
+		ids[it.ID] = true
+		it.held = true
+		if it.Op == OpMessage && it.Nonce == "" {
+			it.Nonce = newNonce()
+		}
+	}
+	if len(add) == 0 {
+		return
+	}
+	o.items = append(add, o.items...)
+	o.releaseHeldLocked()
+	o.limitLocked()
 }
 
 // kick wakes the sender.
@@ -174,6 +245,17 @@ func (o *outbox) pendingPost(network, key string) int {
 	return -1
 }
 
+// sendingPost is the post for key on network the sender has, or nil. o.mu
+// must be held.
+func (o *outbox) sendingPost(network, key string) *Item {
+	for _, it := range o.items {
+		if it.Op == OpPost && it.Network == network && it.Key == key && it.sending {
+			return it
+		}
+	}
+	return nil
+}
+
 // pendingResolve is the last resolve for key on network that the sender
 // does not have, or -1. o.mu must be held.
 func (o *outbox) pendingResolve(network, key string) int {
@@ -195,6 +277,9 @@ func (o *outbox) Post(network, key string, in protocol.AlertInput, update bool) 
 		it := o.items[i]
 		it.Alert, it.Update = &in, it.Update || update
 		it.ExpiresAt = o.now().Add(PostTTL)
+		if !it.Update {
+			o.mark(network, key, problems.ChatPending)
+		}
 		o.changedLocked()
 		o.kick()
 		return
@@ -206,10 +291,34 @@ func (o *outbox) Post(network, key string, in protocol.AlertInput, update bool) 
 	o.kick()
 }
 
+// refresh gives the post for key on network that is on its way the alert
+// in (built from the problem's own notice, which says more than the
+// ledger's entry), and reports whether one is: a post that waits takes it,
+// one the sender has goes as it is.
+func (o *outbox) refresh(network, key string, in protocol.AlertInput) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if i := o.pendingPost(network, key); i >= 0 {
+		o.items[i].Alert = &in
+		o.changedLocked()
+		return true
+	}
+	return o.sendingPost(network, key) != nil
+}
+
+// hasPost reports whether a post for key on network is in the outbox (held,
+// waiting or on its way).
+func (o *outbox) hasPost(network, key string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return slices.ContainsFunc(o.items, func(it *Item) bool { return it.Op == OpPost && it.Network == network && it.Key == key })
+}
+
 // Resolve queues closing the card of key on network with text. A resolve
 // that follows a post never delivered drops both (D17): nobody was told,
-// so nobody is told it is fixed. A post that only updated an open card is
-// dropped, and the card is closed.
+// so nobody is told it is fixed; when that post is on its way, the resolve
+// waits for it, and both go only if it gets through. A post that only
+// updated an open card is dropped, and the card is closed.
 func (o *outbox) Resolve(network, key, text string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -220,13 +329,23 @@ func (o *outbox) Resolve(network, key, text string) {
 		if !p.Update {
 			if j := o.pendingResolve(network, key); j >= 0 {
 				// The post was to follow a resolve (a card moved to
-				// another channel): the card is closed with this note.
+				// another channel, or a post on its way): the card is
+				// closed with this note.
 				o.items[j].Text = text
 				return
 			}
-			o.mark(network, key, "")
-			return
+			if o.sendingPost(network, key) == nil {
+				o.mark(network, key, "")
+				return
+			}
 		}
+	}
+	if p := o.sendingPost(network, key); p != nil && !p.Update && p.fixedBy == nil {
+		r := &Item{Op: OpResolve, Network: network, Key: key, Text: text}
+		o.addLocked(r, ResolveTTL)
+		p.fixedBy = r
+		o.kick()
+		return
 	}
 	if j := o.pendingResolve(network, key); j >= 0 {
 		o.items[j].Text = text
@@ -242,26 +361,51 @@ func (o *outbox) Resolve(network, key, text string) {
 func (o *outbox) Message(network, text string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.addLocked(&Item{Op: OpMessage, Network: network, Text: text}, MessageTTL)
+	o.addLocked(&Item{Op: OpMessage, Network: network, Text: text, Nonce: newNonce()}, MessageTTL)
 	o.kick()
 }
 
-// release lets the items a previous run left go, once a scan's first pass
-// is reconciled: a post whose problem is no longer open is dropped (4.9),
-// the rest are sent. isOpen is nil when there is no ledger: then every
-// post goes.
-func (o *outbox) release(isOpen func(network, key string) bool) {
+// newNonce is a message nonce no run of netdiag gives twice: "netdiag-"
+// and 16 random bytes in hex (40 characters; bubbles takes 64).
+func newNonce() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return "netdiag-" + hex.EncodeToString(b[:])
+}
+
+// release lets the items a previous run left go, once a scan of network
+// has reconciled its first pass (live: the scan watches the network): the
+// resolves and messages at the first such scan, and the posts of network
+// only when its scan watches it, since only then are alerts sent (v0.6-D10)
+// and has the ledger checked that network again. A post whose problem is no
+// longer open is dropped then (4.9); the others wait, and lapse after their
+// hour.
+func (o *outbox) release(network string, live bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	o.expireLocked(o.now())
+	o.released = true
+	if live {
+		o.liveNets[network] = true
+	}
+	o.releaseHeldLocked()
+}
+
+// releaseHeldLocked lets the held items go that the releases so far allow.
+// o.mu must be held.
+func (o *outbox) releaseHeldLocked() {
+	if !o.released {
+		return
+	}
 	keep := o.items[:0]
 	changed := false
 	for _, it := range o.items {
-		if !it.held {
+		if !it.held || (it.Op == OpPost && !o.liveNets[it.Network]) {
 			keep = append(keep, it)
 			continue
 		}
 		changed = true
-		if it.Op == OpPost && isOpen != nil && !isOpen(it.Network, it.Key) {
+		if it.Op == OpPost && o.isOpen != nil && !o.isOpen(it.Network, it.Key) {
 			if !it.Update {
 				o.mark(it.Network, it.Key, "")
 			}
@@ -278,7 +422,7 @@ func (o *outbox) release(isOpen func(network, key string) bool) {
 	}
 }
 
-// held reports whether items a previous run left still wait for release.
+// holding reports whether items a previous run left still wait for release.
 func (o *outbox) holding() bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -368,11 +512,13 @@ func (o *outbox) limitLocked() {
 
 // Outcomes of a send.
 const (
-	sentOK    = iota // delivered
-	sentRetry        // try again after the wait
-	sentDrop         // give up on it (counted as dropped)
-	sentGone         // nothing to do any more (not counted)
-	sentKeep         // leave it as it is: sending has stopped
+	sentOK      = iota // delivered
+	sentRetry          // try again after the wait
+	sentDrop           // give up on it (counted as dropped)
+	sentGone           // nothing to do any more (not counted)
+	sentKeep           // leave it as it is: sending has stopped
+	sentMoved          // its card was resolved in the old channel: post it again now
+	sentClosing        // leave it as it is: netdiag is closing, and the call's fate is unknown
 )
 
 // done records what became of the item the sender had.
@@ -380,13 +526,45 @@ func (o *outbox) done(it *Item, outcome int, wait time.Duration) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	it.sending = false
+	if r := it.fixedBy; r != nil {
+		it.fixedBy = nil
+		switch outcome {
+		case sentOK:
+			// The card opened: its resolve closes it.
+		case sentMoved:
+			it.fixedBy = r // it is posted again at once
+		case sentClosing:
+			// The post may have reached the server: both stay for the next
+			// run, which drops the post (its problem is fixed) and sends
+			// the resolve.
+		default:
+			// The problem was fixed while its post was on its way, and the
+			// post did not get through: nobody was told, so neither the
+			// post nor its resolve goes (D17).
+			o.items = slices.DeleteFunc(o.items, func(x *Item) bool { return x == it || x == r })
+			if outcome == sentDrop {
+				o.dropped++
+			}
+			state := ""
+			if o.pendingPostAfter(it) >= 0 {
+				state = problems.ChatPending
+			}
+			o.mark(it.Network, it.Key, state)
+			o.changedLocked()
+			return
+		}
+	}
 	i := slices.Index(o.items, it)
 	switch outcome {
 	case sentRetry:
 		it.NextAt = o.now().Add(wait)
 		o.changedLocked()
 		return
-	case sentKeep:
+	case sentMoved:
+		it.Moved, it.NextAt = true, o.now()
+		o.changedLocked()
+		return
+	case sentKeep, sentClosing:
 		it.Attempts--
 		return
 	}
@@ -458,6 +636,35 @@ func (o *outbox) stopPosts() {
 	}
 }
 
+// newApp records a new connection, which is a new app in bubbles with no
+// card of the old one's: every post that waits makes a new card, so its
+// problem is pending; every other open problem has no card any more. open
+// is the ledger's open problems.
+func (o *outbox) newApp(open []problems.Entry) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	posts := map[string]bool{}
+	for _, it := range o.items {
+		if it.Op == OpPost {
+			if it.Update {
+				it.Update = false
+				o.changedLocked()
+			}
+			posts[it.Network+"\x00"+it.Key] = true
+		}
+	}
+	for _, e := range open {
+		switch {
+		case posts[e.Network+"\x00"+e.Key]:
+			if e.Chat != problems.ChatPending {
+				o.mark(e.Network, e.Key, problems.ChatPending)
+			}
+		case e.Chat != "":
+			o.mark(e.Network, e.Key, "")
+		}
+	}
+}
+
 // clearAll forgets everything (Disconnect); the caller removes the file.
 func (o *outbox) clearAll() {
 	o.mu.Lock()
@@ -467,7 +674,7 @@ func (o *outbox) clearAll() {
 			o.mark(it.Network, it.Key, "")
 		}
 	}
-	o.items, o.dirty = nil, false
+	o.items, o.dirty, o.unread = nil, false, nil
 	if o.timer != nil {
 		o.timer.Stop()
 		o.timer = nil
@@ -512,7 +719,9 @@ func (o *outbox) changedLocked() {
 }
 
 // save writes chat-outbox.json now if it changed, or removes it when the
-// outbox is empty.
+// outbox is empty. When the file could not be read at start, it is read
+// first and what it holds added; while it still cannot be read, save
+// writes nothing and says why (the changes stay for the next save).
 func (o *outbox) save() error {
 	if o.files == nil {
 		return nil
@@ -528,9 +737,29 @@ func (o *outbox) save() error {
 		o.mu.Unlock()
 		return nil
 	}
+	unread := o.unread != nil
+	o.mu.Unlock()
+	if unread {
+		f, _, err := o.read() // without o.mu: the router never waits on the disk
+		o.mu.Lock()
+		if err != nil {
+			o.unread = err
+			o.mu.Unlock()
+			return err
+		}
+		if o.unread != nil { // not cleared by Disconnect meanwhile
+			o.unread = nil
+			if f != nil {
+				o.mergeLocked(f.Items)
+			}
+		}
+		o.mu.Unlock()
+	}
+	o.mu.Lock()
 	f := outboxFile{SchemaVersion: outboxSchema, Items: make([]*Item, 0, len(o.items))}
 	for _, it := range o.items {
 		c := *it
+		c.fixedBy = nil
 		f.Items = append(f.Items, &c)
 	}
 	o.dirty = false

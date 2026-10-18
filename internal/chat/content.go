@@ -2,6 +2,7 @@ package chat
 
 import (
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 
 	"netdiag/internal/advice"
 	"netdiag/internal/bubbles/protocol"
+	"netdiag/internal/health"
 	"netdiag/internal/model"
 	"netdiag/internal/problems"
 )
@@ -57,9 +59,14 @@ func subject(n model.Notice) string {
 		if name, ok := strings.CutSuffix(n.Message, " check failed."); ok && name != "" {
 			return name
 		}
-		return strings.TrimPrefix(n.Key, model.TriggerHealthFailed+"||")
+		return health.Label(healthCheckID(n.Key))
 	}
 	return nameAt(n.Name, n.IP)
+}
+
+// healthCheckID is the check of a healthFailed key (healthFailed||<id>).
+func healthCheckID(key string) string {
+	return strings.TrimPrefix(key, model.TriggerHealthFailed+"||")
 }
 
 // nameAt is "name (ip)", or whichever of the two there is.
@@ -210,15 +217,23 @@ func alertText(msg string, a *model.Advice) string {
 }
 
 // alertForEntry is the alert for an open problem the ledger holds, when
-// there is no notice to build it from: the first-connect burst and Change
-// channel.
-func alertForEntry(e problems.Entry) protocol.AlertInput {
+// netdiag has no notice of it to build it from (the router keeps the last
+// one it saw, Manager.alertOf): a burst or Change channel after a restart,
+// or a problem a scan found before. It says what the notice would: the
+// check's label for a health check, the catalogue's advice (v0.6 4.8) as
+// "What to try", and the device's maker, model and page when h, its device,
+// is known. conflictID is the conflict's id when the scan has it.
+func alertForEntry(e problems.Entry, h *model.Host, conflictID string) protocol.AlertInput {
 	n := model.Notice{Trigger: e.Trigger, Severity: e.Severity, IP: e.IP, MAC: e.MAC, Name: e.Name,
 		Title: e.Title, Key: e.Key, OpenedAt: e.OpenedAt, Detail: e.Detail}
 	if e.Trigger == model.TriggerHealthFailed {
-		n.Message = strings.TrimPrefix(e.Key, model.TriggerHealthFailed+"||") + " check failed."
+		n.Message = health.Label(healthCheckID(e.Key)) + " check failed."
 	}
-	in := alertFor(n, nil, "")
+	n.Advice = advice.Notice(n, h, advice.Ctx{GOOS: runtime.GOOS})
+	if n.Message == "" && n.Advice != nil {
+		n.Message = n.Advice.Meaning
+	}
+	in := alertFor(n, h, conflictID)
 	if e.Detail != "" && in.Text == "" {
 		in.Text = clip(e.Detail, protocol.MaxAlertText)
 	}

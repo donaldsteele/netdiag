@@ -216,6 +216,212 @@ func TestChatDownWhileFaultOpensAndClears(t *testing.T) {
 	}
 }
 
+// D17 with the post on its way (bubbles slow, or its computer off so each
+// call takes its whole time): the problem is fixed while the post is being
+// sent and the post does not get through. When the server is back, nothing
+// about it is posted or resolved. When the post does get through, the same
+// card is closed.
+func TestFixedWhilePostIsOnItsWay(t *testing.T) {
+	t.Run("the post fails", func(t *testing.T) {
+		f := bubblestest.New(t)
+		st, _ := newStore(t)
+		l := ledgerOn(t, st)
+		m := connected(t, f, st, l)
+		sc := newFakeScan(testNet, true)
+		m.Attach(sc)
+		sc.reconcile()
+		release := f.Hold("POST /api/v1/alerts")
+		defer release()
+		sc.notice(l, coverOpen(t0))
+		waitFor(t, "the post on its way", func() bool { return f.Held() == 1 })
+		sc.notice(l, coverClosed(t0.Add(time.Minute), t0))
+		waitFor(t, "the resolve queued", func() bool { return m.Status().Waiting == 2 })
+		f.FailNext(503, protocol.CodeUnavailable, "starting", 0)
+		release()
+		waitFor(t, "nothing waiting", func() bool { return m.Status().Waiting == 0 })
+		m.TryNow(context.Background())
+		time.Sleep(100 * time.Millisecond)
+		if _, ok := f.Alert(zebraKey); ok || len(f.Posted()) != 0 || len(f.Resolved()) != 0 {
+			t.Fatalf("posted %+v resolved %+v", f.Posted(), f.Resolved())
+		}
+		if c := l.Chat(testNet, zebraKey); c != "" {
+			t.Fatalf("ledger chat state %q", c)
+		}
+		sc.notice(l, fault(1, "warn"))
+		waitFor(t, "the next alert", func() bool { return len(f.Posted()) == 1 })
+	})
+	t.Run("the post gets through", func(t *testing.T) {
+		f := bubblestest.New(t)
+		st, _ := newStore(t)
+		l := ledgerOn(t, st)
+		m := connected(t, f, st, l)
+		sc := newFakeScan(testNet, true)
+		m.Attach(sc)
+		sc.reconcile()
+		release := f.Hold("POST /api/v1/alerts")
+		defer release()
+		sc.notice(l, coverOpen(t0))
+		waitFor(t, "the post on its way", func() bool { return f.Held() == 1 })
+		sc.notice(l, coverClosed(t0.Add(time.Minute), t0))
+		waitFor(t, "the resolve queued", func() bool { return m.Status().Waiting == 2 })
+		release()
+		waitFor(t, "the resolve", func() bool { return len(f.Resolved()) == 1 })
+		if c, _ := f.Alert(zebraKey); c.Alert.State != protocol.AlertResolved || len(f.Posted()) != 1 {
+			t.Fatalf("card %+v posted %d", c, len(f.Posted()))
+		}
+		waitFor(t, "the ledger", func() bool { return l.Chat(testNet, zebraKey) == "" })
+	})
+}
+
+// Problems the ledger already holds reach team chat once netdiag watches
+// their network (4.9 "First connect", D10), even when sending started
+// before: the burst waits for a live scan's first pass. A one-shot scan
+// posts nothing, but its problem goes as soon as Live mode starts, with
+// the words its notice had; one the live scan's first pass also reports
+// in a notice of its own is posted once.
+func TestBurstWhenWatchingStarts(t *testing.T) {
+	t.Run("a one-shot scan, then Live mode", func(t *testing.T) {
+		f := bubblestest.New(t)
+		st, _ := newStore(t)
+		l := ledgerOn(t, st)
+		m := connected(t, f, st, l)
+		msgs := len(f.Messages())
+		one := newFakeScan(testNet, false)
+		m.Attach(one)
+		one.reconcile()
+		one.host(model.Host{IP: "192.168.68.76", MAC: "00:07:4D:11:22:33", Vendor: "Zebra Technologies",
+			Printer: &model.PrinterInfo{Model: "ZD621-300dpi"}})
+		one.notice(l, coverOpen(t0))
+		time.Sleep(100 * time.Millisecond)
+		if len(f.Posted()) != 0 {
+			t.Fatalf("a one-shot scan posted %+v", f.Posted())
+		}
+		close(one.done)
+
+		live := newFakeScan(testNet, true)
+		m.Attach(live)
+		live.reconcile() // the cover is still open: seeded, so no notice
+		waitFor(t, "the post", func() bool { return len(f.Posted()) == 1 })
+		p := f.Posted()[0]
+		if p.DedupeKey != zebraKey || p.Text != "ZD621 (192.168.68.76): Cover open\n\nWhat to try:\n1. Close the printer's cover or door." ||
+			p.OccurredAt == nil || *p.OccurredAt != t0.Format(time.RFC3339) {
+			t.Fatalf("posted %+v", p)
+		}
+		fields := map[string]string{}
+		for _, fl := range p.Fields {
+			fields[fl.Name] = fl.Value
+		}
+		if fields["Maker"] != "Zebra Technologies" || fields["Model"] != "ZD621-300dpi" {
+			t.Fatalf("fields %v", fields)
+		}
+		waitFor(t, "posted", func() bool { return l.Chat(testNet, zebraKey) == problems.ChatPosted })
+		time.Sleep(50 * time.Millisecond)
+		if len(f.Posted()) != 1 || len(f.Messages()) != msgs {
+			t.Fatalf("posted %d, messages %q", len(f.Posted()), f.Messages()[msgs:])
+		}
+	})
+	t.Run("sending starts before Live mode", func(t *testing.T) {
+		f := bubblestest.New(t)
+		st, _ := newStore(t)
+		l := ledgerOn(t, st)
+		web := model.Notice{Trigger: model.TriggerHealthFailed, Severity: "warn", Title: "Health check failed",
+			Message: "Web server check failed.", Key: "healthFailed||webserver", At: t0.Format(time.RFC3339)}
+		l.Apply(testNet, []model.Notice{web})
+		m := connected(t, f, st, l) // the wizard's Done: no scan yet
+		if msgs := f.Messages(); len(msgs) != 1 || len(f.Posted()) != 0 {
+			t.Fatalf("messages %q posted %d", msgs, len(f.Posted()))
+		}
+		live := newFakeScan(testNet, true)
+		m.Attach(live)
+		found := coverOpen(t0.Add(time.Minute)) // found by this pass
+		l.Apply(testNet, []model.Notice{found})
+		live.reconcile()
+		waitFor(t, "the two alerts", func() bool { return len(f.Posted()) == 2 })
+		live.ch <- model.Event{Type: model.EventNotice, Data: model.NoticeEvent{Notice: found}} // its notice comes after
+		time.Sleep(100 * time.Millisecond)
+		var keys []string
+		for _, p := range f.Posted() {
+			keys = append(keys, p.DedupeKey)
+			if p.DedupeKey == web.Key && (p.Title != "Health check failed: Web server" || !strings.Contains(p.Text, "What to try:")) {
+				t.Fatalf("health alert %+v", p)
+			}
+		}
+		if len(keys) != 2 || keys[0] != zebraKey || keys[1] != web.Key {
+			t.Fatalf("posted %v", keys)
+		}
+		if len(f.Messages()) != 1 {
+			t.Fatalf("a second connected message: %q", f.Messages())
+		}
+	})
+}
+
+// A new connection (Reconnect after the token was refused) keeps the posts
+// that still wait as pending: they make new cards, so an OK that comes
+// before one could go drops both (D17), and the card never opens for a
+// fixed problem.
+func TestReconnectKeepsWaitingPostPending(t *testing.T) {
+	f := bubblestest.New(t)
+	st, _ := newStore(t)
+	l := ledgerOn(t, st)
+	m := connected(t, f, st, l)
+	sc := newFakeScan(testNet, true)
+	m.Attach(sc)
+	sc.reconcile()
+	f.Revoke()
+	sc.notice(l, coverOpen(t0))
+	waitFor(t, "needs reconnecting", func() bool { return m.Status().State == StateNeedsReconnect })
+	f.RemoveChannel("C1") // the new app is in no channel yet: the post cannot go at once
+	if _, err := m.StartPairing(context.Background(), "", "", true); err != nil {
+		t.Fatal(err)
+	}
+	f.SetPairingState(protocol.PairingApproved)
+	waitFor(t, "the approval", func() bool { return m.PairStatus().State == PairApproved })
+	if s := m.Status(); s.State != StateNoChannel || s.Waiting != 1 {
+		t.Fatalf("status %+v", s)
+	}
+	if c := l.Chat(testNet, zebraKey); c != problems.ChatPending {
+		t.Fatalf("after the new connection: %q", c)
+	}
+	sc.notice(l, coverClosed(t0.Add(time.Minute), t0))
+	waitFor(t, "nothing waiting", func() bool { return m.Status().Waiting == 0 })
+	f.AddChannel("C1", "netdiag-alerts")
+	if _, err := m.SetChannel(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the connected message", func() bool { return len(f.Messages()) == 2 })
+	time.Sleep(100 * time.Millisecond)
+	if len(f.Posted()) != 0 {
+		t.Fatalf("posted a fixed problem: %+v", f.Posted())
+	}
+	if c := l.Chat(testNet, zebraKey); c != "" {
+		t.Fatalf("ledger chat state %q", c)
+	}
+}
+
+// Message nonces never repeat across runs: bubbles keeps them for good and
+// answers one it has seen with its old message, so a later run's note
+// would vanish (v0.2.0 internal/chat/messages.go replayNonce).
+func TestMessageNoncesAcrossRestart(t *testing.T) {
+	f := bubblestest.New(t)
+	st, _ := newStore(t)
+	m1 := connected(t, f, st, nil) // its connected message
+	m1.Close()
+	if n := len(f.Messages()); n != 1 {
+		t.Fatalf("messages %q", f.Messages())
+	}
+	m2 := newManager(t, st, fastRetry)
+	m2.ApplySettings(model.SettingsChat{Enabled: true, MinSeverity: model.ChatSeverityInfo})
+	sc := newFakeScan(testNet, true)
+	m2.Attach(sc)
+	sc.reconcile()
+	sc.notice(nil, model.Notice{Trigger: model.TriggerNewDevice, Severity: "info", IP: "192.168.1.77", Name: "phone",
+		Title: "New device", Key: "newDevice|AA:BB:CC:DD:EE:FF|192.168.1.77"})
+	waitFor(t, "the note", func() bool { return len(f.Messages()) == 2 })
+	if got := f.Messages()[1]; got != "C1 New device on the local network: phone (192.168.1.77)." {
+		t.Fatalf("message %q", got)
+	}
+}
+
 // Quit while an alert waits: chat-outbox.json holds it; the next run holds
 // it until its first pass is reconciled, then posts it once with the
 // original occurred_at. A problem fixed while netdiag was closed is not
@@ -266,11 +472,23 @@ func TestQuitWhilePendingPostsOnceAfterRestart(t *testing.T) {
 	if s := m2.Status(); s.Waiting != 2 {
 		t.Fatalf("restart waiting %+v", s)
 	}
+	// Neither a one-shot scan nor a live scan of another network lets the
+	// held posts go: the ledger has not checked them again (and a cancelled
+	// first pass never closes Reconciled, scan.TestReconciledAfterLedger).
+	one := newFakeScan(testNet, false)
+	m2.Attach(one)
+	one.reconcile()
+	away := newFakeScan("n-elsewhere", true)
+	m2.Attach(away)
+	away.reconcile()
 	sc2 := newFakeScan(testNet, true)
 	m2.Attach(sc2)
 	time.Sleep(100 * time.Millisecond)
 	if n := len(f.Posted()); n != 0 {
 		t.Fatalf("posted %d before the first pass was reconciled", n)
+	}
+	if s := m2.Status(); s.Waiting != 2 || !m2.out.holding() {
+		t.Fatalf("released by another scan: %+v", s)
 	}
 	ok := gone
 	ok.OK, ok.Severity, ok.OpenedAt, ok.At = true, "info", gone.At, t0.Add(time.Hour).Format(time.RFC3339)
@@ -538,6 +756,11 @@ func TestArchivedChannelConflictAgainstV020(t *testing.T) {
 			t.Fatalf("resolved %+v", r)
 		}
 		waitFor(t, "posted again", func() bool { return l.Chat(testNet, zebraKey) == problems.ChatPosted })
+		// The moved card says what the first one said.
+		if p := f.Posted(); len(p) != 2 || p[1].Title != p[0].Title || p[1].Text != p[0].Text || !strings.Contains(p[1].Text, "What to try:") ||
+			len(p[1].Fields) != len(p[0].Fields) || p[1].Channel != "C2" {
+			t.Fatalf("moved card %+v, first %+v", p[1], p[0])
+		}
 	})
 	t.Run("open in another channel", func(t *testing.T) {
 		f := bubblestest.New(t)
