@@ -275,7 +275,7 @@ In live mode netdiag raises an alert when something changes: a printer goes offl
 
 ## Team chat alerts (bubbles)
 
-netdiag can post its alerts to your team chat (bubbles), so everyone in the channel sees when something on the local network breaks. Each alert says in plain words what it means and what to try. When the problem is fixed, netdiag closes the same chat card itself, with "Fixed at 10:42 (lasted 12 min)". Connecting takes a few clicks and usually no typing (you type the server's address only when netdiag can't find it), with no administrator rights on this computer; your chat admin approves netdiag in bubbles.
+netdiag can post its alerts to your team chat ([bubbles](https://donaldsteele.github.io/bubbles/)), so everyone in the channel sees when something on the local network breaks. Each alert says in plain words what it means and what to try. When the problem is fixed, netdiag closes the same chat card itself, with "Fixed at 10:42 (lasted 12 min)". Connecting takes a few clicks and usually no typing (you type the server's address only when netdiag can't find it), with no administrator rights on this computer; your chat admin approves netdiag in bubbles.
 
 **Connect.** Open **Settings**, go to **Team chat (bubbles)** and click **Connect to team chat**. Then:
 
