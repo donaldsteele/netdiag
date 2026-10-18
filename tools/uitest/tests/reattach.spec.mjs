@@ -179,9 +179,12 @@ test('Restart watching asks first; Esc keeps watching and returns focus; Restart
   await expect(dlg).toHaveJSProperty('open', false);
   await expect.poll(() => posts(rec).length).toBe(1);
   expect(JSON.parse(posts(rec)[0].body)).toMatchObject({ cidr: fx.CIDR, live: true, replaceLive: true });
-  await expect(page.locator('.livepill')).toBeVisible();
+  // After Restart the page draws the replayed scan again before it shows
+  // the pill: as slow as the first time under load.
+  await expect(page.locator('.livepill')).toBeVisible({ timeout: 20_000 });
   // The Activity line follows the new scan's answer: wait for it.
-  await expect.poll(() => app(page, (a) => a.log.some((e) => e.text.startsWith('Watching restarted: ')))).toBe(true);
+  await expect.poll(() => app(page, (a) => a.log.some((e) => e.text.startsWith('Watching restarted: '))),
+    { timeout: 20_000 }).toBe(true);
 
   expect(errors, 'page errors').toEqual([]);
   expect(rec.unmatched, 'unmatched requests').toEqual([]);
