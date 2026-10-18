@@ -184,10 +184,12 @@ func TestChatRoutesRefuse(t *testing.T) {
 		{"/api/bubbles/connect", `{"connectionString":"hello"}`, "bubbles://"},
 		{"/api/bubbles/pair", `{"address":"192.168.1.20","fingerprint":"x","confirmed":true}`, "fingerprint"},
 		{"/api/bubbles/channel", `{}`, "isn't connected"},
-		{"/api/bubbles/inspect", `{"address":`, "invalid JSON"},
+		// The wizard shows the error as it is: plain words, not the decoder's.
+		{"/api/bubbles/inspect", `{"address":`, `"netdiag couldn't read what this page sent. Reload the page and try again."`},
+		{"/api/bubbles/channel", `{"channelId":`, `"netdiag couldn't read what this page sent. Reload the page and try again."`},
 	} {
 		r, b := do(t, "POST", u+c.path, c.body, "")
-		if r.StatusCode != 400 || !strings.Contains(b, c.want) {
+		if r.StatusCode != 400 || !strings.Contains(b, c.want) || strings.Contains(b, "JSON") || strings.Contains(b, "EOF") {
 			t.Errorf("%s %s: %d %s", c.path, c.body, r.StatusCode, b)
 		}
 	}
@@ -205,7 +207,7 @@ func TestChatRoutesWithoutStore(t *testing.T) {
 		t.Fatalf("status %d %s", r.StatusCode, b)
 	}
 	for _, p := range []string{"/api/bubbles/discover", "/api/bubbles/inspect", "/api/bubbles/test"} {
-		if r, b := do(t, "POST", u+p, `{}`, ""); r.StatusCode != 503 {
+		if r, b := do(t, "POST", u+p, `{}`, ""); r.StatusCode != 503 || !strings.Contains(b, chat.NoStoreMsg) {
 			t.Errorf("%s: %d %s", p, r.StatusCode, b)
 		}
 	}

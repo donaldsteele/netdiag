@@ -128,9 +128,10 @@ func localTime(t string) string {
 }
 
 // alertFor is the alert for the fault notice n (4.9's table). h is its
-// device when the scan knows it, conflictID the id of the conflict an
-// ipConflict notice is about. The channel is filled in when it is sent.
-func alertFor(n model.Notice, h *model.Host, conflictID string) protocol.AlertInput {
+// device when the scan knows it. The channel is filled in when it is sent.
+// The fields are for the people in the channel, so an IP conflict's own id
+// is not one of them (the notice's key is the alert's dedupe key).
+func alertFor(n model.Notice, h *model.Host) protocol.AlertInput {
 	zero := 0
 	occurred := n.OpenedAt
 	if occurred == "" {
@@ -161,7 +162,7 @@ func alertFor(n model.Notice, h *model.Host, conflictID string) protocol.AlertIn
 			mac = h.MAC
 		}
 	}
-	fs = addField(fs, "MAC", mac)
+	fs = addField(fs, "MAC address", mac)
 	if h != nil {
 		fs = addField(fs, "Maker", h.Vendor)
 		if h.Printer != nil {
@@ -174,8 +175,6 @@ func alertFor(n model.Notice, h *model.Host, conflictID string) protocol.AlertIn
 		fs = addField(fs, "Check", subject(n))
 	case model.TriggerSupplyLow:
 		fs = addField(fs, "Supply", n.Detail)
-	case model.TriggerIPConflict:
-		fs = addField(fs, "Conflict id", conflictID)
 	}
 	in.Fields = fs
 	if h != nil {
@@ -222,8 +221,8 @@ func alertText(msg string, a *model.Advice) string {
 // or a problem a scan found before. It says what the notice would: the
 // check's label for a health check, the catalogue's advice (v0.6 4.8) as
 // "What to try", and the device's maker, model and page when h, its device,
-// is known. conflictID is the conflict's id when the scan has it.
-func alertForEntry(e problems.Entry, h *model.Host, conflictID string) protocol.AlertInput {
+// is known.
+func alertForEntry(e problems.Entry, h *model.Host) protocol.AlertInput {
 	n := model.Notice{Trigger: e.Trigger, Severity: e.Severity, IP: e.IP, MAC: e.MAC, Name: e.Name,
 		Title: e.Title, Key: e.Key, OpenedAt: e.OpenedAt, Detail: e.Detail}
 	if e.Trigger == model.TriggerHealthFailed {
@@ -233,7 +232,7 @@ func alertForEntry(e problems.Entry, h *model.Host, conflictID string) protocol.
 	if n.Message == "" && n.Advice != nil {
 		n.Message = n.Advice.Meaning
 	}
-	in := alertFor(n, h, conflictID)
+	in := alertFor(n, h)
 	if e.Detail != "" && in.Text == "" {
 		in.Text = clip(e.Detail, protocol.MaxAlertText)
 	}
@@ -241,7 +240,10 @@ func alertForEntry(e problems.Entry, h *model.Host, conflictID string) protocol.
 }
 
 // fixedText is the resolve note of an OK notice: "Fixed at 10:42 (was down
-// 12 min)." and what was fixed, in this computer's time.
+// 12 min)." and what was fixed, in this computer's time. Only a device
+// that stopped answering or a failed health check was down: every other
+// problem (low toner, an open cover, an IP conflict) reads "Fixed at 10:42
+// (after 12 min).".
 func fixedText(n model.Notice, now time.Time) string {
 	end := now
 	if t, err := time.Parse(time.RFC3339, n.At); err == nil {
@@ -249,7 +251,12 @@ func fixedText(n model.Notice, now time.Time) string {
 	}
 	s := "Fixed at " + end.Local().Format("15:04")
 	if from, err := time.Parse(time.RFC3339, n.OpenedAt); err == nil && !end.Before(from) {
-		s += " (was down " + downFor(end.Sub(from)) + ")"
+		lead := " (after "
+		switch n.Trigger {
+		case model.TriggerPrinterOffline, model.TriggerDeviceOffline, model.TriggerHealthFailed:
+			lead = " (was down "
+		}
+		s += lead + downFor(end.Sub(from)) + ")"
 	}
 	s += "."
 	if m := strings.TrimSpace(n.Message); m != "" {
@@ -258,8 +265,8 @@ func fixedText(n model.Notice, now time.Time) string {
 	return clip(s, protocol.MaxAlertText)
 }
 
-// downFor is a duration as the page says it: "less than a minute", "12
-// min", "2 h 5 min".
+// downFor is a duration in words: "less than a minute", "12 min", "2 h 5
+// min", "2 h".
 func downFor(d time.Duration) string {
 	m := int(d / time.Minute)
 	switch {
@@ -267,6 +274,8 @@ func downFor(d time.Duration) string {
 		return "less than a minute"
 	case m < 60:
 		return fmt.Sprintf("%d min", m)
+	case m%60 == 0:
+		return fmt.Sprintf("%d h", m/60)
 	}
 	return fmt.Sprintf("%d h %d min", m/60, m%60)
 }

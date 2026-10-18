@@ -154,13 +154,11 @@ func (m *Manager) deliver(g sendGate, it *Item) (int, time.Duration) {
 		return sentKeep, 0
 	case http.StatusConflict:
 		return m.conflict(ctx, g, it)
-	case http.StatusBadRequest:
-		_, msg := explain(err)
-		m.addNote("Team chat refused an alert: " + strings.TrimPrefix(msg, "The chat server refused it: "))
-		return sentDrop, 0
 	}
-	_, msg := explain(err)
-	m.addNote("Team chat refused an alert: " + strings.TrimPrefix(msg, "The chat server refused it: "))
+	// 400 and every other refusal: the server's reason goes to the
+	// diagnostics log, the Activity log says what to do.
+	m.explain(err)
+	m.addNote(alertTurnedDownNote)
 	return sentDrop, 0
 }
 

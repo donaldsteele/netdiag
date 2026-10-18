@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -45,6 +46,27 @@ func newManager(t *testing.T, st DataFiles, edit ...func(*Options)) *Manager {
 	m := NewManager(opt)
 	t.Cleanup(m.Close)
 	return m
+}
+
+// diagLog keeps what a manager writes to the diagnostics log.
+type diagLog struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+// into sends the manager's diagnostics to l.
+func (l *diagLog) into(o *Options) {
+	o.Logf = func(format string, args ...any) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		l.lines = append(l.lines, fmt.Sprintf(format, args...))
+	}
+}
+
+func (l *diagLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Join(l.lines, "\n")
 }
 
 // fakeAddress is the fake server's address as the person would type it,
@@ -767,7 +789,8 @@ func TestSaveFailures(t *testing.T) {
 	f := bubblestest.New(t)
 	s, _ := newStore(t)
 	st := &flakyFiles{Store: s}
-	m := newManager(t, st)
+	var diag diagLog
+	m := newManager(t, st, diag.into)
 	ctx := context.Background()
 	addr, onboard := fakeAddress(t, f)
 	in, err := m.Inspect(ctx, addr, onboard)
@@ -780,12 +803,17 @@ func TestSaveFailures(t *testing.T) {
 	st.fail.Store(true)
 	f.SetPairingState(protocol.PairingApproved)
 	ps := waitApproved(t, m)
-	want := "netdiag could not save the team chat connection on this computer (the disk is full). It works until netdiag closes, and netdiag keeps trying to save it."
+	// Plain words and what to check; the OS error and the path only in the
+	// diagnostics log.
+	want := "netdiag couldn't save the team chat connection in its data folder. It works until netdiag closes, and netdiag keeps trying to save it. Check that the data folder isn't read-only or full."
 	if ps.Error != want {
 		t.Fatalf("approved but not saved: %+v", ps)
 	}
 	if s := m.Status(); s.State != StateConnected || s.Unsaved != want {
 		t.Fatalf("status %+v", s)
+	}
+	if !strings.Contains(diag.String(), "the disk is full") {
+		t.Fatalf("the reason is not in the diagnostics log: %s", diag.String())
 	}
 	if _, err := LoadConnection(st); !errors.Is(err, ErrNotConnected) {
 		t.Fatalf("load %v", err)
@@ -795,7 +823,8 @@ func TestSaveFailures(t *testing.T) {
 	}
 	f.AddChannel("C2", "front-desk")
 	var r *RefusedError
-	if _, err := m.SetChannel(ctx, "C2"); !errors.As(err, &r) || !strings.Contains(r.Msg, "could not save the channel") {
+	if _, err := m.SetChannel(ctx, "C2"); !errors.As(err, &r) ||
+		r.Msg != "netdiag couldn't save the channel in its data folder. It is used until netdiag closes. Check that the data folder isn't read-only or full, then try again." {
 		t.Fatalf("channel not saved: %v", err)
 	}
 	st.fail.Store(false)
@@ -816,7 +845,8 @@ func TestSaveFailures(t *testing.T) {
 	st3 := &flakyFiles{Store: s3}
 	st3.fail.Store(true)
 	m3 := newManager(t, st3)
-	if _, err := m3.ConnectString(ctx, cs); err == nil || !strings.Contains(err.Error(), "could not save the team chat connection") {
+	if _, err := m3.ConnectString(ctx, cs); !errors.As(err, &r) || !strings.HasPrefix(r.Msg, "netdiag couldn't save the team chat connection in its data folder, so it did not connect.") ||
+		strings.Contains(r.Msg, "disk is full") {
 		t.Fatalf("connection string not saved: %v", err)
 	}
 	if s := m3.Status(); s.State != StateOff {
@@ -958,5 +988,52 @@ func TestDiscover(t *testing.T) {
 	}
 	if b, _ := json.Marshal(d); string(b) != `{"servers":[],"trayServer":null}` {
 		t.Fatalf("json %s", b)
+	}
+}
+
+// A server whose certificate is not the one its own onboarding port
+// vouches for is refused in words for the person at the desk: no
+// "certificate" and no "fingerprint".
+func TestInspectIdentityMismatch(t *testing.T) {
+	a, b := bubblestest.New(t), bubblestest.New(t)
+	st, _ := newStore(t)
+	m := newManager(t, st)
+	_, onboardA := fakeAddress(t, a)
+	addrB, _ := fakeAddress(t, b)
+	_, err := m.Inspect(context.Background(), addrB, onboardA)
+	var r *RefusedError
+	want := "Something is wrong with the chat server at 127.0.0.1: it doesn't prove it is the server it says it is. Stop here and tell your chat admin."
+	if !errors.As(err, &r) || r.Msg != want {
+		t.Fatalf("inspect: %v, want %q", err, want)
+	}
+}
+
+// What the chat server or the network said never reaches the page as it
+// is: a refusal and a transport or TLS error are plain words with a next
+// step, and the raw text goes to the diagnostics log only.
+func TestExplainPlainWords(t *testing.T) {
+	var diag diagLog
+	s, _ := newStore(t)
+	m := newManager(t, s, diag.into)
+	for _, tc := range []struct {
+		err             error
+		hint, want, raw string
+	}{
+		{&bubbles.APIError{Status: 400, Code: "invalid", Message: "dedupe_key: must be at most 200 characters"}, "refused",
+			"The chat server turned down netdiag's request. Ask your chat admin to check bubbles' log.", "400 dedupe_key: must be at most 200 characters"},
+		{errors.New(`Post "https://192.168.2.20:28225/v1/alerts": tls: failed to verify certificate`), "refused",
+			"netdiag couldn't talk to the chat server. Try again in a moment, or ask your chat admin whether it is running.", "tls: failed to verify certificate"},
+	} {
+		hint, msg := m.explain(tc.err)
+		if hint != tc.hint || msg != tc.want {
+			t.Errorf("explain(%v) = %q, %q", tc.err, hint, msg)
+		}
+		if !strings.Contains(diag.String(), tc.raw) {
+			t.Errorf("%q is not in the diagnostics log: %s", tc.raw, diag.String())
+		}
+	}
+	r := m.testFailure(&bubbles.APIError{Status: 400, Message: "title: title is required"}, "netdiag-alerts")
+	if r.Hint != "refused" || r.Error != "The chat server turned down the test alert. Ask your chat admin to check bubbles' log." {
+		t.Errorf("test failure %+v", r)
 	}
 }

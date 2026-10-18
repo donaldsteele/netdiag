@@ -10,7 +10,6 @@ import (
 
 	"netdiag/internal/bubbles/protocol"
 	"netdiag/internal/model"
-	"netdiag/internal/notify"
 	"netdiag/internal/problems"
 )
 
@@ -60,7 +59,6 @@ func (m *Manager) Attach(sc Watched) {
 		defer unsubscribe()
 		defer m.detach(sc)
 		hosts := map[string]model.Host{}
-		conflicts := map[string]string{} // ConflictKey -> conflict id
 		// burst is the keys the first pass sent from the ledger: the notice
 		// of a problem the pass found may still come after, and then only
 		// gives that post its words.
@@ -86,7 +84,7 @@ func (m *Manager) Attach(sc Watched) {
 			case <-burstDue:
 				burstDue = nil
 				m.sayHello()
-				burst = m.burst(sc.Network(), hosts, conflicts)
+				burst = m.burst(sc.Network(), hosts)
 			case ev, ok := <-ch:
 				if !ok {
 					return
@@ -95,10 +93,6 @@ func (m *Manager) Attach(sc Watched) {
 				case model.EventHost:
 					if h, ok := ev.Data.(model.Host); ok {
 						hosts[h.IP] = h
-					}
-				case model.EventConflict:
-					if c, ok := ev.Data.(model.ConflictEvent); ok {
-						conflicts[notify.ConflictKey(c.Conflict)] = c.Conflict.ID
 					}
 				case model.EventNotice:
 					n, ok := ev.Data.(model.NoticeEvent)
@@ -114,11 +108,11 @@ func (m *Manager) Attach(sc Watched) {
 					}
 					if burst[n.Key] {
 						delete(burst, n.Key)
-						if m.burstNotice(sc.Network(), n.Notice, h, conflicts[n.Key]) {
+						if m.burstNotice(sc.Network(), n.Notice, h) {
 							continue
 						}
 					}
-					m.route(sc.Network(), live, n.Notice, h, conflicts[n.Key])
+					m.route(sc.Network(), live, n.Notice, h)
 				}
 			}
 		}
@@ -135,7 +129,7 @@ func (m *Manager) detach(sc Watched) {
 // route sends one notice of a scan on network. Replayed notices never
 // reach it (the bus replays the last 20 to every new subscriber), nor do
 // the storm guard's own (local only, v0.6-D16) and the test alert's.
-func (m *Manager) route(network string, live bool, n model.Notice, h *model.Host, conflictID string) {
+func (m *Manager) route(network string, live bool, n model.Notice, h *model.Host) {
 	switch n.Trigger {
 	case model.TriggerNetdiagLink, model.TriggerChatTest:
 		return
@@ -147,7 +141,7 @@ func (m *Manager) route(network string, live bool, n model.Notice, h *model.Host
 	}
 	var in protocol.AlertInput
 	if n.Trigger != model.TriggerNewDevice {
-		in = alertFor(n, h, conflictID)
+		in = alertFor(n, h)
 		m.remember(network, n.Key, in)
 	}
 	m.mu.Lock()
@@ -171,11 +165,11 @@ func (m *Manager) route(network string, live bool, n model.Notice, h *model.Host
 // its way or delivered stays as it is, so the card opens once. It reports
 // whether the notice is dealt with; one that came after the problem's post
 // was dropped is routed as usual.
-func (m *Manager) burstNotice(network string, n model.Notice, h *model.Host, conflictID string) bool {
+func (m *Manager) burstNotice(network string, n model.Notice, h *model.Host) bool {
 	if n.OK || n.Trigger == model.TriggerNewDevice {
 		return false
 	}
-	in := alertFor(n, h, conflictID)
+	in := alertFor(n, h)
 	m.remember(network, n.Key, in)
 	if m.out.refresh(network, n.Key, in) {
 		return true
@@ -233,15 +227,15 @@ func (m *Manager) forget(network, key string) {
 
 // alertOf is the alert for the open problem e: the one built from its
 // notice when netdiag saw one, else one built from the ledger's entry (h
-// and conflictID as alertForEntry takes them).
-func (m *Manager) alertOf(e problems.Entry, h *model.Host, conflictID string) protocol.AlertInput {
+// as alertForEntry takes it).
+func (m *Manager) alertOf(e problems.Entry, h *model.Host) protocol.AlertInput {
 	m.scansMu.Lock()
 	in, ok := m.alerts[e.Network+"\x00"+e.Key]
 	m.scansMu.Unlock()
 	if ok {
 		return in
 	}
-	return alertForEntry(e, h, conflictID)
+	return alertForEntry(e, h)
 }
 
 // ApplySettings takes the saved settings.chat (at start and after every
@@ -335,7 +329,7 @@ func (m *Manager) maybeBurst() {
 		return
 	}
 	if network, ok := m.watched(); ok {
-		m.burst(network, nil, nil)
+		m.burst(network, nil)
 	}
 }
 
@@ -344,9 +338,9 @@ func (m *Manager) maybeBurst() {
 // then a message saying how many more there are. A problem marked pending
 // whose post is no longer in the outbox (it lapsed, or the outbox file was
 // lost) counts as having none; one an earlier burst only counted (summed)
-// is left out until sending starts again. hosts and conflicts are the
-// scan's, when the router has them. It returns the keys it posted.
-func (m *Manager) burst(network string, hosts map[string]model.Host, conflicts map[string]string) map[string]bool {
+// is left out until sending starts again. hosts are the scan's, when the
+// router has them. It returns the keys it posted.
+func (m *Manager) burst(network string, hosts map[string]model.Host) map[string]bool {
 	min, ok := m.sending()
 	if !ok || m.opt.Ledger == nil {
 		return nil
@@ -388,7 +382,7 @@ func (m *Manager) burst(network string, hosts map[string]model.Host, conflicts m
 		if x, ok := hosts[e.IP]; ok && e.IP != "" {
 			h = &x
 		}
-		m.out.Post(e.Network, e.Key, m.alertOf(e, h, conflicts[e.Key]), false)
+		m.out.Post(e.Network, e.Key, m.alertOf(e, h), false)
 		keys[e.Key] = true
 	}
 	return keys
@@ -417,6 +411,6 @@ func (m *Manager) moveCards(old, ch Channel) {
 			continue
 		}
 		m.out.Resolve(e.Network, e.Key, "Moved to #"+ch.Name+".")
-		m.out.Post(e.Network, e.Key, m.alertOf(e, nil, ""), false)
+		m.out.Post(e.Network, e.Key, m.alertOf(e, nil), false)
 	}
 }

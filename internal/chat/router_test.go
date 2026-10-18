@@ -160,7 +160,7 @@ func TestFaultOpensOneCardAndFixedResolvesIt(t *testing.T) {
 	for _, fl := range in.Fields {
 		fields[fl.Name] = fl.Value
 	}
-	if fields["Device"] != "ZD621" || fields["Address"] != "192.168.68.76" || fields["MAC"] != "00:07:4D:11:22:33" ||
+	if fields["Device"] != "ZD621" || fields["Address"] != "192.168.68.76" || fields["MAC address"] != "00:07:4D:11:22:33" ||
 		fields["Maker"] != "Zebra Technologies" || fields["Model"] != "ZD621-300dpi" || fields["Since"] == "" {
 		t.Fatalf("fields %v", fields)
 	}
@@ -168,7 +168,8 @@ func TestFaultOpensOneCardAndFixedResolvesIt(t *testing.T) {
 	sc.notice(l, coverClosed(t0.Add(12*time.Minute), t0))
 	waitFor(t, "the resolve", func() bool { return len(f.Resolved()) == 1 })
 	r := f.Resolved()[0]
-	want := "Fixed at " + t0.Add(12*time.Minute).Local().Format("15:04") + " (was down 12 min). ZD621 (192.168.68.76): Cover open is gone."
+	// A cover that was open was not down.
+	want := "Fixed at " + t0.Add(12*time.Minute).Local().Format("15:04") + " (after 12 min). ZD621 (192.168.68.76): Cover open is gone."
 	if r.DedupeKey != zebraKey || r.Text != want {
 		t.Fatalf("resolve %+v, want %q", r, want)
 	}
@@ -684,16 +685,22 @@ func TestOutboxErrors(t *testing.T) {
 		f := bubblestest.New(t)
 		st, _ := newStore(t)
 		l := ledgerOn(t, st)
-		m := connected(t, f, st, l)
+		var diag diagLog
+		m := connected(t, f, st, l, diag.into)
 		bad := coverOpen(t0)
 		bad.Title, bad.Name, bad.IP = " ", "", "" // bubbles: title is required
-		in := alertFor(bad, nil, "")
+		in := alertFor(bad, nil)
 		in.Title = " "
 		m.out.Post(testNet, bad.Key, in, false)
 		waitFor(t, "dropped", func() bool { return m.Status().Dropped == 1 })
+		// The Activity line is plain words and a next step; the server's
+		// reason is in the diagnostics log only.
 		s := m.Status()
-		if s.Waiting != 0 || len(s.Activity) == 0 || s.Activity[len(s.Activity)-1].Text != "Team chat refused an alert: title: title is required" {
+		if s.Waiting != 0 || len(s.Activity) == 0 || s.Activity[len(s.Activity)-1].Text != "The chat server turned down an alert. Ask your chat admin to check bubbles' log." {
 			t.Fatalf("status %+v", s)
+		}
+		if !strings.Contains(diag.String(), "400 title: title is required") {
+			t.Fatalf("diagnostics %s", diag.String())
 		}
 		sc := newFakeScan(testNet, true)
 		m.Attach(sc)
@@ -785,7 +792,7 @@ func TestArchivedChannelConflictAgainstV020(t *testing.T) {
 		f.AddChannel("C2", "ops")
 		_, gen, _, _ := m.current()
 		_ = m.setChannel(gen, Channel{ID: "C2", Name: "ops"}) // no move
-		m.out.Post(testNet, zebraKey, alertFor(coverOpen(t0), nil, ""), true)
+		m.out.Post(testNet, zebraKey, alertFor(coverOpen(t0), nil), true)
 		waitFor(t, "moved", func() bool { c, _ := f.Alert(zebraKey); return c.ChannelID == "C2" })
 		if r := f.Resolved(); len(r) != 1 || r[0].Text != "Moved to #ops." {
 			t.Fatalf("resolved %+v", r)
@@ -808,7 +815,7 @@ func TestArchivedChannelConflictAgainstV020(t *testing.T) {
 		m.mu.Unlock()
 		_, gen, _, _ := m.current()
 		_ = m.setChannel(gen, Channel{ID: "C2", Name: "ops"})
-		m.out.Post(testNet, zebraKey, alertFor(coverOpen(t0), nil, ""), true)
+		m.out.Post(testNet, zebraKey, alertFor(coverOpen(t0), nil), true)
 		want := "Team chat could not move an alert out of the archived channel #netdiag-alerts."
 		waitFor(t, "the Activity line", func() bool {
 			s := m.Status()
@@ -976,7 +983,7 @@ func TestFlushTimeout(t *testing.T) {
 	m := connected(t, f, st, l)
 	release := f.Hold("POST /api/v1/alerts")
 	defer release()
-	m.out.Post(testNet, zebraKey, alertFor(coverOpen(t0), nil, ""), false)
+	m.out.Post(testNet, zebraKey, alertFor(coverOpen(t0), nil), false)
 	waitFor(t, "the held call", func() bool { return f.Held() == 1 })
 	start := time.Now()
 	if err := m.Flush(200 * time.Millisecond); err != nil {
@@ -999,7 +1006,7 @@ func TestTryNow(t *testing.T) {
 	l := ledgerOn(t, st)
 	m := connected(t, f, st, l, func(o *Options) { o.RetryMin, o.RetryMax = time.Hour, time.Hour })
 	f.Stop()
-	m.out.Post(testNet, zebraKey, alertFor(coverOpen(t0), nil, ""), false)
+	m.out.Post(testNet, zebraKey, alertFor(coverOpen(t0), nil), false)
 	waitFor(t, "unreachable", func() bool { return m.Status().State == StateUnreachable })
 	f.Start()
 	if s := m.TryNow(context.Background()); s.State != StateConnected {

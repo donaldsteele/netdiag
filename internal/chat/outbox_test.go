@@ -403,7 +403,7 @@ func TestAlertContentLimits(t *testing.T) {
 		Message: strings.Repeat("m", 5000), At: "2026-10-17T10:30:00Z", Key: "supplyLow|AA|x", Detail: long,
 		Advice: &model.Advice{Steps: []string{"one", "two", "three", "four"}}}
 	h := &model.Host{IP: "192.168.1.50", Vendor: long, Web: []model.WebService{{URL: "http://192.168.1.99/"}, {URL: "ftp://192.168.1.50/"}}}
-	in := alertFor(n, h, "")
+	in := alertFor(n, h)
 	if utf8.RuneCountInString(in.Title) > protocol.MaxAlertTitle || utf8.RuneCountInString(in.Text) > protocol.MaxAlertText ||
 		len(in.Fields) > protocol.MaxAlertFields || in.Link != nil || in.RenotifyAfterS == nil || *in.RenotifyAfterS != 0 ||
 		in.OccurredAt == nil || *in.OccurredAt != n.At || in.Severity != protocol.SeverityWarning {
@@ -416,28 +416,28 @@ func TestAlertContentLimits(t *testing.T) {
 	}
 	short := n
 	short.Message, short.OpenedAt = "Black toner is at 12%.", "2026-10-17T09:00:00Z"
-	text := alertFor(short, nil, "").Text
+	text := alertFor(short, nil).Text
 	if text != "Black toner is at 12%.\n\nWhat to try:\n1. one\n2. two\n3. three" {
 		t.Fatalf("text %q", text)
 	}
-	if at := alertFor(short, nil, "").OccurredAt; *at != short.OpenedAt {
+	if at := alertFor(short, nil).OccurredAt; *at != short.OpenedAt {
 		t.Fatalf("occurred_at %s", *at)
 	}
 	h.Web = append(h.Web, model.WebService{URL: "https://192.168.1.50:8443/"})
-	if l := alertFor(n, h, "").Link; l == nil || *l != "https://192.168.1.50:8443/" {
+	if l := alertFor(n, h).Link; l == nil || *l != "https://192.168.1.50:8443/" {
 		t.Fatalf("link %v", l)
 	}
 
 	hc := model.Notice{Trigger: model.TriggerHealthFailed, Severity: "critical", Title: "Health check failed",
 		Message: "Router check failed.", Key: "healthFailed||gateway"}
-	if in := alertFor(hc, nil, ""); in.Title != "Health check failed: Router" || in.Severity != protocol.SeverityCritical {
+	if in := alertFor(hc, nil); in.Title != "Health check failed: Router" || in.Severity != protocol.SeverityCritical {
 		t.Fatalf("health %+v", in)
 	}
 	// Built from the ledger's entry (no notice): the check's label, and
 	// the catalogue's steps.
 	e := problems.Entry{Key: "healthFailed||webserver", Trigger: model.TriggerHealthFailed, Severity: "warn", Title: "Health check failed",
 		Network: "n", OpenedAt: "2026-10-17T09:00:00Z"}
-	in = alertForEntry(e, nil, "")
+	in = alertForEntry(e, nil)
 	check := ""
 	for _, f := range in.Fields {
 		if f.Name == "Check" {
@@ -450,20 +450,59 @@ func TestAlertContentLimits(t *testing.T) {
 	}
 	pe := problems.Entry{Key: "printerOffline|ip:192.168.1.50|", Trigger: model.TriggerPrinterOffline, Severity: "warn",
 		Title: "Printer offline", IP: "192.168.1.50", Name: "Front Desk HP", Network: "n"}
-	in = alertForEntry(pe, &model.Host{IP: "192.168.1.50", Vendor: "HP", Web: []model.WebService{{URL: "http://192.168.1.50/"}}}, "")
+	in = alertForEntry(pe, &model.Host{IP: "192.168.1.50", Vendor: "HP", Web: []model.WebService{{URL: "http://192.168.1.50/"}}})
 	if in.Title != "Printer offline: Front Desk HP (192.168.1.50)" || !strings.HasPrefix(in.Text, "The printer stopped answering.\n\nWhat to try:\n1. ") ||
 		in.Link == nil || *in.Link != "http://192.168.1.50/" {
 		t.Fatalf("printer from the ledger %+v", in)
 	}
-	cf := model.Notice{Trigger: model.TriggerIPConflict, Severity: "warn", IP: "192.168.1.50", Title: "Network conflict", Key: "ipConflict|mac_flap|192.168.1.50"}
-	in = alertFor(cf, nil, "c-123")
-	if in.Title != "Network conflict: 192.168.1.50" || in.Fields[len(in.Fields)-1] != (protocol.AlertField{Name: "Conflict id", Value: "c-123", Short: true}) {
+	// The fields are words for people: "MAC address", and no conflict id.
+	cf := model.Notice{Trigger: model.TriggerIPConflict, Severity: "warn", IP: "192.168.1.50", MAC: "AA:BB:CC:00:11:22",
+		Title: "Network conflict", Key: "ipConflict|mac_flap|192.168.1.50"}
+	in = alertFor(cf, nil)
+	names := []string{}
+	for _, f := range in.Fields {
+		names = append(names, f.Name)
+	}
+	if in.Title != "Network conflict: 192.168.1.50" || strings.Join(names, ",") != "Address,MAC address" || in.DedupeKey != cf.Key {
 		t.Fatalf("conflict %+v", in)
 	}
-	if got := downFor(125 * time.Minute); got != "2 h 5 min" {
-		t.Fatal(got)
+	for d, want := range map[time.Duration]string{30 * time.Second: "less than a minute", 12 * time.Minute: "12 min",
+		125 * time.Minute: "2 h 5 min", 120 * time.Minute: "2 h", 180*time.Minute + 30*time.Second: "3 h"} {
+		if got := downFor(d); got != want {
+			t.Errorf("downFor(%v) = %q, want %q", d, got, want)
+		}
 	}
 	if !sends("critical", "") || sends("info", "warning") || !sends("warn", "warning") || sends("warn", "critical") {
 		t.Fatal("sends")
+	}
+}
+
+// The resolve note says "was down" only for what was down: a device that
+// stopped answering or a failed health check. Low toner, an open cover or
+// an IP conflict was never down.
+func TestFixedTextWording(t *testing.T) {
+	from := time.Date(2026, 10, 17, 8, 0, 0, 0, time.UTC)
+	at := func(d time.Duration) string { return from.Add(d).Format(time.RFC3339) }
+	clock := func(d time.Duration) string { return from.Add(d).Local().Format("15:04") }
+	for _, tc := range []struct {
+		trigger, msg string
+		d            time.Duration
+		want         string
+	}{
+		{model.TriggerPrinterOffline, "Front Desk HP (192.168.1.50) answers again.", 12 * time.Minute, " (was down 12 min). Front Desk HP (192.168.1.50) answers again."},
+		{model.TriggerDeviceOffline, "", 2 * time.Hour, " (was down 2 h)."},
+		{model.TriggerHealthFailed, "Web server check is OK again.", 30 * time.Second, " (was down less than a minute). Web server check is OK again."},
+		{model.TriggerSupplyLow, "Front Desk HP (192.168.1.50) no longer reports the low supply.", 3 * time.Hour, " (after 3 h). Front Desk HP (192.168.1.50) no longer reports the low supply."},
+		{model.TriggerIPConflict, "The conflict is gone.", 12 * time.Minute, " (after 12 min). The conflict is gone."},
+		{model.TriggerPrinterAlert, "ZD621: Cover open is gone.", 65 * time.Minute, " (after 1 h 5 min). ZD621: Cover open is gone."},
+	} {
+		n := model.Notice{Trigger: tc.trigger, OK: true, OpenedAt: at(0), At: at(tc.d), Message: tc.msg}
+		want := "Fixed at " + clock(tc.d) + tc.want
+		if got := fixedText(n, from); got != want {
+			t.Errorf("%s: %q, want %q", tc.trigger, got, want)
+		}
+		if got := fixedText(n, from); strings.Contains(got, " 0 min") {
+			t.Errorf("%s: %q says 0 min", tc.trigger, got)
+		}
 	}
 }

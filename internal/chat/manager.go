@@ -308,9 +308,11 @@ func (e *RefusedError) Error() string { return e.Msg }
 
 func refused(msg string) error { return &RefusedError{Msg: msg} }
 
-// errNoStore is the answer when netdiag has no data folder to keep the
-// connection in.
-var errNoStore = refused("netdiag can't keep a team chat connection because its data folder is unavailable.")
+// NoStoreMsg is the answer when netdiag has no data folder to keep the
+// connection in (also the team chat routes' 503).
+const NoStoreMsg = "netdiag can't keep a team chat connection because its data folder is unavailable."
+
+var errNoStore = refused(NoStoreMsg)
 
 // ServerView is the chat server as the page shows it.
 type ServerView struct {
@@ -413,7 +415,7 @@ func (m *Manager) status() Status {
 		}
 		st.TokenPrefix = c.TokenPrefix()
 		if m.unsaved != "" && m.saveLocked() != nil {
-			st.Unsaved = unsavedMsg(m.unsaved)
+			st.Unsaved = unsavedMsg
 		}
 	case m.needs != nil:
 		c = m.needs
@@ -467,12 +469,14 @@ func (m *Manager) Inspect(ctx context.Context, address string, onboard int) (Ins
 	}
 	c, err := bubbles.New(bubbles.Config{BaseURL: t.BaseURL(), CAFingerprint: fp})
 	if err != nil {
-		return Inspection{}, err
+		return Inspection{}, m.clientErr(err)
 	}
 	st, err := c.Status(ctx)
 	switch {
 	case errors.Is(err, bubbles.ErrServerIdentityChanged):
-		return Inspection{}, refused("The chat server at " + t.Host + " uses a certificate that does not belong to the fingerprint it hands out. Stop here and tell your chat admin.")
+		// Its certificate is not one its own fingerprint vouches for.
+		m.opt.Logf("team chat: status of %s: %v", t.BaseURL(), err)
+		return Inspection{}, refused("Something is wrong with the chat server at " + t.Host + ": it doesn't prove it is the server it says it is. Stop here and tell your chat admin.")
 	case err != nil:
 		m.opt.Logf("team chat: status of %s: %v", t.BaseURL(), err)
 		return Inspection{}, refused("netdiag can't reach the chat server at " + t.Address() + ". Check the address, and that the chat server is running.")
@@ -566,7 +570,7 @@ func (m *Manager) StartPairing(ctx context.Context, address, fingerprint string,
 	p, err := bubbles.RequestPairing(rctx, c.t.BaseURL(), c.fp,
 		protocol.PairingRequest{AppName: AppName, Description: desc, RequestedScopes: Scopes})
 	if err != nil {
-		_, msg := explain(err)
+		_, msg := m.explain(err)
 		return PairStart{}, refused(msg)
 	}
 	p.SetPollInterval(m.opt.PairPoll)
@@ -618,7 +622,7 @@ func (m *Manager) wait(ctx context.Context, s *pairSession, p *bubbles.Pairing) 
 		case errors.Is(err, bubbles.ErrPairingClaimed):
 			s.state, s.err = PairClaimed, "The chat server says this request was already used. Try again."
 		default:
-			_, msg := explain(err)
+			_, msg := m.explain(err)
 			s.state, s.err = PairError, msg
 		}
 		return
@@ -652,7 +656,7 @@ func (m *Manager) wait(ctx context.Context, s *pairSession, p *bubbles.Pairing) 
 	}
 	s.state, s.channels = PairApproved, chans
 	if lerr != nil {
-		_, s.err = explain(lerr)
+		_, s.err = m.explain(lerr)
 	}
 }
 
@@ -693,12 +697,6 @@ func (m *Manager) saveLocked() error {
 		m.opt.Logf("team chat: save %s: %v", store.FileBubbles, err)
 	}
 	return err
-}
-
-// unsavedMsg is a failed save in words for the page.
-func unsavedMsg(reason string) string {
-	return "netdiag could not save the team chat connection on this computer (" + reason +
-		"). It works until netdiag closes, and netdiag keeps trying to save it."
 }
 
 // learn asks the server which app and scopes the new token has and which
@@ -761,9 +759,16 @@ func (m *Manager) current() (Connection, int, *bubbles.Client, error) {
 	}
 	c, err := bubbles.New(m.conn.ClientConfig())
 	if err != nil {
-		return Connection{}, 0, nil, err
+		return Connection{}, 0, nil, m.clientErr(err)
 	}
 	return *m.conn, m.gen, c, nil
+}
+
+// clientErr is a chat server address or pin netdiag cannot build a client
+// for, in words; the error itself goes to the diagnostics log.
+func (m *Manager) clientErr(err error) error {
+	m.opt.Logf("team chat: client: %v", err)
+	return refused("netdiag can't use this chat server's address. Check it with your chat admin.")
 }
 
 // updateConn changes the connection of generation gen and saves it. The
@@ -844,7 +849,7 @@ func (m *Manager) PairStatus() PairStatus {
 			out.Channel = &ch
 		}
 		if m.unsaved != "" {
-			out.Error = unsavedMsg(m.unsaved)
+			out.Error = unsavedMsg
 		}
 	}
 	return out
@@ -887,7 +892,7 @@ func (m *Manager) choice(chans []Channel, err error) ChannelChoice {
 	}
 	out := ChannelChoice{State: st.State, Channel: st.Channel, Channels: chans, Error: st.Unsaved}
 	if err != nil {
-		_, out.Error = explain(err)
+		_, out.Error = m.explain(err)
 	}
 	return out
 }
@@ -920,7 +925,7 @@ func (m *Manager) ConnectString(ctx context.Context, s string) (ChannelChoice, e
 	case errors.Is(err, bubbles.ErrUnauthorized):
 		return ChannelChoice{}, refused("The chat server does not accept this connection string. Ask your chat admin for a new one.")
 	case err != nil:
-		_, msg := explain(err)
+		_, msg := m.explain(err)
 		return ChannelChoice{}, refused(msg)
 	}
 	// The name comes from GET /status asked without the token: bubbles
@@ -939,7 +944,7 @@ func (m *Manager) ConnectString(ctx context.Context, s string) (ChannelChoice, e
 	if err := SaveConnection(m.opt.Files, conn); err != nil {
 		m.mu.Unlock()
 		m.opt.Logf("team chat: save %s: %v", store.FileBubbles, err)
-		return ChannelChoice{}, fmt.Errorf("netdiag could not save the team chat connection on this computer, so it did not connect: %w", err)
+		return ChannelChoice{}, refused("netdiag couldn't save the team chat connection in its data folder, so it did not connect. Check that the data folder isn't read-only or full, then paste the connection string again.")
 	}
 	keep := ""
 	if m.conn != nil {
@@ -969,7 +974,7 @@ func (m *Manager) SetChannel(ctx context.Context, id string) (ChannelChoice, err
 	defer cancel()
 	chans, err := m.channels(ctx, c, gen)
 	if err != nil {
-		_, msg := explain(err)
+		_, msg := m.explain(err)
 		return ChannelChoice{}, refused(msg)
 	}
 	index := func(id string) int { return slices.IndexFunc(chans, func(ch Channel) bool { return ch.ID == id }) }
@@ -986,7 +991,8 @@ func (m *Manager) SetChannel(ctx context.Context, id string) (ChannelChoice, err
 	}
 	if i >= 0 {
 		if err := m.setChannel(gen, chans[i]); err != nil {
-			return m.choice(chans, nil), refused("netdiag could not save the channel on this computer (" + err.Error() + "). Try again.")
+			// saveLocked logged why.
+			return m.choice(chans, nil), refused("netdiag couldn't save the channel in its data folder. It is used until netdiag closes. Check that the data folder isn't read-only or full, then try again.")
 		}
 		if old := conn.Channel; old.ID != "" && old.ID != chans[i].ID {
 			m.moveCards(old, chans[i])
@@ -1078,7 +1084,7 @@ func (m *Manager) SendTest(ctx context.Context) TestResult {
 		posted, err = post()
 	}
 	if err != nil {
-		r := testFailure(err, ch.Name)
+		r := m.testFailure(err, ch.Name)
 		switch r.Hint {
 		case "not_allowed":
 			m.refuseChannel(gen, ch.ID, ReasonNotAllowed, r.Error)
@@ -1089,7 +1095,7 @@ func (m *Manager) SendTest(ctx context.Context) TestResult {
 	}
 	m.channelWorks(gen, ch.ID)
 	if err := resolve(); err != nil {
-		r := testFailure(err, ch.Name)
+		r := m.testFailure(err, ch.Name)
 		r.Error = "The test alert reached #" + ch.Name + " but netdiag could not close it: " + r.Error
 		return r
 	}
@@ -1105,7 +1111,7 @@ func openElsewhere(err error) bool {
 }
 
 // testFailure puts a failed test post into words.
-func testFailure(err error, channel string) TestResult {
+func (m *Manager) testFailure(err error, channel string) TestResult {
 	var ae *bubbles.APIError
 	if errors.As(err, &ae) {
 		switch {
@@ -1115,7 +1121,10 @@ func testFailure(err error, channel string) TestResult {
 			return TestResult{Error: "The channel #" + channel + " is archived. Choose another channel.", Hint: "no_channel"}
 		}
 	}
-	hint, msg := explain(err)
+	hint, msg := m.explain(err)
+	if msg == turnedDownMsg {
+		msg = "The chat server turned down the test alert. Ask your chat admin to check bubbles' log."
+	}
 	return TestResult{Error: msg, Hint: hint}
 }
 
@@ -1170,10 +1179,21 @@ const (
 	identityMsg     = "Warning: the chat server's identity changed. netdiag stopped sending alerts. Ask your chat admin before you reconnect."
 	unauthorizedMsg = "The chat server no longer accepts netdiag. Click Reconnect."
 	unreachableMsg  = "netdiag can't reach the chat server."
+	turnedDownMsg   = "The chat server turned down netdiag's request. Ask your chat admin to check bubbles' log."
+	noTalkMsg       = "netdiag couldn't talk to the chat server. Try again in a moment, or ask your chat admin whether it is running."
+	// alertTurnedDownNote is the Activity line for an alert the chat
+	// server refused, which is dropped.
+	alertTurnedDownNote = "The chat server turned down an alert. Ask your chat admin to check bubbles' log."
+	// unsavedMsg is a connection that works but could not be written to
+	// bubbles.json; the reason is in the diagnostics log.
+	unsavedMsg = "netdiag couldn't save the team chat connection in its data folder. It works until netdiag closes, and netdiag keeps trying to save it. Check that the data folder isn't read-only or full."
 )
 
-// explain puts an error from the chat server into a hint and words.
-func explain(err error) (hint, msg string) {
+// explain puts an error from the chat server into a hint and plain words
+// with a next step. The server's own message and a transport or TLS error
+// mean nothing to the person at the desk: they go to the diagnostics log
+// only.
+func (m *Manager) explain(err error) (hint, msg string) {
 	var ae *bubbles.APIError
 	switch {
 	case errors.Is(err, bubbles.ErrServerIdentityChanged):
@@ -1185,14 +1205,22 @@ func explain(err error) (hint, msg string) {
 	case errors.Is(err, bubbles.ErrUnavailable), errors.Is(err, context.DeadlineExceeded):
 		return "unreachable", unreachableMsg
 	case errors.As(err, &ae):
-		reason := strings.TrimSpace(ae.Message)
-		if fe := ae.FieldErrors(); len(fe) > 0 {
-			k := slices.Sorted(maps.Keys(fe))[0]
-			reason = k + ": " + fe[k]
-		}
-		return "refused", "The chat server refused it: " + reason
+		m.opt.Logf("team chat: the chat server refused a request: %s", refusalReason(ae))
+		return "refused", turnedDownMsg
 	}
-	return "refused", "Something went wrong talking to the chat server: " + err.Error()
+	m.opt.Logf("team chat: talking to the chat server: %v", err)
+	return "refused", noTalkMsg
+}
+
+// refusalReason is what the chat server said when it refused a request
+// ("dedupe_key: must be at most 200 characters"), for the diagnostics log.
+func refusalReason(ae *bubbles.APIError) string {
+	reason := strings.TrimSpace(ae.Message)
+	if fe := ae.FieldErrors(); len(fe) > 0 {
+		k := slices.Sorted(maps.Keys(fe))[0]
+		reason = k + ": " + fe[k]
+	}
+	return fmt.Sprintf("%d %s", ae.Status, reason)
 }
 
 // Disconnect forgets the connection: bubbles.json, its set-aside copies
