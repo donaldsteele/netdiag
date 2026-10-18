@@ -57,7 +57,7 @@
           <button type="button" @click="exportAs('csv'); $el.closest('details').open = false" :disabled="!scanId">Export CSV</button>
         </div>
       </details>
-      <button type="button" class="danger" :disabled="quitted" :aria-disabled="sessionOff ? 'true' : null" @click="quit()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-power"></use></svg>Quit</button>
+      <button type="button" class="danger" :disabled="gone()" :aria-disabled="sessionOff ? 'true' : null" @click="quit()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-power"></use></svg>Quit</button>
     </form>
     <div class="hdrtools">
       <span class="livepill" :class="{held: liveStatus && liveStatus.held}" x-show="state === 'live' && !gone()" :title="liveText()"><template x-if="liveStatus && liveStatus.held"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg></template><span x-text="liveText()"></span></span>
@@ -92,7 +92,7 @@
           </details></div>
         <div class="bacts">
           <button type="button" x-show="bannerDevice(b)" @click="showDevice(b.ip)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-monitor"></use></svg>Show device<span class="sr" x-text="' ' + b.title"></span></button>
-          <button type="button" class="brestart" x-show="bannerRestart(b)" aria-haspopup="dialog" @click="restartHere()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart watching</button>
+          <button type="button" class="brestart" x-show="bannerRestart(b)" aria-haspopup="dialog" @click="restartHere()" :aria-disabled="sessionOff ? 'true' : null"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart watching</button>
           <button type="button" @click="dismiss(b.bid)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-x"></use></svg>Dismiss<span class="sr" x-text="' ' + b.title"></span></button>
         </div>
       </div>
@@ -106,7 +106,7 @@
 
   <main id="main" tabindex="-1">
     <div class="alert error" role="alert" x-show="error" x-text="error"></div>
-    <div class="alert warn iconalert" id="quitted" x-show="quitted" role="status"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> netdiag has stopped. You can close this tab.</div>
+    <div class="alert warn iconalert" id="quitted" x-show="quitted" role="status" tabindex="-1"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> netdiag has stopped. You can close this tab.</div>
     <div class="alert warn iconalert" id="session-off" x-show="sessionOff && !quitted" role="status"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> <strong>Buttons on this page are turned off for safety.</strong> Double-click netdiag to open a fresh page.</div>
     <div class="alert warn iconalert" id="backend-stopped" x-show="backend === 'stopped' && !quitted" role="status"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> <strong>netdiag has stopped.</strong> Double-click netdiag to start it again, then press <strong>Scan</strong> with <strong>Live mode</strong> ticked to watch again.</div>
     <div class="alert warn backendmsg iconalert" id="backend-restarted" x-show="backend === 'restarted' && !quitted" role="status"><span><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> <strong>netdiag was restarted.</strong> This page is out of date.</span>
@@ -576,7 +576,7 @@
     <h2 id="settings-h">Settings</h2>
     <div class="alert error" role="alert" x-show="settingsError" x-text="settingsError"></div>
     <div class="alert warn iconalert" id="settings-repaired" role="status" x-show="repairedNote"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> <span x-text="repairedNote"></span></div>
-    <template x-if="draft && settings">
+    <template x-if="draft && draftLoaded">
       <div>
         <fieldset><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-radar"></use></svg>Scanning</legend>
           <label>SNMP community <input type="text" x-model="draft.community" spellcheck="false" autocomplete="off"></label>
@@ -660,8 +660,8 @@
       </div>
     </template>
     <p class="actions">
-      <button type="submit" class="primary" x-show="settings" :disabled="!settings">Save</button>
-      <button type="button" @click="closeSettings()" x-text="settings ? 'Cancel' : 'Close'"></button>
+      <button type="submit" class="primary" x-show="draftLoaded" :disabled="!settings">Save</button>
+      <button type="button" @click="closeSettings()" x-text="draftLoaded ? 'Cancel' : 'Close'"></button>
     </p>
   </form>
 </dialog>

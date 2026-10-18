@@ -299,8 +299,11 @@ for (const backend of ['stopped', 'restarted']) {
     await expect(gone).toContainText('Not watching');
     await expect(gone).toContainText(backend === 'stopped' ? 'netdiag has stopped, so nothing is being checked.' : 'Reload the page');
     await expect(gone.locator('use')).toHaveAttribute('href', 'icons.svg#i-circle-help');
-    await expect(page.locator('section.progress .stage')).toHaveText(/^Not watching: /);
+    await expect(page.locator('section.progress .stage')).toHaveText(backend === 'stopped' ? 'Not watching: netdiag has stopped' : 'Not watching: this page is out of date');
     await expect(page.locator('#pn-watch')).toBeHidden();
+    // Quit is off too: on a page that is out of date it would quit the
+    // netdiag that replaced it (that one's token is in storage).
+    await expect(page.getByRole('button', { name: 'Quit', exact: true })).toBeDisabled();
     // Nor does the banner for another network offer Restart watching.
     expect(await app(page, (a) => a.bannerRestart({ trigger: 'netdiagLink', code: 'network_changed' }))).toBe(false);
     // netdiag answers again (the same one): the page watches again.
@@ -309,7 +312,10 @@ for (const backend of ['stopped', 'restarted']) {
       await app(page, (a) => { a.backend = 'ok'; });
       await expect(page.locator('.livepill')).toBeVisible();
       await expect(page.locator('#pn-fine')).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Quit', exact: true })).toBeEnabled();
+      await expect(page.locator('section.progress .stage')).toHaveText('Initial scan complete - watching for new devices');
     }
+    expect(rec.requests.filter((r) => r.path === '/api/quit'), 'no quit').toEqual([]);
   });
 }
 
@@ -320,8 +326,14 @@ test('Quit while live turns the scan controls off and leaves no Live pill', asyn
   const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
   await page.goto(HOME);
   await expect(page.locator('.livepill')).toBeVisible({ timeout: 15_000 });
-  await page.getByRole('button', { name: 'Quit', exact: true }).click();
+  // From the keyboard: Quit goes off, so focus moves to the message that
+  // says netdiag has stopped instead of being lost.
+  const quit = page.getByRole('button', { name: 'Quit', exact: true });
+  await quit.focus();
+  await page.keyboard.press('Enter');
   await expect(page.locator('#quitted')).toHaveText('netdiag has stopped. You can close this tab.');
+  await expect(page.locator('#quitted')).toBeFocused();
+  await expect(page.locator('section.progress .stage')).toHaveText('Not watching: netdiag has stopped');
   await expect(page.locator('.livepill')).toBeHidden();
   await expect(page.getByRole('button', { name: 'Stop live', exact: true })).toBeHidden();
   await expect(page.getByRole('button', { name: 'Restart watching', exact: true })).toBeHidden();
@@ -335,9 +347,36 @@ test('Quit while live turns the scan controls off and leaves no Live pill', asyn
   await expect(page.locator('main > .alert.error')).toBeHidden();
 });
 
-// A stale tab with Live mode unticked: Restart would end the watching and
-// run one scan, and the dialog says so in its heading, text and button.
-test('a stale tab without Live mode says Restart stops watching and runs one scan', async ({ page }) => {
+// Quitting before netdiag looked at anything: the Not watching card names
+// no last check (there was none), and never says "just now".
+test('quitting before any check: the card names no last check', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  await installMocks(page, { scenario: 'scan', problems: { source: 'none', watching: false, everythingFine: false, open: [], fixed: [] } });
+  await page.goto(HOME);
+  await expect(page.locator('#pn-none')).toContainText('Not checked');
+  await page.getByRole('button', { name: 'Quit', exact: true }).click();
+  const gone = page.locator('#pn-gone');
+  await expect(gone).toHaveText(/^\s*Not watching netdiag has stopped, so nothing is being checked\.$/);
+  await expect(page.locator('#pn-none')).toBeHidden();
+  await expect(page.locator('section.progress .stage')).toHaveText('Not watching: netdiag has stopped');
+});
+
+// A check happened: the Not watching card gives its time.
+test('netdiag stopping after a check: the card gives the time of the last check', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { scenario: 'scan' });
+  await page.goto(HOME);
+  await expect(page.locator('#pn-fine')).toBeVisible();
+  const at = await app(page, (a) => a.pnClock(a.problems.checkedAt));
+  rec.identity = 'down';
+  await app(page, (a) => { a.backend = 'stopped'; });
+  await expect(page.locator('#pn-gone')).toContainText(`netdiag has stopped, so nothing is being checked. This is from the last check at ${at}.`);
+});
+
+// A stale tab with Live mode unticked: the button ends the watching and
+// runs one scan, and the dialog says so in its heading, text and button,
+// without naming a Restart button that is not there.
+test('a stale tab without Live mode says the button stops watching and runs one scan', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const rec = await installMocks(page, { scenario: 'scan' });
   await page.goto(HOME);
@@ -351,8 +390,10 @@ test('a stale tab without Live mode says Restart stops watching and runs one sca
   await expect(dlg).toHaveJSProperty('open', true);
   await expect(dlg.locator('#restart-h')).toHaveText('Stop watching?');
   await expect(dlg.locator('#restart-q')).toHaveText(`netdiag is watching ${fx.CIDR} (since ${cardClock(fx.LIVE_SINCE)}). Stop watching and run one scan instead?`);
-  await expect(dlg.locator('#restart-settings')).toHaveText(`Restart stops watching and runs one scan of ${fx.CIDR}, without live mode.`);
+  await expect(dlg.locator('#restart-settings')).toHaveText(`This stops watching and runs one scan of ${fx.CIDR}, without live mode.`);
   await expect(dlg.getByRole('button', { name: 'Stop watching and scan', exact: true })).toBeVisible();
+  await expect(dlg.getByRole('button', { name: 'Restart', exact: true })).toHaveCount(0);
+  await expect(dlg).not.toContainText('Restart');
   await expect(dlg.locator('#restart-keep')).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(dlg).toHaveJSProperty('open', false);

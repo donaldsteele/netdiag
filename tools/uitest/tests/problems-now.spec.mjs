@@ -270,6 +270,21 @@ test('the not-watching line with Live mode ticked says Press Scan', async ({ pag
   await expect(card(page).locator('#pn-watch')).toHaveText("netdiag isn't watching right now. Tick Live mode and press Scan to start watching.");
 });
 
+// While a scan without live mode runs, Live mode cannot be ticked (it is
+// off until the scan ends), so the line says to wait for the scan first.
+test('while a scan without live mode runs, the not-watching line says to wait for it', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  await installMocks(page);
+  await page.goto(HOME);
+  await expect(card(page).locator('#pn-fine')).toBeVisible();
+  await page.evaluate(() => { const a = window.Alpine.$data(document.querySelector('.shell')); a.running = true; a.state = 'running'; });
+  await expect(page.locator('#live-mode')).toBeDisabled();
+  await expect(card(page).locator('#pn-watch')).toHaveText(
+    "netdiag isn't watching right now. When this scan ends, tick Live mode and press Scan to start watching.");
+  await page.evaluate(() => { const a = window.Alpine.$data(document.querySelector('.shell')); a.running = false; a.state = 'done'; });
+  await expect(card(page).locator('#pn-watch')).toHaveText("netdiag isn't watching right now. Tick Live mode and press Scan to start watching.");
+});
+
 test('the health checks have not answered yet', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { problems: fx.problemsView({ hasHealth: false, source: 'live', watching: true }) });

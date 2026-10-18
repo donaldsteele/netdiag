@@ -7,10 +7,10 @@ import { runAxe } from '../support/axe.mjs';
 import { THEMES } from '../support/config.mjs';
 
 // Team chat is not set up, so its controls do not show yet: the notice
-// names its level once, and says where it will be, without listing the
-// fields twice.
-const NOTE = 'Some settings were not valid and were reset to their defaults: Supply threshold, Team chat alert level. Check them below. ' +
-  'Team chat settings show here once team chat is set up.';
+// names its level once and says where it will be, and sends people below
+// only for the field that is there.
+const NOTE = 'Some settings were not valid and were reset to their defaults: Supply threshold, Team chat alert level. ' +
+  'Team chat settings show here once team chat is set up. Check Supply threshold below.';
 
 // Settings that are not the defaults in every section the dialog sends
 // back, so a save that rebuilt a section from defaults would show. The
@@ -106,13 +106,37 @@ test('no repaired settings, no notice', async ({ page }) => {
   await expect(dialog.locator('#settings-repaired')).toBeHidden();
 });
 
+// A reset field with no control in Settings is named and says where it is;
+// the notice never sends people below for it.
+const CERT = "To trust the web server's certificate again, use Trust this certificate on the Health page.";
 test('reset fields with no control in Settings are named only', async ({ page }) => {
   await initStorage(page, { theme: 'light', live: false });
   await installMocks(page, { scenario: 'scan', repaired: ['webServer.trustedCert', 'chat'] });
   await page.goto(HOME);
   await openSettings(page);
-  await expect(page.locator('#settings-repaired')).toHaveText('Some settings were not valid and were reset to their defaults: Trusted certificate, Team chat. Team chat settings show here once team chat is set up.');
+  await expect(page.locator('#settings-repaired')).toHaveText('Some settings were not valid and were reset to their defaults: Trusted certificate, Team chat. ' +
+    'Team chat settings show here once team chat is set up. ' + CERT);
 });
+
+// Next to fields that are below, a reset trusted certificate (which shows
+// in Settings only while one is set) is not among the fields to check
+// below: one field below is named, more are "the others".
+for (const [repaired, want] of [
+  [['alerts.supplyThresholdPct', 'webServer.trustedCert'],
+    'Some settings were not valid and were reset to their defaults: Supply threshold, Trusted certificate. ' + CERT + ' Check Supply threshold below.'],
+  [['alerts.supplyThresholdPct', 'alerts.cooldownSec', 'webServer.trustedCert', 'chat.minSeverity'],
+    'Some settings were not valid and were reset to their defaults: Supply threshold, Repeat-alert cooldown, Trusted certificate, Team chat alert level. ' +
+    'Team chat settings show here once team chat is set up. ' + CERT + ' Check the others below.'],
+]) {
+  test(`a reset trusted certificate next to a field below: ${repaired.join(', ')}`, async ({ page }) => {
+    await initStorage(page, { theme: 'dark', live: false });
+    await installMocks(page, { scenario: 'scan', repaired });
+    await page.goto(HOME);
+    await openSettings(page);
+    await expect(page.locator('#settings-repaired')).toHaveText(want);
+    await expect(page.locator('#trusted-cert')).toBeHidden();
+  });
+}
 
 test('unknown repaired field is named by its path', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });

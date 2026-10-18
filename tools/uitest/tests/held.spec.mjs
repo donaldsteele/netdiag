@@ -179,6 +179,31 @@ test('after the banner is dismissed, the card offers Restart watching', async ({
   expect(rec.unmatched, 'unmatched requests').toEqual([]);
 });
 
+// On a stale page the three Restart watching buttons (top bar, banner and
+// card) look and are announced the same: off. netdiag refuses each.
+test('on a stale page every Restart watching looks off', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: true });
+  const rec = await installMocks(page, { scenario: 'live', frames: held('network_changed'), stale: true });
+  rec.problems = fx.problemsView({ source: 'live', watching: true, held: true, heldReason: 'network_changed', heldSince: fx.HELD_SINCE });
+  await page.goto(HOME);
+  await page.getByRole('button', { name: 'Scan', exact: true }).click();
+  const banner = banners(page).filter({ hasText: 'This computer is on a different network' });
+  await expect(banner).toHaveCount(1);
+  await expect(page.locator('#pn-restart')).toBeVisible();
+  // netdiag was started again: this page's token is out of date now.
+  rec.session = 'new-token';
+  await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).loadSettings());
+  await expect(page.locator('#session-off')).toBeVisible();
+  const all = [page.locator('#restart-btn'), banner.locator('.brestart'), page.locator('#pn-restart')];
+  for (const b of all) {
+    await expect(b).toHaveAttribute('aria-disabled', 'true');
+    expect(await b.evaluate((el) => getComputedStyle(el).opacity)).toBe('0.55');
+  }
+  await banner.locator('.brestart').click({ force: true });
+  await expect(page.locator('#restart-dialog')).toHaveJSProperty('open', true);
+  await page.keyboard.press('Escape');
+});
+
 for (const theme of THEMES) {
   test(`held pill and banners are axe clean (${theme})`, async ({ page }, testInfo) => {
     // A new device's row fades in (rowin, 0.6 s): axe must not measure its

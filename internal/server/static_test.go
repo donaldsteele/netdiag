@@ -274,6 +274,7 @@ func TestProblemsCardUI(t *testing.T) {
 		`<section id="problems-now" class="problems-now" aria-labelledby="pn-h"`, `<h2 id="pn-h" tabindex="-1">Problems right now</h2>`,
 		"'Everything looks fine (checked ' + pnTime() + ')'", `id="pn-all" :aria-expanded="pnAll"`, `id="pn-watch"`,
 		"Tick <strong>Live mode</strong> and press <strong>Scan</strong> to start watching.", "Press <strong>Scan</strong> to start watching.",
+		"When this scan ends, tick <strong>Live mode</strong> and press <strong>Scan</strong> to start watching.",
 		`id="pn-gone"`, `id="pn-health"`, `id="pn-restart"`,
 		"What to try<span", "Open Health<span", "Dismiss<span",
 	} {

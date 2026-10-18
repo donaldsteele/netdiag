@@ -19,7 +19,7 @@ document.addEventListener('alpine:init', () => {
     theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
     view: 'devices', navOpen: false, views: ['devices', 'health', 'activity', 'history'], health: null, healthOpen: true, healthBusy: false, healthMsg: '',
     conflicts: [], banners: [], seenNotices: {},
-    settings: null, draft: null, noInternetHere: false, settingsError: '', storeDown: false, desktopNote: '', audio: null, repairedNote: '', repairedPending: [], repairedShown: [],
+    settings: null, draft: null, draftLoaded: false, noInternetHere: false, settingsError: '', storeDown: false, desktopNote: '', audio: null, repairedNote: '', repairedPending: [], repairedShown: [],
     history: [], historyError: '', baseId: '', currentId: '', diff: null, diffError: '', diffBusy: false,
     shown: {},
     remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
@@ -150,6 +150,7 @@ document.addEventListener('alpine:init', () => {
         this.settings = set;
         if (this.settings.community) this.community = this.settings.community;
         if (this.settingsLocked) { this.settingsLocked = false; this.offerBeeper(); }
+        this.settingsArrived();
       } catch (e) {}
     },
     async loadHealth() {
@@ -237,7 +238,10 @@ document.addEventListener('alpine:init', () => {
     gone() { return this.quitted || this.backend !== 'ok'; },
     pnGoneText() {
       if (this.backend === 'restarted' && !this.quitted) return 'netdiag was restarted, so this page is out of date. Reload the page to see what netdiag checks now.';
-      return 'netdiag has stopped, so nothing is being checked. This is from the last check at ' + this.pnTime() + '.';
+      // Only a check that happened has a time: netdiag may stop before it
+      // looked at anything.
+      const p = this.problems || {}, at = p.source !== 'none' && this.pnClock(p.checkedAt);
+      return 'netdiag has stopped, so nothing is being checked.' + (at ? ' This is from the last check at ' + at + '.' : '');
     },
     // The storm guard's words, as the live pill says them (liveText).
     pnHeldWord() { return this.problems && this.problems.heldReason === 'network_changed' ? 'Stopped' : 'Paused'; },
@@ -426,14 +430,7 @@ document.addEventListener('alpine:init', () => {
           : 'Settings are not loaded yet.';
       }
       else { this.settingsError = ''; }
-      this.draft = JSON.parse(JSON.stringify(this.settings || {community: '', webServer: {}, alerts: {triggers: {}}, ignoredConflictMACs: [], mcp: {enabled: false}}));
-      this.draft.ignoredConflictMACs = this.draft.ignoredConflictMACs || [];
-      this.draft.mcp = this.draft.mcp || {enabled: false};
-      this.draft.mcp.enabled = !!this.draft.mcp.enabled;
-      this.draft.noInternetNetworks = this.draft.noInternetNetworks || [];
-      this.draft.chat = Object.assign({enabled: false, minSeverity: 'warning'}, this.draft.chat || {});
-      this.noInternetHere = this.noInternetOn(this.draft);
-      this.repairedNote = this.repairedText();
+      this.makeDraft();
       const focus = {webserver: 'set-weburl', health: 'set-internet', noInternet: 'set-nointernet'}[section];
       // A team chat button's answer belongs to the last time Settings was open.
       this.chatSay('', '');
@@ -443,6 +440,30 @@ document.addEventListener('alpine:init', () => {
         const f = focus && document.getElementById(focus); if (f) f.focus();
         if (section === 'chat') this.focusChat();
       });
+    },
+    // The form's draft: a copy of the loaded settings. Without them (a page
+    // whose token is out of date, the data store down, or not loaded yet)
+    // the draft is a blank stand-in and draftLoaded is false, so the form
+    // and Save stay hidden: saving a blank form would replace every setting.
+    makeDraft() {
+      this.draftLoaded = !!this.settings;
+      this.draft = JSON.parse(JSON.stringify(this.settings || {community: '', webServer: {}, alerts: {triggers: {}}, ignoredConflictMACs: [], mcp: {enabled: false}}));
+      this.draft.ignoredConflictMACs = this.draft.ignoredConflictMACs || [];
+      this.draft.mcp = this.draft.mcp || {enabled: false};
+      this.draft.mcp.enabled = !!this.draft.mcp.enabled;
+      this.draft.noInternetNetworks = this.draft.noInternetNetworks || [];
+      this.draft.chat = Object.assign({enabled: false, minSeverity: 'warning'}, this.draft.chat || {});
+      this.noInternetHere = this.noInternetOn(this.draft);
+      this.repairedNote = this.repairedText();
+    },
+    // The settings came in while Settings shows only why they could not be
+    // read (a fresh page brought the token): the form now shows the real
+    // settings, never the blank stand-in.
+    settingsArrived() {
+      const d = this.$refs.dlg;
+      if (!d || !d.open || this.draftLoaded) return;
+      this.settingsError = '';
+      this.makeDraft();
     },
     // Settings fields that were not valid in the settings file and were
     // reset when netdiag read it (GET /api/settings "repaired"). They wait
@@ -474,11 +495,13 @@ document.addEventListener('alpine:init', () => {
     // Reset fields that have no control in Settings, so the notice does not
     // send people to look for them: team chat until it is set up (its switch
     // and Team chat alert level show only then), and a trusted certificate,
-    // which shows only while one is set.
+    // which shows only while one is set. Each says where it is instead.
     repairedOffPage: ['chat', 'chat.enabled', 'chat.minSeverity', 'webServer.trustedCert'],
     // "Some settings were not valid and were reset to their defaults: X, Y.
-    // Check them below.", naming each field once, plus a short clause for
-    // team chat while its controls are not shown.
+    // Check them below.", naming each field once. A field with no control
+    // here gets a short clause that says where it is, and "Check … below"
+    // then covers only the fields that are below: "Check X below." for one,
+    // "Check the others below." for more.
     repairedText() {
       const rep = this.repairedPending;
       if (!rep.length) return '';
@@ -488,9 +511,13 @@ document.addEventListener('alpine:init', () => {
       const names = [...new Set(rep.map(label))];
       // Team chat has controls in Settings only once it is set up.
       const off = p => this.repairedOffPage.includes(p) && !(p.startsWith('chat') && this.chatState() !== 'off');
+      const here = [...new Set(rep.filter(p => !off(p)).map(label))];
       let t = 'Some settings were not valid and were reset to their defaults: ' + names.join(', ') + '.';
-      if (rep.some(p => !off(p))) t += ' Check them below.';
       if (rep.some(p => off(p) && p.startsWith('chat'))) t += ' Team chat settings show here once team chat is set up.';
+      if (rep.some(p => off(p) && p === 'webServer.trustedCert')) t += " To trust the web server's certificate again, use Trust this certificate on the Health page.";
+      if (here.length === names.length) t += ' Check them below.';
+      else if (here.length === 1) t += ' Check ' + here[0] + ' below.';
+      else if (here.length) t += ' Check the others below.';
       return t;
     },
     closeSettings() { const d = this.$refs.dlg; if (d && d.open) d.close(); },
@@ -502,6 +529,8 @@ document.addEventListener('alpine:init', () => {
       return !!n && ((set && set.noInternetNetworks) || []).includes(n);
     },
     async saveSettings() {
+      // Never save the blank stand-in over the real settings.
+      if (!this.draftLoaded) return;
       this.settingsError = '';
       const n = v => (v === '' || v === null ? 0 : Number(v));
       this.draft.webServer.expectStatus = n(this.draft.webServer.expectStatus);
@@ -1464,11 +1493,11 @@ document.addEventListener('alpine:init', () => {
     // The range netdiag is watching, so "this network" is never unclear
     // when the person typed another one.
     watchedRange() { return (this.watching || {}).cidr || this.watchedCidr || 'this network'; },
-    // What Restart does: with Live mode unticked (a stale tab) it ends the
-    // watching and runs one scan, and says so.
+    // What the button does: with Live mode unticked (a stale tab) Stop
+    // watching and scan ends the watching and runs one scan, and says so.
     restartSettings() {
       const c = this.cidr.trim();
-      return this.live ? 'These settings: ' + c + ', live mode.' : 'Restart stops watching and runs one scan of ' + c + ', without live mode.';
+      return this.live ? 'These settings: ' + c + ', live mode.' : 'This stops watching and runs one scan of ' + c + ', without live mode.';
     },
     closeRestart() { const d = this.$refs.restartDlg; if (d && d.open) d.close(); },
     // Focuses the first of els that is shown, trying for a few frames while
@@ -1684,17 +1713,23 @@ document.addEventListener('alpine:init', () => {
       if (r && r.status === 401) return;
       if (this.es) this.es.close();
       // Nothing is watched any more: no live pill, Stop live or Restart
-      // watching, and Scan is off (gone).
+      // watching, and Scan and Quit are off (gone).
       this.running = false; this.quitted = true;
       this.state = ''; this.liveStatus = null; this.stage = '';
       clearTimeout(hbTimer);
       this.leaveBeeper();
+      // Quit is off now, so keyboard focus moves to the message that says
+      // netdiag has stopped instead of being lost.
+      this.$nextTick(() => this.focusShown([document.getElementById('quitted')]));
     },
 
     stageLabel() {
+      // Nothing is watched once netdiag stopped, this page quit it, or it
+      // was restarted and this page is out of date (gone), whatever the
+      // scan was doing.
+      if (this.gone()) return this.backend === 'restarted' && !this.quitted ? 'Not watching: this page is out of date' : 'Not watching: netdiag has stopped';
       const names = {icmp: 'Ping sweep', arp: 'ARP table', probe: 'Probing services',
-                     live: !this.gone() ? 'Initial scan complete - watching for new devices'
-                       : this.backend === 'restarted' ? 'Not watching: this page is out of date' : 'Not watching: netdiag has stopped',
+                     live: 'Initial scan complete - watching for new devices',
                      finished: this.state === 'cancelled' ? 'Cancelled' : 'Finished'};
       if (!this.stage) return 'Idle';
       const n = names[this.stage] || this.stage;

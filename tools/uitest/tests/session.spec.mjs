@@ -202,6 +202,59 @@ test('a page with an old token makes no sound for a live notice and leaves the b
   expect(rec.unmatched).toEqual([]);
 });
 
+// Settings opened on a stale page shows only why. When a fresh page brings
+// the token while it is open, the form comes from the real settings, never
+// from the blank stand-in, which Save would write over every setting.
+test('Settings opened while locked shows the real settings once a fresh page brings the token', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { scenario: 'scan', settings: mutedSettings(), session: 'new-token', stale: true });
+  await page.goto(HOME);
+  await expect(page.locator('#session-off')).toBeVisible();
+  await expect.poll(() => app(page, (a) => a.settingsLocked)).toBe(true);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const dlg = page.locator('#settings-dialog');
+  await expect(dlg.getByRole('alert')).toHaveText('Settings are turned off on this page for safety. Double-click netdiag to open a fresh page.');
+  await expect(dlg.locator('input, select')).toHaveCount(0);
+  await expect(dlg.getByRole('button', { name: 'Save', exact: true })).toBeHidden();
+
+  // A second launch opened a fresh page: its token reaches this tab
+  // through storage while Settings is still open.
+  await page.evaluate(() => {
+    localStorage.setItem('netdiag.session', 'new-token');
+    window.dispatchEvent(new StorageEvent('storage', { key: 'netdiag.session', newValue: 'new-token' }));
+  });
+  await expect(dlg.getByLabel('SNMP community')).toHaveValue('site-c0mm');
+  await expect(dlg.getByRole('alert')).toBeHidden();
+  await expect(dlg.getByLabel('Play a sound')).not.toBeChecked();
+  const save = dlg.getByRole('button', { name: 'Save', exact: true });
+  await expect(save).toBeEnabled();
+  await expect(dlg.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+
+  // Save sends the person's settings back, not a blank form.
+  await save.click();
+  await expect(dlg).toHaveJSProperty('open', false);
+  const put = rec.requests.filter((r) => r.method === 'PUT' && r.path === '/api/settings').pop();
+  expect(put.session).toBe('new-token');
+  const doc = JSON.parse(put.body);
+  const want = mutedSettings();
+  expect(doc.community).toBe(want.community);
+  expect(doc.alerts).toEqual(want.alerts);
+  expect(doc.mcp).toEqual(want.mcp);
+  expect(rec.unmatched).toEqual([]);
+});
+
+// The blank stand-in is never saved, even if something submits the form.
+test('a locked Settings never saves', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { scenario: 'scan', session: 'new-token', stale: true });
+  await page.goto(HOME);
+  await expect.poll(() => app(page, (a) => a.settingsLocked)).toBe(true);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.locator('#settings-dialog')).toHaveJSProperty('open', true);
+  await app(page, (a) => a.saveSettings());
+  expect(rec.requests.filter((r) => r.method === 'PUT'), 'PUT /api/settings').toEqual([]);
+});
+
 for (const theme of THEMES) {
   test(`the buttons-off banner is accessible ${theme}`, async ({ page }, testInfo) => {
     await initStorage(page, { theme, live: false });
