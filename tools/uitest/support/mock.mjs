@@ -233,6 +233,10 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
   // the Settings section and the header status tool.
   const LOCAL = /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)|^[a-z0-9.-]+\.local(:|$)/i;
   const chatChoice = () => ({ state: rec.chat.state, channel: rec.chat.channel || undefined, channels: rec.channels });
+  // Like Manager.Status: sendAlerts is the Send switch netdiag last
+  // applied, the saved settings.chat.enabled, unless a spec set its own in
+  // rec.chat (another page saved it, say).
+  const chatStatus = () => ({ sendAlerts: !!(settings.chat || {}).enabled, ...rec.chat });
   const connect = () => {
     rec.chat = fx.bubblesStatus('connected');
     if (rec.channels.length === 1) rec.chat.channel = { ...rec.channels[0] };
@@ -240,7 +244,7 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
   };
   async function chatRoute(route, method, p, b) {
     if (method !== 'GET') rec.chatCalls.push(method + ' ' + p);
-    if (method === 'GET' && p === '/api/bubbles') { rec.chatReads++; return json(route, 200, rec.chat); }
+    if (method === 'GET' && p === '/api/bubbles') { rec.chatReads++; return json(route, 200, chatStatus()); }
     if (method === 'DELETE' && p === '/api/bubbles') { rec.chat = fx.bubblesStatus('off'); return empty(route); }
     if (method === 'POST' && p === '/api/bubbles/discover') return json(route, 200, fx.discover(found));
     if (method === 'POST' && p === '/api/bubbles/inspect') {
@@ -300,7 +304,7 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
       // Try now answers the status; rec.retryTo is the state the server is
       // found in (unchanged when unset).
       if (rec.retryTo) rec.chat = fx.bubblesStatus(rec.retryTo, rec.retryExtra || {});
-      return json(route, 200, rec.chat);
+      return json(route, 200, chatStatus());
     }
     rec.unmatched.push(`${method} ${p}`);
     return json(route, 404, { error: 'mock: no route' });

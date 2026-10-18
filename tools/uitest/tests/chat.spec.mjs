@@ -605,6 +605,135 @@ test('unreachable with Send off promises nothing', async ({ page }) => {
   await expect(s.locator('#chat-where')).toHaveText('Alerts would go to #netdiag-alerts on Office (192.168.2.20). Turn on Send alerts to team chat and click Save.');
 });
 
+// A button's answer is about the state it was given in: once the status
+// moves on, the yellow box goes instead of contradicting it, and Settings
+// opened again starts without the last time's answers.
+test('an old Try now or test alert answer goes once the state changes', async ({ page }) => {
+  const errors = watchErrors(page);
+  const rec = await open(page, { chat: 'unreachable', settings: sendOn() });
+  const loadChat = () => page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).loadChat());
+  await page.locator('#chat-tool').click();
+  const s = settingsDlg(page);
+  const msg = s.locator('#chat-msg p');
+  await s.locator('#chat-retry').click(); // still away
+  await expect(msg).toHaveText("Still can't reach the chat server. netdiag keeps trying.");
+  await expect(msg).toHaveClass('alert warn');
+  await loadChat(); // the same state: the answer stays
+  await expect(msg).toBeVisible();
+  // The server is back by itself: the next status read clears the box.
+  rec.chat = fx.bubblesStatus('connected');
+  await loadChat();
+  await expect(s.locator('#chat-status .hs')).toHaveText('Connected');
+  await expect(s.locator('#chat-where')).toHaveText('Sending to #netdiag-alerts on Office (192.168.2.20)');
+  await expect(msg).toBeHidden();
+
+  // A refused test alert stays while nothing changes, and is gone when
+  // Settings opens again.
+  const refused = "The chat server turned down the test alert. Ask your chat admin to check bubbles' log.";
+  rec.testResult = { ok: false, error: refused, hint: 'refused' };
+  await s.locator('#chat-test').click();
+  await expect(msg).toHaveText(refused);
+  await expect(msg).toHaveClass('alert warn');
+  await loadChat();
+  await expect(msg).toHaveText(refused);
+  await page.keyboard.press('Escape');
+  await expect(s).toHaveJSProperty('open', false);
+  await page.locator('#chat-tool').click();
+  await expect(s).toHaveJSProperty('open', true);
+  await expect(msg).toBeHidden();
+
+  // A good answer goes too once the server is away again.
+  rec.testResult = null;
+  await s.locator('#chat-test').click();
+  await expect(msg).toHaveClass('hs hs-ok');
+  rec.chat = fx.bubblesStatus('unreachable');
+  await loadChat();
+  await expect(s.locator('#chat-retry')).toBeVisible();
+  await expect(msg).toBeHidden();
+  clean(rec, errors);
+});
+
+// A Disconnect netdiag could not finish says why, in the server's plain
+// words, in the yellow box, and the connection's buttons stay.
+test('a failed Disconnect says why in the yellow box', async ({ page }) => {
+  const errors = watchErrors(page);
+  const words = "netdiag couldn't remove the team chat connection from its data folder. Check that the data folder isn't read-only, then click Disconnect again.";
+  const rec = await open(page, { chat: 'connected', settings: sendOn() });
+  await page.route('**/api/bubbles', (route) => route.request().method() === 'DELETE'
+    ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: words }) })
+    : route.fallback());
+  await openSettings(page);
+  const s = settingsDlg(page);
+  await s.locator('#chat-disconnect').click();
+  await page.locator('#chat-off-dialog').getByRole('button', { name: 'Disconnect' }).click();
+  await expect(s.locator('#chat-msg')).toHaveText(words);
+  await expect(s.locator('#chat-msg p')).toHaveClass('alert warn');
+  await expect(s.locator('#chat-status .hs')).toHaveText('Connected');
+  await expect(s.locator('#chat-disconnect')).toBeVisible();
+  await expect(page.locator('#chat-tool')).toBeVisible();
+  clean(rec, errors);
+});
+
+// The status carries the Send switch netdiag applies (sendAlerts), and it
+// wins over this page's copy of the settings: another page (netdiag opens
+// a new one on every launch) may have saved it since.
+test("the status's Send switch wins over this page's settings", async ({ page }) => {
+  const errors = watchErrors(page);
+  const rec = await open(page, { chat: 'connected', settings: sendOn(), chatExtra: { sendAlerts: false } });
+  const tool = page.locator('#chat-tool');
+  await expect(tool).toHaveAttribute('title', 'Team chat: connected, sending is off');
+  await expect(tool.locator('use')).toHaveAttribute('href', 'icons.svg#i-chat-paused');
+  await openSettings(page);
+  const s = settingsDlg(page);
+  await expect(s.locator('#chat-status .hs')).toHaveText('Connected (sending is off)');
+  await expect(s.locator('#chat-status .hs')).toHaveClass(/\bhs-info\b/);
+  await expect(s.locator('#chat-where')).toHaveText('Alerts would go to #netdiag-alerts on Office (192.168.2.20). Turn on Send alerts to team chat and click Save.');
+  clean(rec, errors);
+});
+
+test('Send switched off on another page: this page follows', async ({ page }) => {
+  const errors = watchErrors(page);
+  const rec = await open(page, { chat: 'connected', settings: sendOn() });
+  const tool = page.locator('#chat-tool');
+  await expect(tool).toHaveAttribute('title', 'Team chat: connected');
+  await openSettings(page);
+  const s = settingsDlg(page);
+  await expect(s.locator('#chat-where')).toHaveText('Sending to #netdiag-alerts on Office (192.168.2.20)');
+  await page.keyboard.press('Escape');
+  // Another page saves Send off; this page's own copy is not touched.
+  await page.evaluate(async () => {
+    const d = window.Alpine.$data(document.querySelector('.shell'));
+    const doc = JSON.parse(JSON.stringify(d.settings));
+    delete doc.mcpUrl;
+    doc.chat.enabled = false;
+    await d.api('PUT', '/api/settings', doc);
+  });
+  expect(await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).settings.chat.enabled)).toBe(true);
+  // Settings reads the status as it opens: nothing claims sending, and
+  // the switch shows what was saved, with nothing waiting for Save.
+  await openSettings(page);
+  await expect(s.locator('#chat-status .hs')).toHaveText('Connected (sending is off)');
+  await expect(s.locator('#chat-where')).toContainText('Alerts would go to #netdiag-alerts');
+  await expect(tool).toHaveAttribute('title', 'Team chat: connected, sending is off');
+  await expect(s.locator('#chat-enabled')).not.toBeChecked();
+  await expect(s.locator('#chat-pending')).toBeHidden();
+  clean(rec, errors);
+});
+
+// Settings that could not be read never hide that alerts are being sent.
+test('a failed settings read does not hide that alerts are sent', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { scenario: 'scan', chat: 'connected', settings: sendOn() });
+  await page.route('**/api/settings', (route) => route.request().method() === 'GET'
+    ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Could not read the settings.' }) })
+    : route.fallback());
+  await page.goto(HOME);
+  const tool = page.locator('#chat-tool');
+  await expect(tool).toHaveAttribute('title', 'Team chat: connected');
+  await expect(tool.locator('use')).toHaveAttribute('href', 'icons.svg#i-chat');
+  expect(rec.unmatched).toEqual([]);
+});
+
 // What the outbox and the polling say ("Team chat server moved to…",
 // "The chat server turned down an alert. …") reaches the Activity log under Notice,
 // once each, also when the status is read again.
@@ -718,6 +847,11 @@ test('the approval page link says who it is for', async ({ page }) => {
   await expect(w.locator('#wiz-admin')).toHaveText('Open the approval page (for your chat admin) (opens in a new tab)');
   await expect(w.locator('#wiz-admin-help')).toHaveText('If the browser warns about the connection, ask your chat admin to approve on their own computer.');
   await expect(w.locator('#wiz-admin')).toHaveAttribute('aria-describedby', 'wiz-admin-help');
+  // toHaveText passes on a hidden link too: measure only once the approve
+  // step shows.
+  await expect(w.locator('#wiz-code')).toHaveText('123 456');
+  await expect(w.locator('#wiz-admin')).toBeVisible();
+  await expect(w.locator('#wiz-admin-help')).toBeVisible();
   const link = await w.locator('#wiz-admin').boundingBox(), box = await w.locator('.sform').boundingBox();
   expect(link.x).toBeGreaterThanOrEqual(box.x);
   expect(link.x + link.width).toBeLessThanOrEqual(box.x + box.width);

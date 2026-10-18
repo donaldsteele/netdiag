@@ -24,7 +24,7 @@ document.addEventListener('alpine:init', () => {
     shown: {},
     remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
     sessionOff: false, settingsLocked: false,
-    chat: null, chatMsg: '', chatMsgKind: '', chatBusy: false, chatNoteSeen: 0, chatNoteRun: '', wiz: {step: 'closed', mode: 'connect', wait: '', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
+    chat: null, chatMsg: '', chatMsgKind: '', chatMsgState: '', chatBusy: false, chatNoteSeen: 0, chatNoteRun: '', wiz: {step: 'closed', mode: 'connect', wait: '', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
       code: '', expiresAt: '', adminUrl: '', channels: [], channelId: '', channel: null, testMsg: '', testKind: '', title: 'Connect to team chat', fresh: false, stopped: '', retry: ''},
     problems: null, pnAll: false, pnLimit: 5, pnDismissed: {},
     watching: null, restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: null, focusAt: 0, starting: false,
@@ -407,6 +407,8 @@ document.addEventListener('alpine:init', () => {
       this.noInternetHere = this.noInternetOn(this.draft);
       this.repairedNote = this.repairedText();
       const focus = {webserver: 'set-weburl', health: 'set-internet', noInternet: 'set-nointernet'}[section];
+      // A team chat button's answer belongs to the last time Settings was open.
+      this.chatSay('', '');
       this.loadChat();
       this.$nextTick(() => {
         const d = this.$refs.dlg; if (d && !d.open) d.showModal();
@@ -506,6 +508,9 @@ document.addEventListener('alpine:init', () => {
         if (!r.ok) { if (showErr) this.settingsError = j.error || ('Could not save settings (HTTP ' + r.status + ')'); return false; }
         this.settings = j;
         if (j.community) this.community = j.community;
+        // netdiag applied the saved Send switch before it answered: the
+        // team chat status says so at once, not at the next status read.
+        if (this.chat && j.chat) this.chat = Object.assign({}, this.chat, {sendAlerts: !!j.chat.enabled});
         // The alert types and the supply threshold decide what the card lists.
         this.loadProblems();
         return true;
@@ -519,7 +524,20 @@ document.addEventListener('alpine:init', () => {
     async loadChat() {
       try {
         const r = await this.api('GET', '/api/bubbles');
-        if (r.ok) { this.chat = await r.json(); this.chatNotes(); }
+        if (!r.ok) return;
+        this.chat = await r.json(); this.chatNotes();
+        // A button's answer is about the state it was given in: once the
+        // state moves on (the server answers again, or goes away), it goes.
+        if (this.chatMsg && this.chatState() !== this.chatMsgState) this.chatSay('', '');
+        // Another page saved Send alerts to team chat (netdiag opens a new
+        // page on every launch): this page's copy of the settings is out of
+        // date, so read them again. The switch in an open Settings follows,
+        // unless the person changed it there.
+        const on = this.chat.sendAlerts, was = !!(this.settings && this.settings.chat && this.settings.chat.enabled);
+        if (typeof on !== 'boolean' || !this.settings || was === on) return;
+        await this.loadSettings();
+        const now = this.settings && this.settings.chat;
+        if (now && this.draft && this.draft.chat && !!this.draft.chat.enabled === was) this.draft.chat.enabled = !!now.enabled;
       } catch (e) {}
     },
     // What the outbox and the polling had to say ("Team chat server moved
@@ -542,8 +560,9 @@ document.addEventListener('alpine:init', () => {
     },
     // The answer of a team chat button in Settings: kind is busy (muted
     // progress text), ok (circle-check) or warn (the yellow box), so a
-    // failure is a shape plus words, never small grey text.
-    chatSay(msg, kind) { this.chatMsg = msg; this.chatMsgKind = msg ? kind : ''; },
+    // failure is a shape plus words, never small grey text. The state it
+    // was said in is kept: loadChat clears the answer once that changes.
+    chatSay(msg, kind) { this.chatMsg = msg; this.chatMsgKind = msg ? kind : ''; this.chatMsgState = this.chatState(); },
     // Try now: ask the chat server at once and let what waits go.
     async chatTryNow() {
       this.chatBusy = true; this.chatSay('Trying the chat server...', 'busy');
@@ -559,9 +578,15 @@ document.addEventListener('alpine:init', () => {
       this.$nextTick(() => this.focusShown([document.getElementById(this.chatState() === 'unreachable' ? 'chat-retry' : 'chat-test')]));
     },
     chatState() { return (this.chat && this.chat.state) || 'off'; },
-    // Send alerts to team chat as saved: only then does anything go to
-    // chat. Until the settings are read the page never claims it does.
-    chatSendOn() { return !!(this.settings && this.settings.chat && this.settings.chat.enabled); },
+    // Send alerts to team chat as netdiag applies it: only then does
+    // anything go to chat. The status says (sendAlerts), also after another
+    // page saved the switch; without it, the settings as this page read
+    // them, and until those are read the page never claims it sends.
+    chatSendOn() {
+      const on = this.chat && this.chat.sendAlerts;
+      if (typeof on === 'boolean') return on;
+      return !!(this.settings && this.settings.chat && this.settings.chat.enabled);
+    },
     // Connected, but Send alerts to team chat is off, so nothing is sent:
     // its own shape, colour and words, never the green "connected" ones.
     chatPaused() { return this.chatState() === 'connected' && !this.chatSendOn(); },
@@ -658,9 +683,11 @@ document.addEventListener('alpine:init', () => {
     async chatTest() {
       this.chatBusy = true; this.chatSay('Sending a test alert...', 'busy');
       const t = await this.sendTest();
+      // The answer is about the state the test alert left (a refused one
+      // may say the channel takes no posts): read it first.
+      await this.loadChat();
       this.chatSay(t.msg, t.ok ? 'ok' : 'warn');
       this.chatBusy = false;
-      this.loadChat();
       this.$nextTick(() => this.focusShown([document.getElementById('chat-test')]));
     },
     // Posts the test alert and closes it again; whether it worked, and the
@@ -687,13 +714,16 @@ document.addEventListener('alpine:init', () => {
     },
     async chatDisconnect() {
       this.closeDisconnect();
+      let msg = '', kind = 'warn';
       try {
         const r = await this.api('DELETE', '/api/bubbles');
         const j = r.ok ? {} : await r.json().catch(() => ({}));
-        if (r.ok) this.chatSay('Disconnected from team chat.', 'ok');
-        else this.chatSay(j.error || 'Could not disconnect (HTTP ' + r.status + ').', 'warn');
-      } catch (e) { this.chatSay('Could not disconnect: ' + e.message, 'warn'); }
+        if (r.ok) { msg = 'Disconnected from team chat.'; kind = 'ok'; }
+        else msg = j.error || 'Could not disconnect (HTTP ' + r.status + ').';
+      } catch (e) { msg = 'Could not disconnect: ' + e.message; }
+      // The answer is about the state Disconnect left: read it first.
       await this.loadChat();
+      this.chatSay(msg, kind);
       this.$nextTick(() => this.focusChat());
     },
 
@@ -919,7 +949,7 @@ document.addEventListener('alpine:init', () => {
     async wizReady(ch) {
       this.wiz.channel = ch;
       this.wizGo('ready');
-      if (this.wiz.fresh && this.settings && !(this.settings.chat || {}).enabled) {
+      if (this.wiz.fresh && this.settings && !this.chatSendOn()) {
         const doc = JSON.parse(JSON.stringify(this.settings));
         doc.chat = Object.assign({minSeverity: 'warning'}, doc.chat || {}, {enabled: true});
         if (await this.putSettings(doc, false) && this.draft) this.draft.chat = Object.assign({}, this.draft.chat || {}, {enabled: true});
