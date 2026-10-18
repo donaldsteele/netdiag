@@ -185,6 +185,9 @@ func Current(r model.ScanResult, set model.Settings) []Problem {
 		byIP[h.IP] = h
 	}
 	x := advice.Ctx{GOOS: runtime.GOOS, Gateway: r.Gateway, Hosts: byIP}
+	if r.Health != nil {
+		x.Network = r.Health.Network
+	}
 	var out []Problem
 	// add appends p under the first of its keys that no earlier item of
 	// another device has (Engine.hostKey). An item whose key the same device

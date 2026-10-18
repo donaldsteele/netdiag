@@ -382,7 +382,7 @@ func TestExplainConflictVerdict(t *testing.T) {
 		severity, title, meaning string
 	}{
 		{"fail", "Network conflict", "Two devices are taking turns using 10.0.0.5"},
-		{"warn", problems.TitlePossible, "Possible conflict: the device answering at 10.0.0.5 changed."},
+		{"warn", problems.TitlePossible, "The device answering at 10.0.0.5 changed."},
 	} {
 		t.Run(c.severity, func(t *testing.T) {
 			e := setup(t, "stdio", true, fakePinger{})

@@ -668,7 +668,7 @@ func (e *Engine) ObserveConflicts(cur []model.Conflict, cycle bool) []model.Noti
 			mac = strings.ToUpper(first(c.MACs))
 		}
 		out = e.emit(out, model.Notice{Trigger: model.TriggerIPConflict, Severity: ConflictSeverity(c),
-			IP: first(c.IPs), MAC: mac, Name: c.Name, Title: "Network conflict", Message: c.Detail, Key: k}, "")
+			IP: first(c.IPs), MAC: mac, Name: c.Name, Title: "Network conflict", Message: ConflictMessage(c), Key: k}, "")
 	}
 	if !cycle {
 		return out
@@ -687,6 +687,31 @@ func (e *Engine) ObserveConflicts(cur []model.Conflict, cycle bool) []model.Noti
 		out = e.emitOK(out, f, "Network conflict cleared", msg)
 	}
 	return out
+}
+
+// ConflictMessage is the conflict notice's message in plain words, for the
+// banner, the desktop notification and team chat. The MACs stay in the
+// conflict's detail, which the advice keeps as its Technical details.
+func ConflictMessage(c model.Conflict) string {
+	at := strings.Join(c.IPs, ", ")
+	switch c.Kind {
+	case model.ConflictMACFlap:
+		if at != "" {
+			return "Two devices may be using " + at + "."
+		}
+		return "Two devices may be using the same address."
+	case model.ConflictMACMultiIP:
+		if at != "" {
+			return "One device uses several addresses: " + at + "."
+		}
+		return "One device uses several addresses."
+	case model.ConflictDuplicateName:
+		if c.Name != "" {
+			return `Two devices use the same name, "` + c.Name + `".`
+		}
+		return "Two devices use the same name."
+	}
+	return c.Detail
 }
 
 // ObserveHealth takes one health report. A check is reported after it failed

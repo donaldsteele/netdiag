@@ -261,6 +261,10 @@ func certFailure(err error, raw string, at *url.URL, pinnedAt, trusted string) (
 	c := why(webData(mk(3, model.HealthFail, detail, 0), raw), model.ReasonTLS)
 	if offer {
 		c.Data["certSHA256"] = fp
+	} else {
+		// The advice names the address that answered, so the person can
+		// set it without opening Technical details.
+		c.Data["finalURL"] = at.Redacted()
 	}
 	c.Data["certSubject"] = certName(leaf)
 	c.Data["certExpires"] = leaf.NotAfter.UTC().Format(time.RFC3339)

@@ -377,7 +377,7 @@ func TestWebTrustedCertOtherPort(t *testing.T) {
 	want := "another address on this server, " + portal.URL + "/portal, uses a different certificate that is not trusted " +
 		"(self-signed or from a private authority); netdiag trusts one certificate for the web server, so to check that address set it as the Web server URL"
 	if c.Status != model.HealthFail || c.Detail != want || c.Data["certSHA256"] != nil || c.Data["certSubject"] != "portal" ||
-		c.Data["url"] != front.URL+"/" {
+		c.Data["url"] != front.URL+"/" || c.Data["finalURL"] != portal.URL+"/portal" {
 		t.Fatalf("other port: %+v", c)
 	}
 	// The first address itself has another certificate than the trusted one.

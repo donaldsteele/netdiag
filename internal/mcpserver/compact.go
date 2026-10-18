@@ -163,7 +163,11 @@ func lazyAdviceCtx(r model.ScanResult) func() advice.Ctx {
 		for _, h := range r.Hosts {
 			hosts[h.IP] = h
 		}
-		return advice.Ctx{GOOS: runtime.GOOS, Gateway: r.Gateway, Hosts: hosts}
+		x := advice.Ctx{GOOS: runtime.GOOS, Gateway: r.Gateway, Hosts: hosts}
+		if r.Health != nil {
+			x.Network = r.Health.Network
+		}
+		return x
 	})
 }
 
@@ -185,13 +189,19 @@ func conflictAdvice(c model.Conflict, x func() advice.Ctx) *model.Advice {
 }
 
 // briefAdvice is advice a for a summary: without Technical, which repeats
-// the detail the summary already clips.
+// the detail the summary already clips, and without Show device, whose
+// target is the address the summary item already names (get_device and
+// list_problems keep it).
 func briefAdvice(a *model.Advice) *model.Advice {
 	if a == nil {
 		return nil
 	}
 	b := *a
 	b.Technical = ""
+	b.Actions = slices.DeleteFunc(slices.Clone(a.Actions), func(x model.AdviceAction) bool { return x.Kind == model.ActionShowDevice })
+	if len(b.Actions) == 0 {
+		b.Actions = nil
+	}
 	return &b
 }
 

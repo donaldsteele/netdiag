@@ -30,6 +30,11 @@ type Ctx struct {
 	Gateway string
 	// Hosts are the scan's devices by IP (may be nil).
 	Hosts map[string]model.Host
+	// Network is the id of the network the health checks looked at
+	// (HealthReport.Network). Empty means netdiag can't tell which network
+	// this is (the router's MAC is unknown), so the "This network has no
+	// internet" switch can't be turned on and the advice doesn't offer it.
+	Network string
 }
 
 // Button labels. ActionLabels lists them for the runbook tests.
@@ -117,12 +122,14 @@ func Health(c model.HealthCheck, x Ctx) *model.Advice {
 	return a
 }
 
-// Report sets the advice on every check of rep. The checks are copied
-// first, so a report that shares its slice with another is left alone.
+// Report sets the advice on every check of rep, for the network rep names
+// (x.Network is rep.Network). The checks are copied first, so a report
+// that shares its slice with another is left alone.
 func Report(rep *model.HealthReport, x Ctx) {
 	if rep == nil {
 		return
 	}
+	x.Network = rep.Network
 	rep.Checks = slices.Clone(rep.Checks)
 	for i := range rep.Checks {
 		rep.Checks[i].Advice = Health(rep.Checks[i], x)
@@ -163,7 +170,7 @@ func health(c model.HealthCheck, reason string, x Ctx) *model.Advice {
 			// Ping could not run on this computer: not the router's doing.
 			return adv("netdiag couldn't send its test message from this computer, but your router's web page answers, so it is working.", nil, acts...)
 		}
-		return adv("Your router doesn't answer ping, but its web page answers, so it is working.", nil, acts...)
+		return adv("Your router doesn't answer netdiag's test message, but its web page answers, so it is working.", nil, acts...)
 	case "gateway|" + model.ReasonSlow:
 		return adv(fmt.Sprintf("Your router answers, but slowly (%s).", millis(c.LatencyMs)),
 			steps("This can happen when the network is busy or the Wi-Fi signal is weak.",
@@ -192,17 +199,23 @@ func health(c model.HealthCheck, reason string, x Ctx) *model.Advice {
 				steps(`If this network has internet now, turn off "This network has no internet" in Settings.`),
 				settings(model.SettingsSectionNoInternet))
 		}
-		return adv("Your local network works, but internet names can't be looked up. Usually this means there is no internet connection right now.",
-			steps("If this network should have internet, restart the router or modem.",
-				`If this network has no internet on purpose, turn on "This network has no internet" in Settings.`),
+		const meaning = "Your local network works, but internet names can't be looked up. Usually this means there is no internet connection right now."
+		const restart = "If this network should have internet, restart the router or modem."
+		if x.Network == "" {
+			// netdiag can't tell which network this is, so the switch,
+			// which is kept per network, can't be turned on.
+			return adv(meaning, steps(restart), recheck())
+		}
+		return adv(meaning,
+			steps(restart, `If this network has no internet on purpose, turn on "This network has no internet" in Settings.`),
 			recheck(), settings(model.SettingsSectionNoInternet))
 	case "dns|" + model.ReasonLocalMismatch:
 		return adv("Your name server works, but this computer asks somewhere else first, for example an old VPN setting.",
 			steps("Disconnect any VPN and check again.",
 				"Ask whoever looks after this computer to check its settings."), recheck())
 	case "dns|" + model.ReasonNXDomain:
-		return adv("The name server answers, but doesn't know the internet check address.",
-			steps("Check the internet check address in Settings."), settings(model.SettingsSectionHealth))
+		return adv("The name server answers, but doesn't know the name in "+fieldInternetURL+".",
+			steps("Check "+fieldInternetURL+" in Settings."), settings(model.SettingsSectionHealth))
 	case "dns|" + model.ReasonNoReply:
 		return adv("No name server answers, so this computer can't look up names.",
 			steps("Restart the router.", "If you use a VPN, disconnect it and check again."), recheck())
@@ -217,31 +230,40 @@ func health(c model.HealthCheck, reason string, x Ctx) *model.Advice {
 		if st, ok := num(c.Data["status"]); ok && st > 0 {
 			m = fmt.Sprintf("The web server isn't answering as expected (HTTP %d).", int(st))
 		}
-		return adv(m, webSteps(), settings(model.SettingsSectionWebServer), recheck())
+		return adv(m, webSteps(), recheck(), settings(model.SettingsSectionWebServer))
 	case "webserver|" + model.ReasonContent:
 		return adv("The web server answers, but its page doesn't show the text you set.",
-			webSteps(), settings(model.SettingsSectionWebServer), recheck())
+			webSteps(), recheck(), settings(model.SettingsSectionWebServer))
 	case "webserver|" + model.ReasonRequest:
-		return adv("The web server isn't answering.", webSteps(), settings(model.SettingsSectionWebServer), recheck())
+		return adv("The web server isn't answering.", webSteps(), recheck(), settings(model.SettingsSectionWebServer))
 	case "webserver|" + model.ReasonTLS:
 		if fp, _ := c.Data["certSHA256"].(string); fp == "" {
 			// No certificate offered to trust: another address of the
-			// server, with a different certificate, answered.
+			// server (data.finalURL), with a different certificate,
+			// answered.
+			first := "The server sends you to another address that uses a different certificate. If that is the right page, set it as " + fieldWebURL + " in Settings."
+			if u := shownURL(c.Data["finalURL"]); u != "" {
+				first = "The server sends you to " + u + ", which uses a different certificate. If that is the right page, set it as " + fieldWebURL + " in Settings."
+			}
 			return adv("The web server's certificate isn't trusted.",
-				steps("The server sends you to another address that uses a different certificate. Set that address as the Web server URL in Settings.",
-					"Otherwise, ask whoever looks after it."), settings(model.SettingsSectionWebServer))
+				steps(first, "Otherwise, ask whoever looks after it."), settings(model.SettingsSectionWebServer))
 		}
-		// The Web server card has the Trust this certificate button.
+		// The Web server card has the Trust this certificate button; the
+		// card itself says so in its own words (web/app.js cardSteps).
 		return adv("The web server's certificate isn't trusted.",
-			steps("If this is your own server on this network, open Health in netdiag and press Trust this certificate on the Web server card.",
-				"Otherwise, ask whoever looks after it."))
+			steps(StepTrustCert, "Otherwise, ask whoever looks after it."))
 	case "webserver|" + model.ReasonRedirect:
+		// A redirect to another server may be a sign-in page: the step
+		// names the address, and switching to it is the person's choice.
+		first := "Set the address it sends you to as " + fieldWebURL + " in Settings, if that is the right page."
+		if u := shownURL(c.Data["location"]); u != "" {
+			first = "It sends you to " + u + ". If that is the right page, set it as " + fieldWebURL + " in Settings."
+		}
 		return adv("The web server sends visitors to another address, so the page you set isn't the one that answers.",
-			steps("Open Settings and set the address it sends you to."),
-			settings(model.SettingsSectionWebServer), recheck())
+			steps(first), recheck(), settings(model.SettingsSectionWebServer))
 	case "webserver|" + model.ReasonInvalid:
-		return adv("The web server address in Settings isn't a valid web address.",
-			steps("Check the web server address in Settings."), settings(model.SettingsSectionWebServer))
+		return adv("The "+fieldWebURL+" in Settings isn't a valid web address.",
+			steps("Check "+fieldWebURL+" in Settings."), settings(model.SettingsSectionWebServer))
 	case "webserver|" + model.ReasonSlow:
 		return adv("The web server answers, but slowly.",
 			steps("If it stays slow, ask whoever looks after it."), recheck())
@@ -265,10 +287,10 @@ func health(c model.HealthCheck, reason string, x Ctx) *model.Advice {
 		if st, ok := num(c.Data["status"]); ok && st > 0 {
 			m = fmt.Sprintf("The internet check got an unexpected answer (HTTP %d).", int(st))
 		}
-		return adv(m, steps("Check the internet check address in Settings."), settings(model.SettingsSectionHealth))
+		return adv(m, steps("Check "+fieldInternetURL+" in Settings."), settings(model.SettingsSectionHealth))
 	case "internet|" + model.ReasonInvalid:
-		return adv("The internet check address in Settings isn't a valid web address.",
-			steps("Check the internet check address in Settings."), settings(model.SettingsSectionHealth))
+		return adv("The "+fieldInternetURL+" in Settings isn't a valid web address.",
+			steps("Check "+fieldInternetURL+" in Settings."), settings(model.SettingsSectionHealth))
 
 	case "wifi|" + model.ReasonWeak:
 		m := "The Wi-Fi signal is weak."
@@ -279,17 +301,45 @@ func health(c model.HealthCheck, reason string, x Ctx) *model.Advice {
 	case "wifi|" + model.ReasonNotConnected:
 		return adv("This computer isn't using Wi-Fi right now, for example because it uses a network cable.", nil)
 	case "wifi|" + model.ReasonHiddenLocation:
+		// Open Location settings comes before Check again here, in the
+		// order the step names them (v0.6-D50).
 		var acts []model.AdviceAction
 		if x.GOOS == "windows" {
 			acts = append(acts, model.AdviceAction{Kind: model.ActionOSSettings, Label: LabelOpenLocation, Target: model.OSPageLocation})
 		}
-		return adv("Windows hides Wi-Fi details until Location is turned on. The other checks still work.", nil, acts...)
+		return adv("Windows hides Wi-Fi details until Location is turned on. The other checks still work.",
+			steps("Turn on Location, then press Check again."), append(acts, recheck())...)
 	}
 	return nil
 }
 
+// The Settings labels the advice names, in quotes, as Settings shows them.
+const (
+	fieldWebURL      = `"Web server URL"`
+	fieldInternetURL = `"Internet check URL"`
+)
+
+// StepTrustCert is the web server certificate step for every place but
+// the Web server card, which has the Trust this certificate button and
+// says it in its own words (web/app.js cardSteps).
+const StepTrustCert = "If this is your own server on this network, open Health in netdiag and press Trust this certificate on the Web server card."
+
 func webSteps() []string {
 	return steps("Check that the server is switched on.", "Ask whoever looks after it.")
+}
+
+// shownURL is a web address from check data, for a step: an absolute
+// http(s) URL, or "". The check hides any password in it already.
+func shownURL(v any) string {
+	s, _ := v.(string)
+	u, err := url.Parse(strings.TrimSpace(s))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	if sc := strings.ToLower(u.Scheme); sc != "http" && sc != "https" {
+		return ""
+	}
+	return u.String()
 }
 
 // millis formats a latency in whole milliseconds.
@@ -350,20 +400,23 @@ func notice(n model.Notice, h *model.Host) *model.Advice {
 			steps("If you don't recognise it, ask whoever looks after the network."), showDevice(n.IP)...)
 	case model.TriggerIPConflict:
 		return adv("Two devices may be trying to use the same address, so they can work badly.",
-			steps("Open this address in netdiag to see the details."), showDevice(n.IP)...)
+			steps("In netdiag, press "+LabelShowDevice+" to see the two devices."), showDevice(n.IP)...)
 	case model.TriggerHealthFailed:
-		return adv("A network health check keeps failing.", steps("Open Health in netdiag to see what to try."))
+		// The banner has an Open Health button for every healthFailed notice.
+		return adv("A network health check keeps failing.", steps("In netdiag, press Open Health to see what to try."))
 	case model.TriggerNetdiagLink:
+		// The banner says only "netdiag paused its checks." (scan
+		// heldNotice): the Meaning says why, and when they start again.
 		switch n.Code {
 		case model.HeldGateway:
-			return adv("The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline.",
+			return adv("The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline. They start again by themselves when the router answers.",
 				steps("Check that the router is switched on and its lights look normal.",
 					"Check this computer's network cable or Wi-Fi."))
 		case model.HeldNetworkChanged:
-			return adv("This computer is on a different network now, so netdiag stopped the alerts for the network it was watching.",
+			return adv("This computer is on a different network now, so netdiag stopped the alerts for the network it was watching. It checks nothing more until you restart watching.",
 				steps("If this computer moved on purpose, press Restart watching to watch the network it is on now."))
 		}
-		return adv("This computer lost the local network, so netdiag paused its checks instead of reporting every device offline.",
+		return adv("This computer lost the local network, so netdiag paused its checks instead of reporting every device offline. They start again by themselves when the network is back.",
 			steps("Check this computer's network cable or Wi-Fi."))
 	case model.TriggerChatTest:
 		return adv("This is a test alert from netdiag. Nothing needs fixing.", nil)
@@ -501,16 +554,20 @@ func Conflict(c model.Conflict, x Ctx) *model.Advice {
 	var a *model.Advice
 	switch c.Kind {
 	case model.ConflictMACFlap:
+		// The drawer shows Device A and Device B for every mac_flap; the
+		// banner, the Problems right now card, chat and Claude reach them
+		// through Show device.
 		if SwapSeen(c, x) {
 			a = adv(fmt.Sprintf("Two devices are taking turns using %s, so both work badly.", orAddress(ip)),
-				steps("Open this address in netdiag and compare the two devices it shows (Device A and Device B).",
+				steps(StepCompareDevices,
 					"Restart one of them so it gets a new address.",
 					"If it keeps happening, ask whoever looks after the router to reserve an address for one of them."),
 				showDevice(ip)...)
 		} else {
-			a = adv(fmt.Sprintf("Possible conflict: the device answering at %s changed.", orAddress(ip)),
+			a = adv(fmt.Sprintf("The device answering at %s changed.", orAddress(ip)),
 				steps("If you just replaced a device, this is expected.",
-					"If it happens again, open this address in netdiag to see both devices."))
+					"If it happens again, netdiag will mark it as a conflict."),
+				showDevice(ip)...)
 		}
 	case model.ConflictMACMultiIP:
 		a = adv("One device answers for several addresses. This is normal for Wi-Fi extenders, mesh points and some routers.",
@@ -529,6 +586,11 @@ func Conflict(c model.Conflict, x Ctx) *model.Advice {
 	a.Technical = c.Detail
 	return a
 }
+
+// StepCompareDevices is the swap's first step for every place but the
+// drawer, which shows the two devices itself and drops "In netdiag,
+// press Show device and" (web/app.js drawerSteps).
+const StepCompareDevices = "In netdiag, press " + LabelShowDevice + " and compare the two devices (Device A and Device B)."
 
 func orAddress(ip string) string {
 	if ip == "" {

@@ -46,7 +46,7 @@ func check(id, reason string, data map[string]any) model.HealthCheck {
 func every() map[string]*model.Advice {
 	out := map[string]*model.Advice{}
 	x := func(goos string) Ctx {
-		return Ctx{GOOS: goos, Gateway: "192.168.1.1", Hosts: map[string]model.Host{
+		return Ctx{GOOS: goos, Gateway: "192.168.1.1", Network: "n-5f2c0a9d3e71", Hosts: map[string]model.Host{
 			"192.168.1.50": {IP: "192.168.1.50", MACHistory: []model.MACObservation{{MAC: "A"}, {MAC: "B"}, {MAC: "A"}}},
 			"192.168.1.60": {IP: "192.168.1.60", MACHistory: []model.MACObservation{{MAC: "A"}, {MAC: "B"}}},
 		}}
@@ -55,12 +55,17 @@ func every() map[string]*model.Advice {
 		for id, reasons := range Reasons() {
 			for _, r := range reasons {
 				for _, data := range []map[string]any{nil, {"noInternet": true, "status": 503, "signalPct": 32,
-					"pingError": true, "certSHA256": strings.Repeat("ab", 32)}} {
+					"pingError": true, "certSHA256": strings.Repeat("ab", 32)},
+					{"location": "https://portal.example.com/login", "finalURL": "https://intranet.local:8443/"}} {
 					name := goos + " " + id + " " + r
 					if data != nil {
-						name += " with data"
+						name += " with data " + strconv.Itoa(len(data))
 					}
 					out[name] = Health(check(id, r, data), x(goos))
+					// A network netdiag can't tell (the router's MAC is unknown).
+					unknown := x(goos)
+					unknown.Network = ""
+					out[name+" on an unknown network"] = Health(check(id, r, data), unknown)
 				}
 			}
 		}
@@ -124,6 +129,13 @@ func TestCatalogueComplete(t *testing.T) {
 				t.Errorf("%s: unknown label %q", name, act.Label)
 			}
 		}
+		// One order on every card: Check again first, then Settings or a
+		// link. Only Location puts its settings first, as its step says.
+		i := slices.IndexFunc(a.Actions, func(x model.AdviceAction) bool { return x.Kind == model.ActionRecheck })
+		location := strings.HasPrefix(a.Meaning, "Windows hides Wi-Fi details")
+		if i > 0 && !location || location && i != len(a.Actions)-1 {
+			t.Errorf("%s: Check again at %d in %+v", name, i, a.Actions)
+		}
 	}
 	if a := PrinterNoStatus(model.Host{IsPrinter: true}); a == nil || a.Technical != "" {
 		t.Errorf("printer without status: %+v", a)
@@ -152,7 +164,7 @@ func TestCatalogueComplete(t *testing.T) {
 var wordingRe = regexp.MustCompile(`(?i)\b(events?|venues?|LAN)\b`)
 
 // technicalRe lists words a Meaning never uses: they belong in Technical.
-var technicalRe = regexp.MustCompile(`(?i)\b(ARP|DHCP|DNS|SNMP|MAC|ICMP|IP address(es)?|subnets?)\b`)
+var technicalRe = regexp.MustCompile(`(?i)\b(ARP|DHCP|DNS|SNMP|MAC|ICMP|ping|IP address(es)?|subnets?)\b`)
 
 // placeRe lists words that point at a place on one page. The same advice
 // is shown in the drawer, on the Problems right now card, in team chat and
@@ -182,7 +194,7 @@ func TestWordingLint(t *testing.T) {
 			}
 		}
 		for _, s := range a.Steps {
-			if m := screenRe.FindString(s); m != "" && !strings.Contains(s, "in netdiag") {
+			if m := screenRe.FindString(s); m != "" && !strings.Contains(strings.ToLower(s), "in netdiag") {
 				t.Errorf("%s: %q says %q without \"in netdiag\": team chat readers can't open it", name, s, m)
 			}
 		}
@@ -199,7 +211,7 @@ func TestWordingLint(t *testing.T) {
 	if wordingRe.MatchString(strings.ReplaceAll("Use Wake-on-LAN", "Wake-on-LAN", "")) || wordingRe.MatchString("get_events") {
 		t.Error("wording lint rejects an allowed term")
 	}
-	for _, bad := range []string{"its MAC changed", "the DNS server", "an IP address"} {
+	for _, bad := range []string{"its MAC changed", "the DNS server", "an IP address", "it doesn't answer ping"} {
 		if !technicalRe.MatchString(bad) {
 			t.Errorf("technical lint misses %q", bad)
 		}
@@ -219,7 +231,7 @@ func TestWordingLint(t *testing.T) {
 // TestHealthAdvice checks the catalogue's exact wording for the plan's
 // cases and that results without a reason, and ok results, get none.
 func TestHealthAdvice(t *testing.T) {
-	x := Ctx{GOOS: "windows", Gateway: "192.168.1.1"}
+	x := Ctx{GOOS: "windows", Gateway: "192.168.1.1", Network: "n-5f2c0a9d3e71"}
 	cases := []struct {
 		id, reason string
 		data       map[string]any
@@ -227,25 +239,25 @@ func TestHealthAdvice(t *testing.T) {
 		kinds      []string
 	}{
 		{"gateway", model.ReasonNoReply, nil, "This computer can't reach your router.", []string{model.ActionRecheck}},
-		{"gateway", model.ReasonTCPOnly, nil, "Your router doesn't answer ping, but its web page answers, so it is working.", []string{model.ActionOpenRouter}},
+		{"gateway", model.ReasonTCPOnly, nil, "Your router doesn't answer netdiag's test message, but its web page answers, so it is working.", []string{model.ActionOpenRouter}},
 		{"gateway", model.ReasonTCPOnly, map[string]any{"pingError": true}, "netdiag couldn't send its test message from this computer, but your router's web page answers, so it is working.", []string{model.ActionOpenRouter}},
 		{"gateway", model.ReasonSlow, nil, "Your router answers, but slowly (182 ms).", []string{model.ActionRecheck}},
 		{"dhcp", model.ReasonAPIPA, nil, "This computer didn't get an address from the router, so it can't talk to other devices.", []string{model.ActionRecheck}},
 		{"dns", model.ReasonNoInternet, nil, "Your local network works, but internet names can't be looked up. Usually this means there is no internet connection right now.", []string{model.ActionRecheck, model.ActionOpenSettings}},
 		{"dns", model.ReasonNoInternet, map[string]any{"noInternet": true}, "This network is set up without internet, so internet names can't be looked up. That is expected.", []string{model.ActionOpenSettings}},
 		{"dns", model.ReasonLocalMismatch, nil, "Your name server works, but this computer asks somewhere else first, for example an old VPN setting.", []string{model.ActionRecheck}},
-		{"dns", model.ReasonNXDomain, nil, "The name server answers, but doesn't know the internet check address.", []string{model.ActionOpenSettings}},
+		{"dns", model.ReasonNXDomain, nil, `The name server answers, but doesn't know the name in "Internet check URL".`, []string{model.ActionOpenSettings}},
 		{"dns", model.ReasonNoReply, nil, "No name server answers, so this computer can't look up names.", []string{model.ActionRecheck}},
 		{"dns", model.ReasonNoServer, nil, "This computer has no name server set.", nil},
 		{"webserver", model.ReasonNotSet, nil, "No web server is set, so this check is skipped.", []string{model.ActionOpenSettings}},
-		{"webserver", model.ReasonStatus, map[string]any{"status": float64(503)}, "The web server isn't answering as expected (HTTP 503).", []string{model.ActionOpenSettings, model.ActionRecheck}},
+		{"webserver", model.ReasonStatus, map[string]any{"status": float64(503)}, "The web server isn't answering as expected (HTTP 503).", []string{model.ActionRecheck, model.ActionOpenSettings}},
 		{"webserver", model.ReasonTLS, map[string]any{"certSHA256": strings.Repeat("ab", 32)}, "The web server's certificate isn't trusted.", nil},
 		{"webserver", model.ReasonTLS, nil, "The web server's certificate isn't trusted.", []string{model.ActionOpenSettings}},
 		{"internet", model.ReasonPortal, nil, "This network wants you to sign in first, on a Wi-Fi login page.", nil},
 		{"internet", model.ReasonNoResponse, nil, "netdiag couldn't reach the internet. Devices on the local network still work.", []string{model.ActionRecheck}},
 		{"internet", model.ReasonNoResponse, map[string]any{"noInternet": true}, "This network is set up without internet, so this check is only for information.", []string{model.ActionOpenSettings}},
 		{"wifi", model.ReasonWeak, map[string]any{"signalPct": 32}, "The Wi-Fi signal is weak (32%).", []string{model.ActionRecheck}},
-		{"wifi", model.ReasonHiddenLocation, nil, "Windows hides Wi-Fi details until Location is turned on. The other checks still work.", []string{model.ActionOSSettings}},
+		{"wifi", model.ReasonHiddenLocation, nil, "Windows hides Wi-Fi details until Location is turned on. The other checks still work.", []string{model.ActionOSSettings, model.ActionRecheck}},
 	}
 	for _, tc := range cases {
 		a := Health(check(tc.id, tc.reason, tc.data), x)
@@ -286,13 +298,72 @@ func TestHealthAdvice(t *testing.T) {
 		}
 	}
 	tls := Health(check("webserver", model.ReasonTLS, map[string]any{"certSHA256": strings.Repeat("ab", 32)}), x)
-	if len(tls.Steps) == 0 || !strings.Contains(tls.Steps[0], "press Trust this certificate on the Web server card") {
+	if len(tls.Steps) == 0 || tls.Steps[0] != StepTrustCert || !strings.Contains(tls.Steps[0], "press Trust this certificate on the Web server card") {
 		t.Errorf("tls: %+v", tls)
 	}
 	for _, s := range tls.Steps {
 		if strings.Contains(s, "Settings") || strings.Contains(s, " here") {
 			t.Errorf("tls step %q", s)
 		}
+	}
+	// The address a redirect or another certificate sends the person to is
+	// in the step, with the Settings label in quotes; without it the step
+	// still makes sense.
+	for _, tc := range []struct {
+		c    model.HealthCheck
+		want string
+	}{
+		{check("webserver", model.ReasonRedirect, map[string]any{"location": "https://portal.example.com/login"}),
+			`It sends you to https://portal.example.com/login. If that is the right page, set it as "Web server URL" in Settings.`},
+		{check("webserver", model.ReasonRedirect, map[string]any{"location": "javascript:alert(1)"}),
+			`Set the address it sends you to as "Web server URL" in Settings, if that is the right page.`},
+		{check("webserver", model.ReasonRedirect, nil),
+			`Set the address it sends you to as "Web server URL" in Settings, if that is the right page.`},
+		{check("webserver", model.ReasonTLS, map[string]any{"finalURL": "https://intranet.local:8443/portal"}),
+			`The server sends you to https://intranet.local:8443/portal, which uses a different certificate. If that is the right page, set it as "Web server URL" in Settings.`},
+		{check("webserver", model.ReasonTLS, nil),
+			`The server sends you to another address that uses a different certificate. If that is the right page, set it as "Web server URL" in Settings.`},
+	} {
+		if a := Health(tc.c, x); a == nil || len(a.Steps) == 0 || a.Steps[0] != tc.want {
+			t.Errorf("%s %v: %+v, want step %q", model.HealthReason(tc.c), tc.c.Data, a, tc.want)
+		}
+	}
+	// Steps name Settings fields by their exact label, in quotes.
+	labels := []string{`"Web server URL"`, `"Internet check URL"`, `"This network has no internet"`}
+	for name, a := range every() {
+		if a == nil {
+			continue
+		}
+		for _, s := range append([]string{a.Meaning}, a.Steps...) {
+			if !strings.Contains(s, "Settings") {
+				continue
+			}
+			if !slices.ContainsFunc(labels, func(l string) bool { return strings.Contains(s, l) }) {
+				t.Errorf("%s: %q names a Settings field that is not quoted as Settings shows it", name, s)
+			}
+		}
+	}
+	// When netdiag can't tell which network this is, the switch can't be
+	// turned on: the advice neither names it nor opens Settings at it.
+	unknown := x
+	unknown.Network = ""
+	if a := Health(check("dns", model.ReasonNoInternet, nil), unknown); a == nil ||
+		!slices.Equal(a.Steps, []string{"If this network should have internet, restart the router or modem."}) ||
+		len(a.Actions) != 1 || a.Actions[0].Kind != model.ActionRecheck {
+		t.Errorf("no network id: %+v", a)
+	}
+	rep := &model.HealthReport{Checks: []model.HealthCheck{check("dns", model.ReasonNoInternet, nil)}}
+	if Report(rep, x); len(rep.Checks[0].Advice.Actions) != 1 {
+		t.Errorf("Report without a network: %+v", rep.Checks[0].Advice)
+	}
+	rep = &model.HealthReport{Network: "n-5f2c0a9d3e71", Checks: []model.HealthCheck{check("dns", model.ReasonNoInternet, nil)}}
+	if Report(rep, Ctx{}); len(rep.Checks[0].Advice.Actions) != 2 {
+		t.Errorf("Report with a network: %+v", rep.Checks[0].Advice)
+	}
+	// Location: the step says to press Check again, which follows Open
+	// Location settings.
+	if a := Health(check("wifi", model.ReasonHiddenLocation, nil), x); !slices.Equal(a.Steps, []string{"Turn on Location, then press Check again."}) {
+		t.Errorf("hidden location: %+v", a)
 	}
 	if a := Health(check("wifi", model.ReasonError, nil), Ctx{GOOS: "darwin"}); a == nil ||
 		a.Meaning != "macOS doesn't share Wi-Fi details with netdiag. The other checks still work." {
@@ -365,7 +436,7 @@ func TestActionTargets(t *testing.T) {
 	loc := check("wifi", model.ReasonHiddenLocation, nil)
 	for _, goos := range oses {
 		a := Health(loc, Ctx{GOOS: goos})
-		has := len(a.Actions) == 1 && a.Actions[0].Kind == model.ActionOSSettings && a.Actions[0].Target == model.OSPageLocation
+		has := len(a.Actions) == 2 && a.Actions[0].Kind == model.ActionOSSettings && a.Actions[0].Target == model.OSPageLocation
 		if has != (goos == "windows") {
 			t.Errorf("%s: Location settings button %v", goos, a.Actions)
 		}
@@ -436,7 +507,7 @@ func TestConflictAdvice(t *testing.T) {
 		return Ctx{Hosts: map[string]model.Host{h.IP: h}}
 	}
 	swap := "Two devices are taking turns using 192.168.1.50, so both work badly."
-	possible := "Possible conflict: the device answering at 192.168.1.50 changed."
+	possible := "The device answering at 192.168.1.50 changed."
 	for _, tc := range []struct {
 		name string
 		c    model.Conflict
@@ -453,12 +524,34 @@ func TestConflictAdvice(t *testing.T) {
 		if a == nil || a.Meaning != tc.want {
 			t.Errorf("%s: %+v", tc.name, a)
 		}
-		if tc.want == swap && (len(a.Actions) != 1 || a.Actions[0].Kind != model.ActionShowDevice) {
+		// Both offer Show device, so a banner and the Problems right now
+		// card have a way to the device.
+		if len(a.Actions) != 1 || a.Actions[0].Kind != model.ActionShowDevice || a.Actions[0].Target != "192.168.1.50" {
 			t.Errorf("%s: actions %+v", tc.name, a.Actions)
 		}
-		if tc.want == possible && len(a.Actions) != 0 {
-			t.Errorf("%s: actions %+v", tc.name, a.Actions)
+		// The drawer already shows both devices: no step promises them later.
+		want := []string{"If you just replaced a device, this is expected.", "If it happens again, netdiag will mark it as a conflict."}
+		if tc.want == swap {
+			want = []string{StepCompareDevices, "Restart one of them so it gets a new address.",
+				"If it keeps happening, ask whoever looks after the router to reserve an address for one of them."}
 		}
+		if !slices.Equal(a.Steps, want) {
+			t.Errorf("%s: steps %q", tc.name, a.Steps)
+		}
+		if strings.Contains(a.Meaning, "onflict") {
+			t.Errorf("%s: Meaning %q repeats the heading", tc.name, a.Meaning)
+		}
+	}
+	if StepCompareDevices != "In netdiag, press Show device and compare the two devices (Device A and Device B)." {
+		t.Errorf("StepCompareDevices %q: web/app.js drawerSteps drops its start", StepCompareDevices)
+	}
+	if n := Notice(model.Notice{Trigger: model.TriggerIPConflict, IP: "192.168.1.50"}, nil, Ctx{}); n == nil ||
+		!slices.Equal(n.Steps, []string{"In netdiag, press Show device to see the two devices."}) {
+		t.Errorf("ipConflict notice: %+v", n)
+	}
+	if n := Notice(model.Notice{Trigger: model.TriggerHealthFailed}, nil, Ctx{}); n == nil ||
+		!slices.Equal(n.Steps, []string{"In netdiag, press Open Health to see what to try."}) {
+		t.Errorf("healthFailed notice: %+v", n)
 	}
 	if a := Conflict(model.Conflict{Kind: model.ConflictDuplicateName, Name: "printer-2"}, Ctx{}); a == nil ||
 		a.Meaning != `Two devices use the same name, "printer-2".` {
@@ -482,7 +575,7 @@ func TestUITestFixtureAdvice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	x := Ctx{GOOS: "windows", Gateway: "192.168.2.1"}
+	x := Ctx{GOOS: "windows", Gateway: "192.168.2.1", Network: "n-5f2c0a9d3e71"}
 	hc := func(id, status, reason string, data map[string]any) *model.Advice {
 		d := map[string]any{"reason": reason}
 		for k, v := range data {
@@ -523,6 +616,13 @@ func TestUITestFixtureAdvice(t *testing.T) {
 		"netdiagLink link":          Notice(model.Notice{Trigger: model.TriggerNetdiagLink, Code: model.HeldLink}, nil, x),
 		"netdiagLink other network": Notice(model.Notice{Trigger: model.TriggerNetdiagLink, Code: model.HeldNetworkChanged}, nil, x),
 		"netdiagLink gateway":       Notice(model.Notice{Trigger: model.TriggerNetdiagLink, Code: model.HeldGateway}, nil, x),
+		"healthFailed":              Notice(model.Notice{Trigger: model.TriggerHealthFailed}, nil, x),
+		"dns no_internet, no network": Health(model.HealthCheck{ID: "dns", Status: model.HealthWarn,
+			Data: map[string]any{"reason": model.ReasonNoInternet}}, Ctx{GOOS: "windows"}),
+		"web redirect": hc("webserver", model.HealthFail, model.ReasonRedirect, map[string]any{"location": "https://portal.example.com/login"}),
+		"web tls, another address": hc("webserver", model.HealthFail, model.ReasonTLS,
+			map[string]any{"finalURL": "https://intranet.local:8443/"}),
+		"gateway tcp_only": hc("gateway", model.HealthOK, model.ReasonTCPOnly, nil),
 	}
 	quoted := func(s string) string {
 		var b strings.Builder

@@ -1032,15 +1032,51 @@ func TestUITestFixtureKeys(t *testing.T) {
 	}
 	toner := model.Host{IP: "192.168.1.10", MAC: "00:1B:A9:12:34:56"}
 	vm := model.Host{IP: "192.168.1.200", MAC: "00:50:56:AB:CD:EF"}
+	flap := model.Conflict{Kind: model.ConflictMACFlap, Severity: "fail", IPs: []string{"192.168.2.44"},
+		MACs: []string{"24:6F:28:AA:BB:CC", "3C:52:82:11:22:33"}}
 	for _, want := range []string{
 		"key: '" + Key(model.TriggerSupplyLow, toner, supplyParts([]model.Supply{{Description: "Black Toner"}})[0]) + "'",
 		"trigger: 'supplyLow', severity: '" + severityFor(model.TriggerSupplyLow, sevCtx{}) + "'",
 		"key: '" + Key(model.TriggerDeviceOffline, vm, "") + "'",
 		"trigger: 'deviceOffline', severity: '" + severityFor(model.TriggerDeviceOffline, sevCtx{}) + "'",
+		// flapNotice: the conflict notice's key and its message in plain words.
+		"message: '" + ConflictMessage(flap) + "', at: T1, key: '" + ConflictKey(flap) + "'",
+		"trigger: 'ipConflict', severity: '" + ConflictSeverity(flap) + "'",
 	} {
 		if !strings.Contains(string(src), want) {
 			t.Errorf("fixtures missing %q", want)
 		}
+	}
+}
+
+// A conflict notice says what is wrong in plain words; the MACs stay in
+// the conflict's detail, under Technical details.
+func TestConflictMessage(t *testing.T) {
+	for _, tc := range []struct {
+		c    model.Conflict
+		want string
+	}{
+		{model.Conflict{Kind: model.ConflictMACFlap, IPs: []string{"10.0.0.5"}, MACs: []string{"AA:00:00:00:00:01", "AA:00:00:00:00:02"},
+			Detail: "10.0.0.5 keeps alternating between 2 MAC addresses"}, "Two devices may be using 10.0.0.5."},
+		{model.Conflict{Kind: model.ConflictMACFlap}, "Two devices may be using the same address."},
+		{model.Conflict{Kind: model.ConflictMACMultiIP, IPs: []string{"10.0.0.5", "10.0.0.6"}, MACs: []string{"AA:00:00:00:00:01"}},
+			"One device uses several addresses: 10.0.0.5, 10.0.0.6."},
+		{model.Conflict{Kind: model.ConflictDuplicateName, Name: "printer-2", IPs: []string{"10.0.0.5", "10.0.0.6"}},
+			`Two devices use the same name, "printer-2".`},
+		{model.Conflict{Kind: "new_kind", Detail: "raw"}, "raw"},
+	} {
+		if got := ConflictMessage(tc.c); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.c.Kind, got, tc.want)
+		}
+		if strings.Contains(ConflictMessage(tc.c), "MAC") {
+			t.Errorf("%s: message names a MAC", tc.c.Kind)
+		}
+	}
+	e := New(DefaultConfig(), nil)
+	c := model.Conflict{ID: "c-1", Kind: model.ConflictMACFlap, Severity: "fail", IPs: []string{"10.0.0.5"},
+		MACs: []string{"AA:00:00:00:00:01", "AA:00:00:00:00:02"}, Detail: "10.0.0.5 keeps alternating"}
+	if n := e.ObserveConflicts([]model.Conflict{c}, true); len(n) != 1 || n[0].Message != "Two devices may be using 10.0.0.5." {
+		t.Fatalf("notice: %+v", n)
 	}
 }
 

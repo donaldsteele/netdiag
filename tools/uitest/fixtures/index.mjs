@@ -173,10 +173,10 @@ export function flapConflict(alternations = 2) {
   const detail = `${FLAP_IP} keeps alternating between 2 MAC addresses (${FLAP_MACS.join(', ')}); two devices likely share this IP.`;
   const a = alternations >= 2
     ? advice("Two devices are taking turns using 192.168.2.44, so both work badly.",
-      ["Open this address in netdiag and compare the two devices it shows (Device A and Device B).", "Restart one of them so it gets a new address.",
+      ["In netdiag, press Show device and compare the two devices (Device A and Device B).", "Restart one of them so it gets a new address.",
         "If it keeps happening, ask whoever looks after the router to reserve an address for one of them."], [showDevice(FLAP_IP)], detail)
-    : advice("Possible conflict: the device answering at 192.168.2.44 changed.",
-      ["If you just replaced a device, this is expected.", "If it happens again, open this address in netdiag to see both devices."], [], detail);
+    : advice("The device answering at 192.168.2.44 changed.",
+      ["If you just replaced a device, this is expected.", "If it happens again, netdiag will mark it as a conflict."], [showDevice(FLAP_IP)], detail);
   return { id: FLAP_ID, kind: 'mac_flap', severity: 'fail', ips: [FLAP_IP], macs: [...FLAP_MACS], name: '',
     firstSeen: T0, lastSeen: T1, detail, vendors: { ...FLAP_VENDORS }, advice: a };
 }
@@ -197,6 +197,23 @@ export function flapHosts(alternations = 2, alsoAt = true) {
     Object.assign(other, { alive: true, online: true, mac: FLAP_MACS[1], vendor: FLAP_VENDORS[FLAP_MACS[1]], foundBy: ['arp'] });
   }
   return list;
+}
+
+// flapNotice(alternations): the ipConflict notice of flapConflict, its
+// message in plain words (notify.ConflictMessage; TestUITestFixtureKeys in
+// internal/notify checks it) and the conflict's advice.
+export function flapNotice(alternations = 2) {
+  const c = flapConflict(alternations);
+  return { id: 'n-40', trigger: 'ipConflict', severity: 'critical', ip: FLAP_IP, title: 'Network conflict',
+    message: 'Two devices may be using 192.168.2.44.', at: T1, key: 'ipConflict|mac_flap|192.168.2.44', advice: c.advice };
+}
+
+// healthNotice(): a healthFailed notice for a check the scan no longer
+// has, so it carries the catalogue's general answer.
+export function healthNotice() {
+  return { id: 'n-41', trigger: 'healthFailed', severity: 'critical', ip: '', title: 'Health check failed',
+    message: 'Gateway reachable check failed.', at: T1, key: 'healthFailed||gateway',
+    advice: advice("A network health check keeps failing.", ["In netdiag, press Open Health to see what to try."], [], 'Gateway reachable check failed.') };
 }
 
 // advice(): a model.Advice as internal/advice builds it. Meanings and steps
@@ -243,7 +260,25 @@ export function webCheck(state = 'unset', url = WEB_URL) {
     const detail = 'HTTP 503 (expected 200)';
     return { ...base, status: 'fail', detail, latencyMs: 0, data: { configured: true, url, status: 503, reason: 'status' },
       advice: advice("The web server isn't answering as expected (HTTP 503).",
-        ["Check that the server is switched on.", "Ask whoever looks after it."], [settingsAction('webserver'), RECHECK], detail) };
+        ["Check that the server is switched on.", "Ask whoever looks after it."], [RECHECK, settingsAction('webserver')], detail) };
+  }
+  if (state === 'redirect') {
+    // A redirect to another server, perhaps a sign-in page.
+    const detail = 'HTTP 302 (expected 200): it redirects to another server, https://portal.example.com/login';
+    return { ...base, status: 'fail', detail, latencyMs: 0,
+      data: { configured: true, url, status: 302, location: 'https://portal.example.com/login', reason: 'redirect' },
+      advice: advice("The web server sends visitors to another address, so the page you set isn't the one that answers.",
+        ["It sends you to https://portal.example.com/login. If that is the right page, set it as \"Web server URL\" in Settings."],
+        [RECHECK, settingsAction('webserver')], detail) };
+  }
+  if (state === 'tls-other') {
+    // Another address of the server, with another certificate, answered.
+    const detail = 'another address on this server, https://intranet.local:8443/, uses a different certificate that is not trusted (self-signed or from a private authority); netdiag trusts one certificate for the web server, so to check that address set it as the Web server URL';
+    return { ...base, status: 'fail', detail, latencyMs: 0,
+      data: { configured: true, url, finalURL: 'https://intranet.local:8443/', certSubject: 'intranet.local', certExpires: '2027-10-01T00:00:00Z', reason: 'tls' },
+      advice: advice("The web server's certificate isn't trusted.",
+        ["The server sends you to https://intranet.local:8443/, which uses a different certificate. If that is the right page, set it as \"Web server URL\" in Settings.",
+          "Otherwise, ask whoever looks after it."], [settingsAction('webserver')], detail) };
   }
   if (state === 'unset-old') {
     // As a report saved before v0.6 has it: no reason, no advice.
@@ -298,8 +333,18 @@ export function health({ web = 'unset', webURL = WEB_URL, state = 'default', noI
     const h = health({ web, webURL });
     const detail = 'Windows blocks Wi-Fi details until Location is on: Settings > Privacy & security > Location, turn on Location services and Let desktop apps access your location';
     h.checks[5] = { id: 'wifi', label: 'Wi-Fi', status: 'unavailable', detail, latencyMs: 0, data: { reason: 'hidden_location' },
-      advice: advice("Windows hides Wi-Fi details until Location is turned on. The other checks still work.", [],
-        [{ kind: 'osSettings', label: 'Open Location settings', target: 'location' }], detail) };
+      advice: advice("Windows hides Wi-Fi details until Location is turned on. The other checks still work.",
+        ["Turn on Location, then press Check again."],
+        [{ kind: 'osSettings', label: 'Open Location settings', target: 'location' }, RECHECK], detail) };
+    return h;
+  }
+  if (state === 'tcponly') {
+    // The router answers only on its web page.
+    const h = health({ web, webURL });
+    const detail = `${GATEWAY} did not reply to ping, but answers on port 80`;
+    h.checks[0] = { id: 'gateway', label: 'Gateway reachable', status: 'ok', detail, latencyMs: 2.1, data: { reason: 'tcp_only' },
+      advice: advice("Your router doesn't answer netdiag's test message, but its web page answers, so it is working.", [],
+        [{ kind: 'openRouter', label: 'Open router page', target: `http://${GATEWAY}/` }], detail) };
     return h;
   }
   return {
@@ -491,23 +536,23 @@ export function heldStatus(reason = 'link') {
 export function linkNotice(reason = 'link') {
   const key = 'netdiagLink||' + NETWORK;
   if (reason === 'network_changed') {
-    const message = 'netdiag stopped its alerts for the network it was watching. Press Restart watching to watch this one.';
+    const message = 'netdiag stopped its alerts.';
     return { id: 'n-32', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'This computer is on a different network',
       message, at: HELD_SINCE, key, code: reason,
-      advice: advice("This computer is on a different network now, so netdiag stopped the alerts for the network it was watching.",
+      advice: advice("This computer is on a different network now, so netdiag stopped the alerts for the network it was watching. It checks nothing more until you restart watching.",
         ["If this computer moved on purpose, press Restart watching to watch the network it is on now."], [], message) };
   }
   if (reason === 'gateway') {
-    const message = 'The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline.';
+    const message = 'netdiag paused its checks.';
     return { id: 'n-33', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'The router stopped answering',
       message, at: HELD_SINCE, key, code: reason,
-      advice: advice("The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline.",
+      advice: advice("The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline. They start again by themselves when the router answers.",
         ["Check that the router is switched on and its lights look normal.", "Check this computer's network cable or Wi-Fi."], [], message) };
   }
-  const message = 'This computer lost the local network, so netdiag paused its checks. They start again by themselves when the network is back.';
+  const message = 'netdiag paused its checks.';
   return { id: 'n-30', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'This computer lost the network',
     message, at: HELD_SINCE, key, code: reason,
-    advice: advice("This computer lost the local network, so netdiag paused its checks instead of reporting every device offline.",
+    advice: advice("This computer lost the local network, so netdiag paused its checks instead of reporting every device offline. They start again by themselves when the network is back.",
       ["Check this computer's network cable or Wi-Fi."], [], message) };
 }
 export function linkBackNotice() {

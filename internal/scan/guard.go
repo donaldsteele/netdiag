@@ -97,14 +97,17 @@ func rank(reason string) int {
 }
 
 // heldNotice is the netdiagLink notice's title and message for reason.
+// The message is short: the banner's What to try (the advice's Meaning)
+// says why, and when the checks start again.
 func heldNotice(reason string) (title, msg string) {
 	switch reason {
 	case model.HeldNetworkChanged:
-		return "This computer is on a different network", "netdiag stopped its alerts for the network it was watching. Press Restart watching to watch this one."
+		return "This computer is on a different network", "netdiag stopped its alerts."
 	case model.HeldGateway:
-		return "The router stopped answering", "The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline."
+		// The title already says the router stopped answering.
+		return "The router stopped answering", "netdiag paused its checks."
 	}
-	return "This computer lost the network", "This computer lost the local network, so netdiag paused its checks. They start again by themselves when the network is back."
+	return "This computer lost the network", "netdiag paused its checks."
 }
 
 // guardStart begins a live cycle: a wall-clock gap since the last cycle
