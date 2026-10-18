@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -17,15 +18,32 @@ import (
 	"netdiag/internal/advice"
 )
 
-// bubblesToolNames are the bubbles MCP tools a runbook may name (v0.6 §5.4;
-// bubbles/internal/mcpserver/tools.go). check_chat_alerts (M12) uses them.
+// bubblesV020Tools are the tools of bubbles v0.2.0's own MCP server, the
+// version netdiag v0.6 works against, in its order (ToolNames in
+// bubbles/internal/mcpserver/tools.go at the tag v0.2.0, commit 2315dd1).
+// bubbles v0.2.0 has no prompts and no resources. TestBubblesToolsAtV020
+// checks this copy against the bubbles repository when it is next to this
+// one.
+var bubblesV020Tools = []string{
+	"list_channels", "read_messages", "search_messages", "post_message",
+	"list_alerts", "post_alert", "ack_alert", "resolve_alert",
+}
+
+// bubblesToolNames are the bubbles MCP tools a runbook may name (v0.6 §5.4):
+// check_chat_alerts uses list_alerts, resolve_alert and post_message, and
+// says never to call post_alert or ack_alert.
 var bubblesToolNames = []string{"list_alerts", "resolve_alert", "post_message", "post_alert", "ack_alert"}
+
+// bubblesFields are the bubbles tools' input and output names a runbook
+// may use (json names in bubbles/internal/mcpserver/tools.go).
+var bubblesFields = []string{"dedupe_key", "next_cursor", "thread_root_id", "renotify_after_s"}
 
 // runbookFields are the snake_case output, argument and value names a
 // runbook may use that are not tools or prompts: the conflict kinds, the
-// storm guard reason network_changed and the bubbles fields (dedupe_key and
-// the like).
-var runbookFields = []string{"mac_flap", "mac_multi_ip", "duplicate_name", "network_changed", "dedupe_key", "next_cursor", "thread_root_id", "renotify_after_s"}
+// storm guard reason network_changed, the team chat states of get_status
+// (chat.state) and the bubbles fields (dedupe_key and the like).
+var runbookFields = slices.Concat([]string{"mac_flap", "mac_multi_ip", "duplicate_name", "network_changed",
+	"no_channel", "needs_reconnect", "identity_changed"}, bubblesFields)
 
 // bubblesLabels are bubbles' own buttons a runbook may name in bold.
 var bubblesLabels = []string{"Acknowledge", "Resolve", "Admin", "Pairing", "Apps", "Overview"}
@@ -336,12 +354,88 @@ func TestSiteToolCount(t *testing.T) {
 	}
 }
 
-// TestNoToolNameClashWithBubbles: an agent connected to both servers can
-// tell every netdiag tool from a bubbles one by name.
+// TestNoToolNameClashWithBubbles: an agent connected to both servers
+// (check_chat_alerts) can tell every netdiag tool and prompt from a bubbles
+// v0.2.0 tool by name, and the bubbles tools and fields the runbooks name
+// are bubbles v0.2.0's.
 func TestNoToolNameClashWithBubbles(t *testing.T) {
-	for _, n := range bubblesToolNames {
+	for _, n := range bubblesV020Tools {
 		if slices.Contains(ToolNames, n) || slices.Contains(PromptNames, n) {
 			t.Errorf("%s is both a bubbles tool and a netdiag tool or prompt", n)
+		}
+	}
+	for _, n := range bubblesToolNames {
+		if !slices.Contains(bubblesV020Tools, n) {
+			t.Errorf("runbooks may name %s, which bubbles v0.2.0 does not have", n)
+		}
+	}
+	rb, ok := findRunbook("check_chat_alerts")
+	if !ok {
+		t.Fatal("no check_chat_alerts runbook")
+	}
+	for _, n := range rb.Tools {
+		if !slices.Contains(ToolNames, n) && !slices.Contains(bubblesV020Tools, n) {
+			t.Errorf("check_chat_alerts lists %s, which is neither server's tool", n)
+		}
+	}
+}
+
+// bubblesRepo is a checkout of the bubbles repository: $NETDIAG_BUBBLES_REPO,
+// else a "bubbles" folder next to this repository or one of its parents (a
+// worktree lives inside the main checkout). "" when there is none.
+func bubblesRepo(t *testing.T) string {
+	t.Helper()
+	if d := os.Getenv("NETDIAG_BUBBLES_REPO"); d != "" {
+		return d
+	}
+	dir, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		return ""
+	}
+	for {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+		if fi, err := os.Stat(filepath.Join(dir, "bubbles", ".git")); err == nil && fi != nil {
+			return filepath.Join(dir, "bubbles")
+		}
+	}
+}
+
+// TestBubblesToolsAtV020: bubblesV020Tools and bubblesFields are what
+// bubbles v0.2.0 has, read from its repository with git (skipped when there
+// is no bubbles checkout, as in CI).
+func TestBubblesToolsAtV020(t *testing.T) {
+	repo := bubblesRepo(t)
+	if repo == "" {
+		t.Skip("no bubbles checkout next to this repository (set NETDIAG_BUBBLES_REPO)")
+	}
+	out, err := exec.Command("git", "-C", repo, "show", "v0.2.0:internal/mcpserver/tools.go").Output()
+	if err != nil {
+		t.Skipf("git show v0.2.0 in %s: %v", repo, err)
+	}
+	src := string(out)
+	m := regexp.MustCompile(`(?s)var ToolNames = \[\]string\{(.*?)\}`).FindStringSubmatch(src)
+	if m == nil {
+		t.Fatal("bubbles v0.2.0 tools.go has no ToolNames")
+	}
+	var got []string
+	for _, q := range regexp.MustCompile(`"([a-z_]+)"`).FindAllStringSubmatch(m[1], -1) {
+		got = append(got, q[1])
+	}
+	if !slices.Equal(got, bubblesV020Tools) {
+		t.Fatalf("bubbles v0.2.0 ToolNames = %v, the copy here is %v", got, bubblesV020Tools)
+	}
+	for _, f := range bubblesFields {
+		if !strings.Contains(src, `json:"`+f+`"`) && !strings.Contains(src, `json:"`+f+`,`) {
+			t.Errorf("bubbles v0.2.0 tools have no field %s", f)
+		}
+	}
+	for _, f := range []string{"author", "dedupe_key", "state"} {
+		if !strings.Contains(src, `json:"`+f+`"`) {
+			t.Errorf("bubbles v0.2.0 alerts have no %s, which check_chat_alerts reads", f)
 		}
 	}
 }
@@ -363,7 +457,7 @@ func TestInstructionsV06(t *testing.T) {
 	}
 	var pl *mcp.ListPromptsResult
 	pl, err := e.cs.ListPrompts(context.Background(), nil)
-	if err != nil || len(pl.Prompts) != 9 {
+	if err != nil || len(pl.Prompts) != 10 {
 		t.Fatalf("prompts = %v err=%v", pl, err)
 	}
 }

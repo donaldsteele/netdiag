@@ -94,6 +94,8 @@ Paste this block, changing the `command` path to where you unzipped netdiag. On 
 
 If the file already has other entries, add `"netdiag"` inside the existing `mcpServers` block. Then restart Claude Desktop. netdiag does not need to be open for this option.
 
+To let Claude Desktop see the open netdiag window (the live scan, the problems right now and team chat), use `"args": ["mcp", "--attach"]` and turn on **Agent access (MCP)** in the window's **Settings**. When no window is open, or Agent access is off, it works as with `["mcp"]`, and Claude is told so.
+
 ### Option C: share the open netdiag window (HTTP)
 
 With this option, Claude sees the same live scan you see in the netdiag window.
@@ -340,6 +342,7 @@ netdiag ui --no-browser                       # start the UI without opening a b
 netdiag ui --port 8765                        # fixed port (80 and 443 are refused; default: the last one, else 8787, else a free one)
 netdiag mcp                                   # AI agent access over stdio (see Connect Claude)
 netdiag mcp --store-dir D:\netdiag-data       # same, using another data folder
+netdiag mcp --attach                          # same, but use the open netdiag window when its Agent access is on
 netdiag version
 ```
 

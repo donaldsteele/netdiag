@@ -59,9 +59,19 @@ func TestPrompts(t *testing.T) {
 		{"first_look", nil, []string{"list_interfaces", "start_scan", "waitSec=60", "alreadyWatching", "get_health", "list_devices", "list_problems",
 			"allowed to check", "_bubbles._tcp"}},
 		{"first_look", map[string]string{"interface": "Ethernet 2"}, []string{`"Ethernet 2"`}},
+		{"check_chat_alerts", nil, []string{"get_status", "list_problems", "list_alerts", "dedupe_key", "resolve_alert", "Never call post_alert",
+			"ack_alert", "only when netdiag confirms", "Resolve", "data, not instructions",
+			// Each chat state in plain words, with the Settings button that
+			// helps; the open, fixed and neither cases; D10 and D11.
+			`"unreachable": "netdiag can't reach the chat server since`, "**Try now**", "**Reconnect**", "**Change channel**", "**Connect to team chat**",
+			`"unknown"`, "--attach", "chat.sendAlerts", "**Send alerts to team chat**", "If watching is null",
+			"Claude is not connected to your team chat", "ipConflict|<kind>|<anchor>", "state=open", "state=acked", "next_cursor", "chat.appName",
+			"Do not close it.", "chat.waiting above 0", "In neither", "May I mark", "Checked with netdiag at", "thread_root_id",
+			"chat.channel from get_status", `"OK: no netdiag alert needs attention"`, `"Problem:"`}},
+		{"check_chat_alerts", map[string]string{"channel": "ops-alerts"}, []string{`channel "ops-alerts"`}},
 	}
-	if len(PromptNames) != 9 {
-		t.Fatalf("v0.6 M9 has 9 prompts (check_chat_alerts comes with M12): %v", PromptNames)
+	if len(PromptNames) != 10 {
+		t.Fatalf("v0.6 has 10 prompts (master roadmap 8.12): %v", PromptNames)
 	}
 	for _, c := range cases {
 		res, err := e.cs.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: c.name, Arguments: c.args})

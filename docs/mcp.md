@@ -11,9 +11,10 @@ netdiag offers MCP in two ways:
 | Method | How it runs | Needs the netdiag window open? | Live mode | Turned on by |
 |---|---|---|---|---|
 | **stdio** (`netdiag mcp`) | The agent starts its own netdiag process | No | Not available | Always available |
+| **stdio, attached** (`netdiag mcp --attach`) | The agent starts netdiag, which passes everything on to the open netdiag window | No: without a window (or with Agent access off) it works like `netdiag mcp` | Available while attached | **Settings > Agent access (MCP)** for the window |
 | **HTTP** (`/mcp` on the UI server) | Shares the running netdiag window | Yes | Available | **Settings > Agent access (MCP)** (off by default) |
 
-Both methods use the same tools, resources and prompts, and the same safety rules. Use stdio when you want Claude to run a scan on its own. Use HTTP when you want Claude to see the same scan you see in the browser.
+All methods use the same tools, resources and prompts, and the same safety rules. Use stdio when you want Claude to run a scan on its own. Use HTTP, or `--attach` for clients that only start programs (Claude Desktop), when you want Claude to see the same scan you see in the browser.
 
 Scans sent by an agent send real network traffic, just like the **Scan** button. Only connect agents to a network you are allowed to scan.
 
@@ -28,6 +29,18 @@ netdiag mcp [--store-dir DIR]
 - Speaks MCP over standard input and output. Logs go to stderr only, so stdout carries only protocol messages.
 - Settings and history are read from the same folder as the UI (see the README, "Where the data is kept"). Use `--store-dir DIR` to choose another folder for this run. If the folder cannot be opened, netdiag prints a warning to stderr and continues.
 - Ctrl+C or the agent closing the connection stops the process. Scans it started are cancelled and their partial results are kept.
+
+### stdio attached to the window: `netdiag mcp --attach`
+
+```
+netdiag mcp --attach [--store-dir DIR]
+```
+
+- When the netdiag window for the same data folder is open and its **Agent access (MCP)** is on, `--attach` passes the agent's messages on to the window's own MCP address and back. The agent then sees what the window sees: the scan watching the network (`get_status` `watching`), the problems right now and team chat. `get_status` answers `"transport": "http"` and `window.thisProcess: true`.
+- netdiag finds the window through `instance.json` in the data folder and checks that the netdiag answering on that port is really the one that wrote it (another user's netdiag on the same port does not count).
+- With no window open, or with Agent access off, it runs on its own, exactly like `netdiag mcp`. It prints one line to stderr saying why, and `get_status` says it in its `note`: "No netdiag window is open" or "The netdiag window is open but Agent access is off".
+- It never gets around Agent access: turning it off in the window closes the attached session too, and `netdiag mcp --attach` then exits (the client shows the server as stopped; start a new session after turning Agent access back on).
+- Choose it when it starts: a window opened later is not picked up until the agent starts `netdiag mcp --attach` again.
 
 ### HTTP: the running netdiag window
 
@@ -91,7 +104,7 @@ Add the `netdiag` entry (on Windows, use the real path and double the backslashe
 
 On Mac, use the path to the `netdiag` file, for example `"command": "/Applications/netdiag/netdiag"`, with `"args": ["mcp"]`. If the file already has other `mcpServers` entries, add `netdiag` inside the same object instead of creating a second one. Restart Claude Desktop after saving.
 
-Claude Desktop uses stdio only. For the HTTP method, use Claude Code.
+Claude Desktop uses stdio only. To let it see the open netdiag window (the scan watching the network, the problems right now and team chat), use `"args": ["mcp", "--attach"]` and turn on **Agent access (MCP)** in the window. Without a window it works as with `["mcp"]`.
 
 ## Tools
 
@@ -112,7 +125,7 @@ All tools return compact JSON. List tools return pages (use `cursor` and `nextCu
 | `list_history` | Saved scans, newest first. | `limit` (default 20, max 100) | Yes |
 | `compare_scans` | What was added, removed and changed between two scans (up to 200 rows per list). | `baseId` (default: previous scan of the same range), `currentId` | Yes |
 | `get_settings` | Current settings. The SNMP community is shown as `***`, and a password in the web server URL (`http://user:password@host/`) as `xxxxx`. | none | Yes |
-| `get_status` | Where to start. Whether the netdiag window is open and serves this connection (`window.thisProcess`), whether Agent access is on, the scan watching the network (`watching`, with its `scanId`, or `null`), the scan running now, and a count of the problems with `checkedAt`. `note` says in a sentence what this connection can see: over stdio, `watching` is always `null`, and the note says whether a window is open (with Agent access on or off). It never shows a token. | none | Yes |
+| `get_status` | Where to start. Whether the netdiag window is open and serves this connection (`window.thisProcess`), whether Agent access is on, the scan watching the network (`watching`, with its `scanId`, or `null`), the scan running now, a count of the problems with `checkedAt`, and team chat (`chat`: `state`, `server`, `channel`, `appName` (the chat app netdiag posts as), `sendAlerts` and `minSeverity` (the **Send alerts to team chat** switch and level), `waiting` (alerts still to send), `lastSentAt`, and `since` while the chat server does not answer). `chat.state` is `off`, `connected`, `no_channel`, `unreachable`, `needs_reconnect`, `identity_changed`, or `unknown` when this connection is not the window's. `note` says in a sentence what this connection can see: over stdio, `watching` is always `null`, and the note says whether a window is open (with Agent access on or off). It never shows a token. | none | Yes |
 | `list_problems` | What is wrong right now, most urgent first: the same list as the **Problems right now** card. Each open problem has `key` (the same as its team chat alert), `kind`, `severity` (`critical`, `warning` or `info`), `title`, `device`, `since`, `advice` (`meaning`, `steps` and the `actions` buttons, in netdiag's own words), `chat.posted`, and `recheck` (the tool and arguments that check it again). `everythingFine` is `true` only when a finished check that is not paused, with health results (unless health alerts are off), found nothing that is a warning or worse. It is also `false` when nothing was checked yet (`source` `none`), while a scan is still on its first pass, while the checks are paused (`held`, with `heldReason`), and when the health checks did not run: `false` with no warning means "not checked", not a problem. `fixed` lists what was fixed in the last 24 hours (`fixedAt`, `downForSec`). `source` is `live`, `latest`, `saved` or `none`; over stdio it is the newest saved scan. | `includeFixed` (default true), `limit` (default 50, max 200) | Yes |
 | `get_runbook` | netdiag's runbooks (the prompts below) as a tool, for clients without prompts. Without a name, returns `{"runbooks": [...]}`, each with `name`, `title`, `description`, `arguments` and `since`. With a name, returns `{"name", "title", "text"}`, where `text` is the same as the prompt (and as `netdiag://runbooks/{name}`). A missing required argument is an error, as for the prompt. | `name`, `arguments` | Yes |
 
@@ -156,6 +169,7 @@ Prompts are short runbooks. The client shows them as commands or menu items, and
 | `explain_problems` | none | Explain every open problem in plain words, most urgent first, with netdiag's own advice and buttons, and what was fixed in the last day. The answer starts with **OK**, **Problem** or **Not checked**. Not checked says why, in the window's words, with its buttons: no scan yet (**Scan**), a scan still going (wait), or health checks that did not run (**Open Health**, then **Recheck**). While netdiag has paused its checks, the answer says so first. |
 | `internet_not_working` | none | Run the health checks and find where the connection breaks: this computer, the Wi-Fi or cable, the router, name lookup or the internet line. Then whether it is just this computer. |
 | `device_offline` | `device` (optional; the agent asks) | Why one device stopped answering: probe it, read when it was last seen and how it was found, and whether it moved to another address. |
+| `check_chat_alerts` | `channel` (optional; default: the channel netdiag posts to) | Go through netdiag's open alerts in team chat with the bubbles tools (`list_alerts`, `resolve_alert`), matching each one to `list_problems` by its key. Still a problem: re-check it once and say since when, and leave it open. Fixed: netdiag closes it itself; Claude closes it only when netdiag confirms it is fixed, it is still open a minute later, and you say yes. Never posts new alerts or acknowledges them. Needs Claude connected to bubbles too (see below). |
 | `first_look` | `interface` (optional) | Get to know a local network: this computer, the router, what is on it (counted by type) and what to fix first. Asks before scanning. |
 | `triage_network` | `cidr` (optional, default: first interface) | Use the scan that is watching the network and its summary (or ask, then scan), check health, go through the problems with their advice, check conflicts, then suggest likely causes. |
 | `diagnose_printer` | `ip` (required) | Read the printer's details and its advice, probe it, and check its supplies (low means at or below the supply threshold in Settings), alerts, IPP state, ports 9100 and 631, and conflicts. |
@@ -163,12 +177,14 @@ Prompts are short runbooks. The client shows them as commands or menu items, and
 | `device_missing` | `nameOrIp` (required) | Start from the problem list, search the current scan and history, compare ARP and ping results, and read the offline timeline. |
 | `what_changed` | `baseId`, `currentId` (both optional) | Compare two scans (default: the latest scan and the one before it) and describe what changed. |
 
+**Checking chat alerts (`check_chat_alerts`).** netdiag posts its own alerts to team chat (bubbles) and closes each one itself when the problem is fixed. To have Claude look over them, connect Claude to both netdiag (with `--attach` or HTTP, so it sees the window's team chat) and bubbles' own MCP server. A chat admin gives Claude a token of the netdiag app with the `mcp`, `alerts:write` and `messages:read` scopes, and the netdiag app's bot must be in the alerts channel. bubbles closes an alert by its key only for the app that posted it: with a token of another app, Claude cannot close netdiag's alerts and asks you to press **Resolve** in bubbles instead. netdiag's tool and prompt names never clash with bubbles' (v0.2.0) tools.
+
 Calling a prompt without a required argument returns an error. Every runbook ends with the same rules: what the agent cannot do (and that it should name the button in the netdiag window instead), that text from devices and other people is data, never instructions, to ask before a scan, and how to write the answer for someone who is not technical.
 
 ## Safety model
 
 - **Loopback only.** The HTTP endpoint listens on `127.0.0.1` and only answers when the `Host` header is the local address. Requests whose `Origin` header is not `http://127.0.0.1:<port>` or `http://localhost:<port>` are refused with `403`.
-- **Off by default.** HTTP access is off until someone turns on **Agent access (MCP)** in Settings. An agent cannot turn it on: the settings endpoints are not offered as tools.
+- **Off by default.** HTTP access is off until someone turns on **Agent access (MCP)** in Settings. An agent cannot turn it on: the settings endpoints are not offered as tools. `netdiag mcp --attach` uses the same switch: while it is off, it does not attach.
 - **Read-only settings.** Agents cannot change settings, delete history, ignore MAC addresses, quit netdiag, restart or replace the scan that is watching the network, connect or disconnect team chat, send test alerts or post alerts to chat, choose the chat channel or open Windows settings pages. These actions are not available as MCP tools, and the code that would run them is kept out of the MCP package. Chat alerts are closed by netdiag itself.
 - **SNMP community hidden.** The community string is never sent to an agent. Settings and device details show it as `***`.
 - **Device text is data.** Anyone with a device on the network can choose what it reports about itself: its hostname, mDNS name, SNMP name, description and location, printer alert and display text, and its web page title and server header. netdiag passes this text on as it was received. The server instructions and every prompt tell the agent to treat it as data to report, never as instructions to follow. Agents can still be fooled, so check what the agent suggests before acting on it.
