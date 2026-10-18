@@ -107,13 +107,15 @@ func TestLedgerApplyAndReopen(t *testing.T) {
 	if got := l2.OpenFor(""); len(got) != 0 {
 		t.Fatalf("unknown network: %v", got)
 	}
-	// An OK moves the problem to the fixed list.
+	// An OK moves the problem to the fixed list, with the open problem's
+	// detail: the card says which alert was fixed.
 	l2.Apply(netA, []model.Notice{coverOK})
 	open, fixed = l2.Snapshot()
 	if len(open) != 1 || len(fixed) != 1 {
 		t.Fatalf("open %v fixed %v", open, fixed)
 	}
-	if f := fixed[0]; f.Key != cover.Key || f.FixedAt != coverOK.At || f.OpenedAt != cover.At || f.Title != "Printer alert" || f.Network != netA {
+	if f := fixed[0]; f.Key != cover.Key || f.FixedAt != coverOK.At || f.OpenedAt != cover.At || f.Title != "Printer alert" || f.Network != netA ||
+		f.Detail != cover.Detail {
 		t.Fatalf("fixed %+v", f)
 	}
 }

@@ -216,6 +216,7 @@ func TestCurrentRules(t *testing.T) {
 	printer := model.Host{IP: "10.0.0.9", Alive: true, Online: false, IsPrinter: true, MAC: "02:00:5E:00:00:09"}
 	h := fineHealth()
 	h.Checks[0] = hc("gateway", model.HealthFail, model.ReasonNoReply)
+	h.Checks[0].Label = "Gateway reachable" // health.go's label
 	h.Checks[2] = hc("dns", model.HealthFail, model.ReasonNoReply)
 	h.Checks[5] = hc("wifi", model.HealthWarn, model.ReasonWeak)
 	h.Checks[4] = hc("internet", model.HealthUnavailable, model.ReasonTimeout)
@@ -227,8 +228,13 @@ func TestCurrentRules(t *testing.T) {
 	if got := kinds(ps); !reflect.DeepEqual(got, want) {
 		t.Fatalf("default triggers: %v", got)
 	}
-	if ps[0].Key != notify.HealthKey("gateway") || ps[0].Check != "gateway" || ps[0].Title != "Health check failed" {
+	// The card names the check by its short name: "Health check failed ·
+	// Gateway reachable" reads as if the router answered.
+	if ps[0].Key != notify.HealthKey("gateway") || ps[0].Check != "gateway" || ps[0].Title != "Health check failed" || ps[0].Detail != "Gateway" {
 		t.Errorf("gateway item: %+v", ps[0])
+	}
+	if ps[1].Detail != "DNS" {
+		t.Errorf("dns item: %+v", ps[1])
 	}
 	if ps[2].Title != TitleHealthNotRun || ps[4].Title != TitleHealthWarn {
 		t.Errorf("titles: %q %q", ps[2].Title, ps[4].Title)
@@ -371,7 +377,7 @@ func TestViewLedger(t *testing.T) {
 		},
 		Fixed: []Fixed{
 			{Key: "healthFailed||dns", Title: "Health check OK again", Network: net, OpenedAt: "2026-10-17T10:05:00Z", FixedAt: "2026-10-17T10:12:00Z"},
-			{Key: "supplyLow|02:00:5E:00:00:09|abc", Title: "Supply OK again", IP: "10.0.0.9", Name: "Laser", Network: net, FixedAt: "2026-10-17T10:20:00Z"},
+			{Key: "supplyLow|02:00:5E:00:00:09|abc", Title: "Supply OK again", Detail: "Black Toner", IP: "10.0.0.9", Name: "Laser", Network: net, FixedAt: "2026-10-17T10:20:00Z"},
 			{Key: "healthFailed||wifi", Title: "Health check OK again", Network: "n-other", FixedAt: "2026-10-17T10:21:00Z"},
 			{Key: "healthFailed||gateway", Title: "Health check OK again", Network: net, FixedAt: "2026-10-16T09:00:00Z"},
 			{Key: "printerOffline|ip:10.0.0.9|", Title: "Printer back online", Network: net, FixedAt: "2026-10-17T10:25:00Z"},
@@ -398,10 +404,13 @@ func TestViewLedger(t *testing.T) {
 	if strings.Join(keys, " ") != "supplyLow|02:00:5E:00:00:09|abc healthFailed||dns" {
 		t.Fatalf("fixed: %v", keys)
 	}
-	if f := v.Fixed[1]; f.Kind != model.TriggerHealthFailed || f.DownForSec != 420 || f.Device != nil {
+	// Each fixed item says which one was fixed: the check by its short name
+	// (from the key, also for a ledger saved before Detail), the supply.
+	if f := v.Fixed[1]; f.Kind != model.TriggerHealthFailed || f.DownForSec != 420 || f.Device != nil || f.Detail != "DNS" {
 		t.Errorf("dns fixed: %+v", f)
 	}
-	if f := v.Fixed[0]; f.Device == nil || f.Device.IP != "10.0.0.9" || f.Device.Name != "Laser" || f.DownForSec != 0 {
+	if f := v.Fixed[0]; f.Device == nil || f.Device.IP != "10.0.0.9" || f.Device.Name != "Laser" || f.DownForSec != 0 ||
+		f.Detail != "Black Toner" {
 		t.Errorf("supply fixed: %+v", f)
 	}
 	// The JSON the card reads.

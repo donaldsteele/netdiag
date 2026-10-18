@@ -164,6 +164,26 @@ func TestProblemsHeldLiveScan(t *testing.T) {
 	}
 }
 
+// The card names a health check as the page's health strip does
+// (problems.CheckNames, app.js healthStrip): "Health check failed ·
+// Gateway", never the check's label ("Gateway reachable", which reads as if
+// the router answered). Every name is of a check the health package runs.
+func TestCheckNamesMatchHealthStrip(t *testing.T) {
+	js, _ := readAsset("app.js")
+	names := problems.CheckNames()
+	if len(names) != 6 {
+		t.Fatalf("check names: %v", names)
+	}
+	for id, name := range names {
+		if !strings.Contains(string(js), "['"+id+"', '"+name+"']") {
+			t.Errorf("app.js healthStrip lacks ['%s', '%s']", id, name)
+		}
+		if health.Label(id) == id {
+			t.Errorf("%s is not a health check", id)
+		}
+	}
+}
+
 // Every fixed /api route of the route table has a mock in the UI harness
 // (tools/uitest/support/mock.mjs), where flow specs fail on unmatched
 // requests.

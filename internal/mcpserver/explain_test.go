@@ -45,6 +45,8 @@ var explainVerdicts = []verdictRule{
 		func(_ StatusOut, p ProblemsOut) bool { return p.EverythingFine }},
 	{`4. If source is "none"`, `Not checked: netdiag has not looked at the local network yet.`,
 		func(_ StatusOut, p ProblemsOut) bool { return p.Source == problems.SourceNone }},
+	{`If source is "health"`, `Not checked: the health checks ran, but netdiag has not looked at the devices yet.`,
+		func(_ StatusOut, p ProblemsOut) bool { return p.Source == problems.SourceHealth && !urgent(p) }},
 	{`5. If held is true`, "", nil},
 	{`- "link": `, `Problem: this computer lost the local network, so netdiag paused its checks.`, heldFor(model.HeldLink)},
 	{`- "gateway": `, `Problem: the router stopped answering, so netdiag paused its checks.`, heldFor(model.HeldGateway)},
@@ -202,6 +204,20 @@ func TestExplainProblemsFixtures(t *testing.T) {
 				t.Errorf("the most urgent item is a note: %+v", out.Open[0])
 			}
 		})
+	}
+}
+
+// Only the health checks ran (run_health_check, the window's Check again)
+// and no scan: list_problems speaks for them (source health), and with
+// nothing wrong the answer is Not checked, since no device was looked at.
+func TestExplainProblemsHealthOnly(t *testing.T) {
+	e := setup(t, "stdio", true, fakePinger{})
+	var rep model.HealthReport
+	e.ok(t, "run_health_check", nil, &rep)
+	got, _, out := explain(t, e)
+	if out.Source != problems.SourceHealth || out.EverythingFine ||
+		got != "Not checked: the health checks ran, but netdiag has not looked at the devices yet." {
+		t.Fatalf("health checks only: %q %+v", got, out)
 	}
 }
 

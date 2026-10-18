@@ -29,6 +29,15 @@ func (h okHealth) Run(context.Context, health.Input) model.HealthReport {
 
 const testNet = "n-0123456789ab"
 
+// failDNS answers every on-demand run with a failed DNS check of testNet.
+type failDNS struct{}
+
+func (failDNS) Run(context.Context, health.Input) model.HealthReport {
+	return model.HealthReport{CheckedAt: "2099-01-01T00:00:00Z", Network: testNet, Checks: []model.HealthCheck{
+		{ID: "gateway", Label: "Gateway reachable", Status: model.HealthOK},
+		{ID: "dns", Label: "DNS resolving", Status: model.HealthFail, Data: map[string]any{"reason": model.ReasonNoReply}}}}
+}
+
 // savedDNSFail is a saved scan of testNet whose DNS check failed.
 func savedDNSFail() model.ScanResult {
 	return model.ScanResult{ID: "h-1", Request: model.ScanRequest{CIDR: "10.9.0.0/24"}, State: "done",
@@ -96,6 +105,27 @@ func TestProblemsSavedScanLedgerAndHealthRun(t *testing.T) {
 	s.RunHealth(context.Background(), "")
 	if v := s.Problems(); v.EverythingFine {
 		t.Errorf("Check again of an unknown network: %+v", v)
+	}
+}
+
+// No scan to speak for, but Check again ran: the card speaks for the health
+// checks, with their problems named by the checks' short names, and never
+// says everything is fine (no device was looked at), nor that netdiag
+// looked at nothing.
+func TestProblemsHealthRunOnly(t *testing.T) {
+	s, _ := newSvc(t, true, failDNS{})
+	s.RunHealth(context.Background(), "")
+	v := s.Problems()
+	if v.Source != problems.SourceHealth || v.EverythingFine || v.CheckedAt != "2099-01-01T00:00:00Z" || len(v.Open) != 1 {
+		t.Fatalf("health checks only: %+v", v)
+	}
+	if p := v.Open[0]; p.Key != "healthFailed||dns" || p.Detail != "DNS" || p.Severity != problems.SevWarning || p.Advice == nil {
+		t.Errorf("dns item: %+v", p)
+	}
+	s.cfg.Health = okHealth{network: testNet}
+	s.RunHealth(context.Background(), "")
+	if v := s.Problems(); v.Source != problems.SourceHealth || v.EverythingFine || len(v.Open) != 0 {
+		t.Fatalf("health checks only, all fine: %+v", v)
 	}
 }
 

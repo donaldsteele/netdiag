@@ -340,7 +340,10 @@ var runbooks = []runbook{
 				"2. Call list_problems. The first line of your answer comes from the first of steps 3 to 7 that applies.\n" +
 				"3. If everythingFine is true, start your answer with \"" + verdictOK + ": everything looks fine (checked <time>)\", add any fixed items from the last 24 hours, and stop.\n" +
 				"4. If source is \"none\", start with \"" + verdictNotChecked + ": netdiag has not looked at the local network yet.\" " +
-				"Suggest ticking **Live mode** and pressing **Scan** in the netdiag window, and stop.\n" +
+				"Suggest ticking **Live mode** and pressing **Scan** in the netdiag window, and stop. " +
+				"If source is \"health\", only the health checks ran and netdiag has not looked at the devices yet: when an open problem is a warning or critical, go on with step 7. " +
+				"Otherwise start with \"" + verdictNotChecked + ": the health checks ran, but netdiag has not looked at the devices yet.\" " +
+				"List any notes as \"Also worth knowing\", suggest pressing **Scan** in the netdiag window, and stop.\n" +
 				"5. If held is true, netdiag's checks are on hold (the netdiag window says Paused or Stopped), so the list is from the last check at checkedAt. Start with the line for its heldReason:\n" +
 				"   - \"link\": \"" + verdictProblem + ": this computer lost the local network, so netdiag paused its checks.\" Suggest checking this computer's network cable or Wi-Fi.\n" +
 				"   - \"gateway\": \"" + verdictProblem + ": the router stopped answering, so netdiag paused its checks.\" Suggest checking that the router is switched on and its lights look normal.\n" +

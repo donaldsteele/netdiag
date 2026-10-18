@@ -111,7 +111,7 @@ type ProblemsStatus struct {
 	Open         int    `json:"open"`
 	FixedLast24h int    `json:"fixedLast24h"`
 	CheckedAt    string `json:"checkedAt,omitempty"`
-	// Source is problems.View's: live, latest, saved or none.
+	// Source is problems.View's: live, latest, saved, health or none.
 	Source         string `json:"source"`
 	EverythingFine bool   `json:"everythingFine"`
 }
@@ -121,7 +121,7 @@ const (
 	NoteNoWindow     = "No netdiag window is open. This connection runs its own netdiag and reads the saved results."
 	NoteAgentOff     = "The netdiag window is open but Agent access is off. This connection runs its own netdiag and reads the saved results; the person can turn on Settings > Agent access in the netdiag window."
 	NoteOtherProcess = "The netdiag window is open, but this connection runs its own netdiag and cannot see what the window is watching. It reads the saved results; connect to the window's MCP address (Settings > Agent access), or start this connection with netdiag mcp --attach, to see the live view."
-	NoteNotWatching  = "netdiag isn't watching the network right now: problems are from the last check. The person can tick Live mode and press Scan in the netdiag window to keep watching."
+	NoteNotWatching  = "netdiag isn't watching the network right now: problems are from the last check. The person can tick Live mode and press Scan in the netdiag window to start watching."
 	NoteNotChecked   = "netdiag has not checked this network yet. The person can tick Live mode and press Scan in the netdiag window to start watching."
 )
 

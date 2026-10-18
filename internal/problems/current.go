@@ -50,8 +50,9 @@ type Problem struct {
 	Kind     string `json:"kind"`
 	Severity string `json:"severity"` // SevCritical, SevWarning or SevInfo
 	Title    string `json:"title"`
-	// Detail says which one: the check, the printer alert, the supply and
-	// its level, or the addresses of a conflict.
+	// Detail says which one: the check (its short name, CheckName), the
+	// printer alert, the supply and its level, or the addresses of a
+	// conflict.
 	Detail string     `json:"detail,omitempty"`
 	Device *DeviceRef `json:"device,omitempty"`
 	// Check is the health check id of a health item.
@@ -126,12 +127,36 @@ func deviceRef(h model.Host) *DeviceRef {
 	return &DeviceRef{IP: h.IP, MAC: strings.ToUpper(strings.TrimSpace(h.MAC)), Name: notify.Name(h)}
 }
 
-func checkName(c model.HealthCheck) string {
-	if c.Label != "" {
-		return c.Label
+// checkNames are the health checks' short names, as the page's health strip
+// says them (web/app.js healthStrip; TestCheckNamesMatchHealthStrip keeps
+// the two in step). The card names a check by them: a label such as
+// "Gateway reachable" next to "Health check failed" reads as if the router
+// answered.
+var checkNames = map[string]string{"gateway": "Gateway", "dhcp": "DHCP", "dns": "DNS", "internet": "Internet",
+	"wifi": "Wi-Fi", "webserver": "Web server"}
+
+// CheckNames returns a copy of the short name of each health check, by id.
+func CheckNames() map[string]string {
+	out := make(map[string]string, len(checkNames))
+	for k, v := range checkNames {
+		out[k] = v
 	}
-	return c.ID
+	return out
 }
+
+// CheckName is the short name of the health check id, else its label, else
+// id itself.
+func CheckName(id, label string) string {
+	if n := checkNames[id]; n != "" {
+		return n
+	}
+	if label != "" {
+		return label
+	}
+	return id
+}
+
+func checkName(c model.HealthCheck) string { return CheckName(c.ID, c.Label) }
 
 // normMAC is a MAC as conflicts and the ignore list carry it.
 func normMAC(m string) string {
@@ -392,19 +417,25 @@ func containsStr(list []string, s string) bool {
 }
 
 // Sources of a View: the running scan, the newest scan netdiag still holds,
-// a saved scan from history, or nothing yet.
+// a saved scan from history, only the health checks (a Check again with no
+// scan to speak for: the devices are not checked), or nothing yet.
 const (
 	SourceLive   = "live"
 	SourceLatest = "latest"
 	SourceSaved  = "saved"
+	SourceHealth = "health"
 	SourceNone   = "none"
 )
 
 // FixedItem is a problem fixed in the last FixedFor.
 type FixedItem struct {
-	Key        string     `json:"key"`
-	Kind       string     `json:"kind"`
-	Title      string     `json:"title"`
+	Key   string `json:"key"`
+	Kind  string `json:"kind"`
+	Title string `json:"title"`
+	// Detail says which one was fixed, as the open problem's Detail: the
+	// check's short name, or the printer alert or supply ("" when the
+	// ledger did not keep it).
+	Detail     string     `json:"detail,omitempty"`
 	Device     *DeviceRef `json:"device,omitempty"`
 	OpenedAt   string     `json:"openedAt,omitempty"`
 	FixedAt    string     `json:"fixedAt"`
@@ -572,9 +603,10 @@ func NewView(in Input) View {
 	}
 	hasHealth := in.Result.Health != nil && len(in.Result.Health.Checks) > 0
 	// While the first pass still sweeps, the devices it has not reached yet
-	// are unknown; while the storm guard holds, the list is from before.
+	// are unknown; while the storm guard holds, the list is from before;
+	// with only the health checks, no device was looked at.
 	v.EverythingFine = EverythingFine(v.Open) && (hasHealth || !in.Settings.Alerts.Triggers.HealthFailed) &&
-		in.Result.State != model.StateRunning && !in.Held
+		in.Result.State != model.StateRunning && !in.Held && in.Source != SourceHealth
 
 	for i := len(in.Fixed) - 1; i >= 0; i-- {
 		f := in.Fixed[i]
@@ -582,7 +614,11 @@ func NewView(in Input) View {
 			continue
 		}
 		kind, _, _ := strings.Cut(f.Key, "|")
-		it := FixedItem{Key: f.Key, Kind: kind, Title: f.Title, OpenedAt: f.OpenedAt, FixedAt: f.FixedAt}
+		it := FixedItem{Key: f.Key, Kind: kind, Title: f.Title, Detail: f.Detail, OpenedAt: f.OpenedAt, FixedAt: f.FixedAt}
+		if kind == model.TriggerHealthFailed {
+			// The key names the check, also in a ledger saved before Detail.
+			it.Detail = CheckName(strings.TrimPrefix(f.Key, notify.HealthKey("")), "")
+		}
 		if f.IP != "" {
 			it.Device = &DeviceRef{IP: f.IP, Name: f.Name}
 		}

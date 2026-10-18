@@ -70,8 +70,11 @@ type Entry struct {
 
 // Fixed is a problem fixed in the last FixedFor.
 type Fixed struct {
-	Key      string `json:"key"`
-	Title    string `json:"title"`
+	Key   string `json:"key"`
+	Title string `json:"title"`
+	// Detail is the open problem's Detail (the supply's or printer alert's
+	// description), so the card can say which one was fixed.
+	Detail   string `json:"detail,omitempty"`
 	IP       string `json:"ip,omitempty"`
 	Name     string `json:"name,omitempty"`
 	Network  string `json:"network"`
@@ -235,10 +238,13 @@ func (l *Ledger) Apply(network string, ns []model.Notice) {
 		if n.OK {
 			e := l.open[slot(network, n.Key)]
 			delete(l.open, slot(network, n.Key))
-			fx := Fixed{Key: n.Key, Title: n.Title, IP: n.IP, Name: n.Name, Network: network,
+			fx := Fixed{Key: n.Key, Title: n.Title, Detail: n.Detail, IP: n.IP, Name: n.Name, Network: network,
 				OpenedAt: n.OpenedAt, FixedAt: stamp(n.At, at)}
 			if e != nil {
 				fx.Title, fx.Network, fx.Chat = e.Title, e.Network, e.Chat
+				if e.Detail != "" {
+					fx.Detail = e.Detail
+				}
 				if fx.OpenedAt == "" {
 					fx.OpenedAt = e.OpenedAt
 				}

@@ -14,8 +14,9 @@ import (
 // for, with the ledger's start of each open problem and its problems fixed
 // in the last day. The scan is the running one (source live, with its storm
 // guard), else the newest finished one netdiag still holds (latest), else
-// the newest readable saved scan (saved). A newer on-demand health run
-// (Check again) of the same network stands in for the scan's health report
+// the newest readable saved scan (saved), else the last on-demand health run
+// (Check again) alone (health), else nothing (none). A newer on-demand
+// health run of the same network stands in for the scan's health report
 // (standsIn).
 func (s *Service) Problems() problems.View {
 	now := time.Now().UTC()
@@ -62,6 +63,16 @@ func (s *Service) Problems() problems.View {
 	}
 	if in.Source == "" {
 		in.Source = problems.SourceNone
+		// No scan, but Check again ran: the card speaks for the health
+		// checks (their problems; never everything fine, since no device
+		// was looked at), so it does not say netdiag looked at nothing.
+		h := s.lastHealthRun()
+		if h == nil {
+			return problems.NewView(in)
+		}
+		in.Source, in.Network, in.CheckedAt = problems.SourceHealth, h.Network, h.CheckedAt
+		in.Result = &model.ScanResult{State: model.StateDone, Health: h}
+		s.ledgerInto(&in)
 		return problems.NewView(in)
 	}
 	if in.Network == "" && r.Health != nil {
@@ -83,6 +94,12 @@ func (s *Service) Problems() problems.View {
 		}
 	}
 	in.Result = &r
+	s.ledgerInto(&in)
+	return problems.NewView(in)
+}
+
+// ledgerInto fills in's open and fixed problems from the ledger.
+func (s *Service) ledgerInto(in *problems.Input) {
 	switch {
 	case s.cfg.Ledger != nil:
 		in.Open, in.Fixed = s.cfg.Ledger.Snapshot()
@@ -92,7 +109,6 @@ func (s *Service) Problems() problems.View {
 		// unreadable file leaves out only the starts and the fixed list.
 		in.Open, in.Fixed, _ = problems.ReadLedger(s.cfg.Store)
 	}
-	return problems.NewView(in)
 }
 
 // standsIn reports whether run, the report of the last Check again, may
