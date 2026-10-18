@@ -49,7 +49,7 @@ func readEvents(t *testing.T, url, until string) string {
 // exception, because the Settings dialog edits the community.
 func TestSecretCommunityAppearsNowhere(t *testing.T) {
 	const secret = "s3cr3t-x"
-	_, u, st := startStore(t)
+	srv, u, st := startStore(t)
 	noLeak := func(what, body string) {
 		t.Helper()
 		if strings.Contains(body, secret) {
@@ -197,7 +197,12 @@ func TestSecretCommunityAppearsNowhere(t *testing.T) {
 
 	// Finally, nothing written to disk by a scan holds it: the history files
 	// (the old one rewritten on read) and every other file in the data dir
-	// except settings.json, which the Settings dialog edits.
+	// except settings.json, which the Settings dialog edits. The ledger is
+	// saved first, as Quit saves it, so open-problems.json is among them
+	// whenever a scan put anything in it.
+	if err := srv.svc.Close(); err != nil {
+		t.Fatal(err)
+	}
 	err = filepath.WalkDir(st.Dir(), func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || d.Name() == "settings.json" {
 			return err

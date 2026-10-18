@@ -10,6 +10,7 @@ import (
 	"netdiag/internal/health"
 	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
+	"netdiag/internal/problems"
 	"netdiag/internal/scan"
 	"netdiag/internal/store"
 )
@@ -35,6 +36,9 @@ type Config struct {
 	Interfaces func() ([]netinfo.Iface, error)
 	Gateway    func() (string, error)
 	BaseCtx    context.Context
+	// Ledger is the open-problem ledger the scans write (the same one as
+	// the registry's scan.Deps.Ledger); Close saves it. nil: none.
+	Ledger *problems.Ledger
 }
 
 // Service implements the application operations.
@@ -72,6 +76,16 @@ func New(cfg Config) *Service {
 
 // Registry returns the scan registry.
 func (s *Service) Registry() *scan.Registry { return s.cfg.Registry }
+
+// Close saves what the service still holds in memory before netdiag exits
+// (Quit): the open-problem ledger's last changes. Call it after the scans
+// have stopped.
+func (s *Service) Close() error {
+	if s.cfg.Ledger == nil {
+		return nil
+	}
+	return s.cfg.Ledger.Flush()
+}
 
 // HasStore reports whether a data store is configured.
 func (s *Service) HasStore() bool { return s.cfg.Store != nil }

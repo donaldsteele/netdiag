@@ -14,6 +14,7 @@ import (
 	"netdiag/internal/health"
 	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
+	"netdiag/internal/problems"
 	"netdiag/internal/scan"
 	"netdiag/internal/store"
 )
@@ -30,10 +31,15 @@ func startStore(t *testing.T) (*Server, string, *store.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// As `netdiag ui` wires it: one ledger and profile store for every scan.
+	ledger, err := problems.OpenLedger(st)
+	if err != nil {
+		t.Fatal(err)
+	}
 	reg := scan.NewRegistry(scan.New(scan.Deps{
 		Pinger: fakePinger{}, ARP: fakeARP{}, Ports: fakePorts{}, Web: fakeWeb{},
 		SNMP: fakeSNMP{}, DNS: fakeDNS{}, Vendors: fakeVendors{}, Env: fakeEnv{},
-		Store: st, Settings: st,
+		Store: st, Settings: st, Ledger: ledger, Profiles: scan.NewProfiles(st),
 	}))
 	s := New(Config{
 		Registry:     reg,
@@ -42,6 +48,7 @@ func startStore(t *testing.T) (*Server, string, *store.Store) {
 		Gateway:      func() (string, error) { return "10.0.0.1", nil },
 		Interfaces:   func() ([]netinfo.Iface, error) { return []netinfo.Iface{{Name: "eth0", IP: "10.0.0.30"}}, nil },
 		SessionToken: testToken,
+		Ledger:       ledger,
 	})
 	if err := s.Listen(0); err != nil {
 		t.Fatal(err)
@@ -357,6 +364,43 @@ func TestNoStore503(t *testing.T) {
 	}
 	if r, _ := doj(t, "GET", u+"/api/history", "", ""); r.StatusCode != 503 {
 		t.Fatalf("history: %d", r.StatusCode)
+	}
+}
+
+// Quit saves the open-problem ledger's last changes at once, without
+// waiting for its debounced save.
+func TestQuitSavesLedger(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := problems.OpenLedger(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(Config{Registry: scan.NewRegistry(scan.New(scan.Deps{Env: fakeEnv{}})), Store: st, Health: fakeHealth{},
+		Gateway: func() (string, error) { return "10.0.0.1", nil }, Ledger: ledger})
+	if err := s.Listen(0); err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- s.Serve(context.Background()) }()
+	ledger.Apply("n-0123456789ab", []model.Notice{{Trigger: model.TriggerHealthFailed, Severity: "critical",
+		Title: "Health check failed", Key: "healthFailed||gateway", At: "2026-10-17T10:00:00Z"}})
+	if r, _ := doj(t, "POST", s.URL()+"/api/quit", "{}", "application/json"); r.StatusCode != 204 {
+		t.Fatalf("quit: %d", r.StatusCode)
+	}
+	select {
+	case err := <-served:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not exit")
+	}
+	data, err := os.ReadFile(filepath.Join(st.Dir(), store.FileOpenProblems))
+	if err != nil || !strings.Contains(string(data), "healthFailed||gateway") {
+		t.Fatalf("ledger after quit: %s (%v)", data, err)
 	}
 }
 

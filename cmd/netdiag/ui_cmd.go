@@ -13,6 +13,7 @@ import (
 	"github.com/pkg/browser"
 
 	"netdiag/internal/instance"
+	"netdiag/internal/problems"
 	"netdiag/internal/scan"
 	"netdiag/internal/server"
 	"netdiag/internal/store"
@@ -62,14 +63,27 @@ func runUI(args []string, stdout, stderr io.Writer) int {
 		defer lock.Release()
 		remembered, foreign = info.Port, answer
 	}
+	// One open-problem ledger and one network profile store per process,
+	// shared by every scan and the service, so each file has one writer.
+	// They open after the start lock, so a second launch never reads them.
+	deps := scan.DefaultDeps()
+	var ledger *problems.Ledger
+	if st != nil {
+		if ledger, err = problems.OpenLedger(st); err != nil {
+			fmt.Fprintln(stderr, "warning: open problems:", err)
+		}
+		deps.Ledger = ledger
+		deps.Profiles = scan.NewProfiles(st)
+	}
 	token, id := instance.NewToken(), instance.NewID()
 	srv := server.New(server.Config{
-		Registry:     scan.NewRegistry(scan.New(scan.DefaultDeps())),
+		Registry:     scan.NewRegistry(scan.New(deps)),
 		Static:       web.FS(),
 		Store:        st,
 		Version:      version,
 		InstanceID:   id,
 		SessionToken: token,
+		Ledger:       ledger,
 	})
 	if err := listen(srv, instance.Ports(*port, remembered, foreign)); err != nil {
 		fmt.Fprintln(stderr, "error:", err)

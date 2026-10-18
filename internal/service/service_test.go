@@ -18,6 +18,7 @@ import (
 	"netdiag/internal/health"
 	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
+	"netdiag/internal/problems"
 	"netdiag/internal/scan"
 	"netdiag/internal/snmpprobe"
 	"netdiag/internal/store"
@@ -449,5 +450,34 @@ func TestLoadSettingsRepaired(t *testing.T) {
 	ns, _ := newSvc(t, false, nil)
 	if _, _, err := ns.LoadSettingsRepaired(); !errors.Is(err, ErrNoStore) {
 		t.Fatalf("want ErrNoStore, got %v", err)
+	}
+}
+
+// Close saves the open-problem ledger at once (Quit), and is harmless
+// without one.
+func TestCloseFlushesLedger(t *testing.T) {
+	if err := New(Config{}).Close(); err != nil {
+		t.Fatalf("no ledger: %v", err)
+	}
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := problems.OpenLedger(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(Config{Store: st, Ledger: l})
+	l.Apply("n-0123456789ab", []model.Notice{{Trigger: model.TriggerSupplyLow, Severity: "warn", IP: "10.0.0.10",
+		Title: "Supply low", Key: "supplyLow|ip:10.0.0.10|1a2b3c4d", At: "2026-10-17T10:00:00Z"}})
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	l2, err := problems.OpenLedger(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := l2.OpenFor("n-0123456789ab"); len(got) != 1 || got[0].Key != "supplyLow|ip:10.0.0.10|1a2b3c4d" {
+		t.Fatalf("after Close: %+v", got)
 	}
 }

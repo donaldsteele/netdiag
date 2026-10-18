@@ -19,6 +19,7 @@ import (
 	"netdiag/internal/mcpserver"
 	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
+	"netdiag/internal/problems"
 	"netdiag/internal/remote"
 	"netdiag/internal/scan"
 	"netdiag/internal/service"
@@ -48,6 +49,9 @@ type Config struct {
 	// X-Netdiag-Session (v0.6 4.1). A random token nobody knows is made
 	// when it is empty, so a server is never left open by mistake.
 	SessionToken string
+	// Ledger is the open-problem ledger the registry's scans write; the
+	// service saves it when netdiag quits. nil: none.
+	Ledger *problems.Ledger
 }
 
 // Server is the HTTP server. Create with New, then Listen and Serve.
@@ -81,7 +85,7 @@ func New(cfg Config) *Server {
 	svc := cfg.Service
 	if svc == nil {
 		svc = service.New(service.Config{Registry: cfg.Registry, Store: cfg.Store, Health: cfg.Health,
-			Interfaces: cfg.Interfaces, Gateway: cfg.Gateway, BaseCtx: ctx})
+			Interfaces: cfg.Interfaces, Gateway: cfg.Gateway, BaseCtx: ctx, Ledger: cfg.Ledger})
 	}
 	if cfg.Remote == nil {
 		cfg.Remote = remote.System{}
@@ -251,7 +255,8 @@ func (s *Server) waitScans(limit time.Duration) {
 }
 
 // Serve serves on the Listen'd socket until ctx is cancelled or /api/quit is
-// called, then cancels running scans and shuts down gracefully.
+// called, then cancels running scans, saves what the service holds (the
+// open-problem ledger) and shuts down gracefully.
 func (s *Server) Serve(ctx context.Context) error {
 	s.mu.Lock()
 	ln := s.ln
@@ -269,12 +274,15 @@ func (s *Server) Serve(ctx context.Context) error {
 	select {
 	case err := <-errc:
 		s.cancel()
+		s.waitScans(5 * time.Second)
+		_ = s.svc.Close()
 		return err
 	case <-ctx.Done():
 	case <-s.quit:
 	}
 	s.cancel() // cancels running scans and open SSE streams
 	s.waitScans(5 * time.Second)
+	closeErr := s.svc.Close()
 	sctx, c := context.WithTimeout(context.Background(), 3*time.Second)
 	defer c()
 	if err := hs.Shutdown(sctx); err != nil {
@@ -282,6 +290,9 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 	if err := <-errc; err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("server: %w", err)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("server: saving open problems: %w", closeErr)
 	}
 	return nil
 }
