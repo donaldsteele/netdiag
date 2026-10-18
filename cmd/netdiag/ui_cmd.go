@@ -2,25 +2,41 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/pkg/browser"
 
+	"netdiag/internal/instance"
 	"netdiag/internal/scan"
 	"netdiag/internal/server"
 	"netdiag/internal/store"
 	"netdiag/web"
 )
 
+// openBrowser opens a page in the default browser; tests replace it.
+var openBrowser = browser.OpenURL
+
+// lockWait is how long a launch waits for the netdiag that holds the start
+// lock to answer before it gives up.
+var lockWait = 3 * time.Second
+
 // runUI implements `netdiag ui` (and the no-argument default).
+//
+// One netdiag serves a data folder (v0.6 F9b). A launch first asks the port
+// in instance.json who is there: when the same netdiag answers, it opens
+// that page (with its session token) and exits 0. Otherwise it takes the
+// start lock, picks a port (--port, then the remembered one, then 8787, then
+// a random one; D6) and writes instance.json with a new token.
 func runUI(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ui", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	port := fs.Int("port", 0, "port to listen on (default: random free port)")
+	port := fs.Int("port", 0, "port to listen on (default: the port netdiag used last, else 8787, else a random free port)")
 	noBrowser := fs.Bool("no-browser", false, "do not open the default browser")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -34,15 +50,37 @@ func runUI(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "warning: settings/history unavailable:", err)
 		st = nil
 	}
+	var (
+		remembered int
+		foreign    bool
+	)
+	if st != nil {
+		info, lock, answer, code := claim(st, *noBrowser, stdout, stderr)
+		if lock == nil && code >= 0 {
+			return code
+		}
+		defer lock.Release()
+		remembered, foreign = info.Port, answer
+	}
+	token, id := instance.NewToken(), instance.NewID()
 	srv := server.New(server.Config{
-		Registry: scan.NewRegistry(scan.New(scan.DefaultDeps())),
-		Static:   web.FS(),
-		Store:    st,
-		Version:  version,
+		Registry:     scan.NewRegistry(scan.New(scan.DefaultDeps())),
+		Static:       web.FS(),
+		Store:        st,
+		Version:      version,
+		InstanceID:   id,
+		SessionToken: token,
 	})
-	if err := srv.Listen(*port); err != nil {
+	if err := listen(srv, instance.Ports(*port, remembered, foreign)); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
+	}
+	if st != nil {
+		err := instance.Save(st, instance.Info{Port: srv.Port(), PID: os.Getpid(), InstanceID: id, Token: token,
+			StartedAt: srv.StartedAt(), Version: version})
+		if err != nil {
+			fmt.Fprintln(stderr, "warning: could not save instance.json:", err)
+		}
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -53,7 +91,7 @@ func runUI(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "netdiag MCP: %s (disabled — turn on in Settings > Agent access)\n", srv.MCPURL())
 	}
 	if !*noBrowser {
-		if err := browser.OpenURL(srv.URL()); err != nil {
+		if err := openBrowser(instance.PageURL(srv.Port(), token)); err != nil {
 			fmt.Fprintln(stderr, "could not open browser:", err)
 		}
 	}
@@ -62,4 +100,71 @@ func runUI(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// claim makes this launch the netdiag of st's data folder. When the netdiag
+// in instance.json answers, it opens that page and returns code 0 and no
+// lock; when another netdiag holds the start lock and never answers, code
+// 1. Otherwise it returns the start lock (nil, with code -1, when the
+// system has none to give: netdiag then runs without it), what
+// instance.json held, and whether another netdiag answered on its port.
+func claim(st *store.Store, noBrowser bool, stdout, stderr io.Writer) (instance.Info, *instance.Lock, bool, int) {
+	ctx := context.Background()
+	info, err := instance.Load(st)
+	if err != nil {
+		fmt.Fprintln(stderr, "warning: could not read instance.json:", err)
+	}
+	running, ans, answered := instance.Running(ctx, info)
+	if running {
+		return info, nil, false, openRunning(info, noBrowser, stdout, stderr)
+	}
+	lock, err := instance.Acquire(st.Dir())
+	// Another netdiag holds the lock: it is starting, or about to stop.
+	// Ask again until it answers or lets go.
+	for deadline := time.Now().Add(lockWait); errors.Is(err, instance.ErrLocked) && time.Now().Before(deadline); {
+		time.Sleep(100 * time.Millisecond)
+		info, _ = instance.Load(st)
+		if running, ans, answered = instance.Running(ctx, info); running {
+			return info, nil, false, openRunning(info, noBrowser, stdout, stderr)
+		}
+		lock, err = instance.Acquire(st.Dir())
+	}
+	if errors.Is(err, instance.ErrLocked) {
+		fmt.Fprintf(stderr, "error: another netdiag is using the data folder %s but is not answering. Close it and try again.\n", st.Dir())
+		return info, nil, false, 1
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "warning: could not take the start lock:", err)
+		lock = nil
+	}
+	return info, lock, answered && info.Foreign(ans), -1
+}
+
+// openRunning opens the page of the netdiag that is already running, with
+// its session token, and reports it.
+func openRunning(info instance.Info, noBrowser bool, stdout, stderr io.Writer) int {
+	addr := fmt.Sprintf("http://127.0.0.1:%d", info.Port)
+	if noBrowser {
+		fmt.Fprintf(stdout, "netdiag is already running at %s.\n", addr)
+		return 0
+	}
+	if err := openBrowser(instance.PageURL(info.Port, info.Token)); err != nil {
+		fmt.Fprintf(stdout, "netdiag is already running at %s.\n", addr)
+		fmt.Fprintln(stderr, "could not open browser:", err)
+		return 0
+	}
+	fmt.Fprintf(stdout, "netdiag is already running at %s. Opened it in your browser.\n", addr)
+	return 0
+}
+
+// listen binds the first port of ports that is free (0 picks a random free
+// port). A port given with --port is the only one tried.
+func listen(srv *server.Server, ports []int) error {
+	var err error
+	for _, p := range ports {
+		if err = srv.Listen(p); err == nil {
+			return nil
+		}
+	}
+	return err
 }
