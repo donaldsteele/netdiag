@@ -34,10 +34,10 @@ This file is the one place that says what ships in which release, in what order,
    Every milestone leaves netdiag usable.
 5. Before starting a milestone, re-check its file:line references against the code, because line numbers drift. The plans use different bases:
    - v0.6 and v0.9: the pre-tag working tree;
-   - v0.7: `d69860a`;
+   - v0.7: written at `d69860a`, and now **based on the v0.6 branch head** (`71a5257`, 2026-10-17). Every reference in v0.7.md was re-checked there; where one moved or was renamed, the [Corrections after v0.6](#52-v07-device-toolkit) list in 5.2 says where it is now, and it wins over the plan;
    - v0.8: `fc9bd90`.
 
-   The v0.5.8 commits moved more lines. For example, `label()` in `internal/notify/notify.go` is now at `:120`, `Store.Previous` is at `internal/store/history.go:226`, `#drawer-remote` is at `web/index.html:349` and the "ten fixed ports" sentence is at `README.md:389`.
+   The v0.5.8 and v0.6 commits moved more lines. For example, on the v0.6 branch head `label()` in `internal/notify/notify.go` is at `:368`, `Store.Previous` is at `internal/store/history.go:312`, `#drawer-remote` is at `web/index.html:456` and the "ten fixed ports" sentence is at `README.md:483`.
 6. Tick the milestone's boxes in the plan. When a whole feature ships, tick it in the [Feature index](#7-feature-index) here.
 7. Record every decision in the [Decision log](#12-decision-log), and every item moved from one version to another. Nothing moves between versions without an entry.
 8. Release with the [standard steps](#13-release-process-and-definition-of-done).
@@ -97,7 +97,7 @@ Sizes are per milestone: S is up to 2 dev-days, M is 3-5 and L is 6-10. A releas
 | v0.5.7 | Honest checks (part 1) and Remote access | Refused connections detected on Windows. DNS check asks this computer's DNS servers. "Local network" wording. **Remote access**: RDP, VNC and SSH detected, Remote Desktop opens in one click | F1, the DNS part of F3, remote access (R1) | S (patch) | None | **Released** (2026-10-17, tag `v0.5.7`) |
 | v0.5.8 | Honest checks | Gateway that ignores ping, Web server redirects and **Trust this certificate**, the scanned interface for Recheck. SNMP community hidden everywhere, saved scans exportable. Port cap, **Ignore this MAC** asks first, Apache-2.0 licence and CI | Rest of F3; first slices of F11 (`model.RedactScan`) and F13 (`scan.MaxPorts`, `portprobe.PortWorkers`) | S (patch, 14 small fixes) | v0.5.7 tagged (met) | **Released** (2026-10-17, tag `v0.5.8`; see [4.2](#42-v058-honest-checks-released-2026-10-17)) |
 | v0.6 | Chat alerts you can trust | Team chat connect by clicks. #1 Problems right now and "Fixed". #2 What this means / What to try. #3 Never lose netdiag | Session token, F2, F6, F7, F9, F10, F11, F14, severity map, runbook registry | L: 14 milestones (2 L, 7 M, 2 S-M, 3 S) | v0.5.8 tagged (met). Test rig ready before M10. v0.6-D15 answered before M7 (met: decided 2026-10-17) | **In progress** |
-| v0.7 | Device toolkit | **Check open ports**. #4 quick actions. #5 names and rooms. #6 **Check my connection**. #8 **Why won't it print?** and **Make it beep**. #10 **Send to chat**. **Wake this computer** | F4, F5, F8 (devices.json v1), F12, F13, `names.Best`, Wake-on-LAN sender (`internal/wol`) | L: 11 milestones (9 M, 1 S-M, 1 S), about 7-8 dev-weeks | v0.6 shipped. V7-D1 to V7-D13 confirmed before M1 | Planned |
+| v0.7 | Device toolkit | **Check open ports**. #4 quick actions. #5 names and rooms. #6 **Check my connection**. #8 **Why won't it print?** and **Make it beep**. #10 **Send to chat**. **Wake this computer** | F4, F5, F8 (devices.json v1), F12, F13, `names.Best`, Wake-on-LAN sender (`internal/wol`) | L: 11 milestones (9 M, 1 S-M, 1 S), about 7-8 dev-weeks | v0.6 shipped (v0.6.0 tagged). V7-D1 to V7-D13 confirmed before M1. The plan is re-based on the v0.6 branch head ([5.2](#52-v07-device-toolkit)) | Planned |
 | v0.8 | Always watching | #7 Watch this device. #11 Keep watching this network. #17 Pause alerts and quiet hours. #19 "Still not fixed" reminders. #9 Get help report. #14 What changed | `internal/alertpolicy`, devices.json v2, server-owned settings fields, held items and reminder counts in the ledger | L: 9 milestones (1 L, 6 M, 2 S) | v0.7 shipped. Clean Windows 11 VM ready for the Defender gate | Planned |
 | v0.9 | Fix it yourself | #12 Help home and welcome. #13 This computer's printers. #15 Can I reach it?. #16 Is this ours?. #18 Is it dropping?. #20 Find my new device | New F4 job kinds, netinfo interface kinds, Windows ICMP pinger, devices.json v3 | L: 10 milestones (2 L, 4 M, 2 S-M, 2 S), about 6-7 dev-weeks | v0.8 shipped | Planned |
 | v0.9.1 to v0.9.3, then v1.0.0 | Microsoft Store | A windowless Start-menu app with a quit path, MSIX packaging, Store compliance, then **v1.0.0 in the Microsoft Store** and on GitHub | Windowless launcher and command alias, MSIX manifest and `scripts/package-msix.ps1`; optional Azure Artifact Signing for the zips | 4 milestones (S1-S4); items mostly M | v0.9.0 shipped. Partner Center account and the reserved name | Planned (decided 2026-10-17) |
@@ -267,7 +267,7 @@ Plan: [v0.6.md](v0.6.md). Status: In progress (started 2026-10-17, after the v0.
 
 ### 5.2 v0.7 "Device toolkit"
 
-Plan: [v0.7.md](v0.7.md). Status: Planned. The consistency review wrote this plan in full, because the first writer produced none. It replaces the first-round outline. Its code references were checked at `d69860a`.
+Plan: [v0.7.md](v0.7.md). Status: Planned. The consistency review wrote this plan in full, because the first writer produced none. It replaces the first-round outline. Its code references were checked at `d69860a`. **v0.7 is now based on the v0.6 branch head** (`71a5257`, 2026-10-17): every reference in the plan was opened again there, and the two lists below (Corrections after v0.6, Prerequisites after v0.6) say what moved, what v0.6 named differently and what is still missing. They win over the plan's own file:line references.
 
 **Gate**
 - **v0.6 has shipped**, with:
@@ -326,7 +326,106 @@ Anything on screen can be sent to team chat after a preview that shows exactly w
 - **F12 names.** The functions are `WriteSummaryText`, `WriteSummaryMarkdown(w, s, maxChars)`, `WriteSummaryHTML`, `EscapeMarkdown` and `DeviceSummary`. v0.8's `WriteHelp*` builds on them.
 - **Confirmations.** The wake confirmation is inline (`role="group"`). v0.5.8 shipped **Ignore this MAC** and **Trust this certificate** with `window.confirm`, so there is no inline pattern to reuse yet; v0.7 builds it (X-8).
 - **Workers.** F13's per-host cap (32 workers, 8 for the gateway) applies to the pacer. `ScanPorts` keeps v0.5.8's bound of 16.
-- **Line drift.** The plan cites `web/index.html:348` and `README.md:382`. On `master` they are `:349` (`#drawer-remote`) and `:389` (the "ten fixed ports" sentence).
+- **Line drift.** The plan cites `web/index.html:348` and `README.md:382`. On the v0.6 branch head they are `:456` (`#drawer-remote`) and `:483` (the "ten fixed ports" sentence); see the next list.
+
+**Corrections after v0.6 (2026-10-17)**
+
+Every reference in v0.7.md, checked by opening the file on the v0.6 branch head (`71a5257`). References that did not move are not listed: `model.DefaultPorts` (`model.go:7`), `PortSSH/PortRDP/PortVNC` and `IsRemotePort` (`:12-18`), `portprobe.Dial`/`Refused` (`dial.go:18`, `:28`), `ProbeWeb` (`web.go:31`), the sweep's token bucket (`discovery.go:144-187`), `netinfo.Iface.CIDR` and `virtualRe` (`rank.go:10-20`), `SuggestTarget` (`netinfo.go:90`), `scan.NewBus` (`bus.go:30`) and its replay (`Publish`, `:42-95`), `svcErr` (`handlers_v2.go:25-39`), `Service.ProbeHost` (`probe.go:13`), `report.CSVColumns` (`csv.go:14-21`) and `WriteCSV` (`:26`), `ipp.RequestedAttributes` (`client.go:29-34`), `GetPrinterAttributes` (`:59`), the read-only note (`codec.go:1-3`), `snmpprobe.PollStatus` (`status.go:54`), `arp.NormalizeMAC` (`parse.go:37-64`), the NL_NEIGHBOR_STATE read (`table_windows.go:27`, `entriesFromRows` `:68-99`), x/sys v0.49.0 (`GetIfEntry2Ex` `zsyscall_windows.go:1676`, `MibIfRow2` `types_windows.go:2281-2304`, `NET_RT_IFLIST2`, `IfData64`, `IP_BOUND_IF`), go-sdk v1.8.0 `ServerOptions.CompletionHandler` (`mcp/server.go:96`), bubbles v0.2.0 `UploadFile` (`pkg/bubblesclient/files.go:18`) and `CreateMessageRequest` (`pkg/protocol/requests.go:79-84`), and the five new icons (`sunrise`, `pencil`, `scan-eye`, `stethoscope`, `cable` are all in lucide-static 1.55.0).
+
+| Plan § | The plan says | On the v0.6 branch head |
+|---|---|---|
+| status, 4.7 | `presencePort` at `internal/scan/live.go:618-630` | `:638-650` |
+| status, 4.4 | `#drawer-remote` at `web/index.html:348` | `:456` |
+| status | remote routes at `internal/server/server.go:149-151` | in the route table `Server.routes()` (`:221-267`), at `:244-246`. `TestSessionGuardEveryMutatingRoute` walks that table, so every new v0.7 action route gets its 401 check by being added there |
+| status | `remoteTarget` at `handlers_remote.go:21-49` | `:21-51` |
+| 4.3 | `type Origin string // "ui" \| "mcp"` in `internal/service/jobs.go` | v0.6 already has the two origins: `model.OriginUI` and `model.OriginMCP` (`internal/model/model.go:44-48`), which scans carry through `ScanRequest.WithOrigin` (D19). `Job.Origin` uses them (v0.6-D48) |
+| 4.3 | the one-scan rule at `internal/scan/registry.go:42-60` | `Registry.Start` `:55-98`, with the v0.6 ReplaceLive guard (`WatchingError` `:18-34`; 409 in `handleStart`, `handlers.go:51`) |
+| 4.3 | `BadRequestError`, `NotFoundError` at `internal/service/service.go:21-28` | `:23-31` |
+| 4.3 | `init()` at `web/app.js:95` | `:110` |
+| 4.3, 4.17 | new styles `.steps` and `.actions` | both names are taken: `ol.steps` is every "What to try" list (`.advice ol.steps`, `web/styles.css:322-323`, `index.html:87` and four more) and `.actions` is a dialog's sticky button row (`.sform .actions`, `styles.css:236`). Scope the new styles to their own elements (for example `#drawer-actions` and a `.checksteps` list) so the advice lists and dialog rows don't change (v0.6-D48) |
+| 4.3 | jobs end on Quit through `svc.Close` | `Service.Close` (`internal/service/service.go:104`), which `Server.Serve` calls after the scans stop; it flushes the chat outbox, then the ledger |
+| 4.2 | `ScanPorts` at `internal/portprobe/tcp.go:15-34` | `:24-55` (`PortWorkers` = 16 at `:16`) |
+| 4.4 | `.drawerhead` at `web/index.html:244-251` | `:325-332` |
+| 4.4 | `ErrNotLocal` at `internal/scan/probe_host.go:18, 50-63` | `:18`; the local-prefix check is `:51-64` |
+| 4.4 | the runner's `probe` at `orchestrator.go:733`; `presenceUpdate` at `live.go:425`; `reprobeAt` at `live.go:273-285` | `orchestrator.go:934`; `live.go:445`; `live.go:288-300` (the MAC-change re-probe cooldown, `ReprobeCooldown`) |
+| 4.5 | `store.Open` at `cmd/netdiag/ui_cmd.go:32` | `:50`. The v0.6 ledger and profile store open after the start lock at `:72-80`, are given to `scan.Deps` and `server.Config.Ledger`, and `server.New` builds `service.Config` from `server.Config`: the inventory follows that path, so it needs a `server.Config` field as well as `scan.Deps.Inventory` and `service.Config.Inventory` |
+| 4.5 | `internal/scan/integrate.go:87` opens a second store | `withV2Defaults` `:85-95` (`store.Open` at `:89`), still a second `*store.Store` for history and settings |
+| 4.5 | the atomic write at `internal/store/store.go:78`; one retry after 200 ms on a sharing violation | `Store.WriteFile` `:66` (`writeAtomic` `:182`). devices.json joins the data-file allowlist as `store.FileDevices` (`store.File*` and `dataFiles`, `:30-41`). The retry exists for every data file already: `replaceFile` tries 6 times, about 300 ms (`:209-229`, `rename_windows.go`), so the inventory adds none. Unreadable: `Store.QuarantineFile` (`:91`) |
+| 4.5 | `applySettings` at `analyze.go:104-114`; `Scan.ApplySettings` at `orchestrator.go:306` | `analyze.go:208-220`; `orchestrator.go:381` |
+| 4.5 | `model.Host` at `model.go:43`; `state.mutate` at `state.go:78`; the live ARP read at `live.go:238-260` | `model.go:67`; `state.go:87`; `live.go:251-310` |
+| 4.5 | `names.Best` replaces `label()` at `internal/notify/notify.go:100` and the v0.6 chat-title chain | `label()` is at `:368`. v0.6 has four more namers for `names.Best` to replace: `notify.Name`/`bestName` (`notify.go:380-396`; the Problems card's device names, `problems/current.go:126`), chat's `bestName` (`internal/chat/content.go:87`; alert titles and the Device field, `alertFor` `:133`), the OK message's `fault.label` (`notify/reconcile.go:152`) and app.js `hostName`/`mdnsName` (`web/app.js:1694`, `:1738`). The mDNS instance is `MDNSInfo.Instance` (`types_mdns.go:12`); F14's per-service names are `Details[].Instance` |
+| 4.6 | `WriteJSON` at `json.go:12`; `server.Config.Version` at `server.go:36` | `json.go:13`; `server.go:39`. `service.Config` (`service.go:33-47`) has no `Version` yet: add it |
+| 4.7 | scope by `netinfo.Iface.CIDR`; with nothing running, the newest saved scan's `Self.Interface` | v0.6 saves the real prefix with every scan: `ScanResult.Self.CIDR` (`model.go:211`, set from `netinfo.Iface.CIDR` at `orchestrator.go:239`). Use it for saved scans and wake candidates; `Store.LatestScan` (`history.go:264`) finds the newest saved scan |
+| 4.7 | `portprobe.SchemeFor` at `tcp.go:37-46` | `:57-66` |
+| 4.7 | `QuietGateway` keeps gateway misses out of the N=2 streak and the storm guard's gateway rule | the streak is the alert engine's 2-run count (`Engine.ObserveHealth`, `notify.go:699`); the gateway rule is `guardPresence` (`internal/scan/guard.go:212`), next to `stormGuard.counts()` (`:76`) and its `quiet` cycles |
+| 4.7 | Host serialised whole at `internal/mcpserver/compact.go:401-404` | `DeviceDetail` `:539-543` |
+| 4.7, 8 | `README.md:382` | `:483` |
+| 4.8 | `WebService.URL` at `model.go:93`; `TLSInfo.NotAfter` at `model.go:105` | `:120`; `:132` (`SelfSigned` `:133`) |
+| 4.8 | the v0.6 `openDevicePage` validator and a validated `Host.OpenURL` | the validator is `advice.DevicePageURL(h)` (`internal/advice/advice.go:574`, with `pageURL` `:589`). The label **Open its page** is already `advice.LabelOpenPage` (`:42`) in `ActionLabels()` (`:46`). `Host.OpenURL` doesn't exist yet: v0.7 M2 adds it, filled only by `DevicePageURL` (v0.6-D48) |
+| 4.8 | `copy()` at `web/app.js:595` | `:1723` |
+| 4.8 | **Copy problem list** extends the v0.6 route | `GET /api/problems` is `handleProblems` (`handlers_v2.go:103`), which writes `Service.Problems()` (`problems.View`); `?format=text` is new |
+| 4.9 | search is `matches()` in app.js | `matches()` (`app.js:1606`) is the filter tabs; the search box reads `hostText(h)` (`:1617`). Names, rooms and notes go into `hostText` |
+| 4.9 | the chat router adds Room and Looked after by | in `alertFor` (`internal/chat/content.go:133`), which builds the fields |
+| 4.10 | **Recheck** at `web/index.html:154` | `:235` |
+| 4.10 | the lease's server at `internal/health/health.go:239` | `checkDHCP` `:406`, `Data["server"]` at `:423`. The ARP lookup of a MAC already exists for the router (`arpGatewayMAC`, `:283`) |
+| 4.10 | the health fakes at `internal/health/health_test.go:50-60` | `fakePinger` `:51`, `fakeResolver` `:65`, `newTestRunner` `:74` |
+| 4.10 | `dhcpServer` stored per network in `network-profile.json` (`Deps.Profiles`) | the file is `scan.Profiles` (`internal/scan/fingerprint.go:106`), one `NetworkProfile` per network (`:84-88`). `scan.ProfileStore` has only `Seen` (`:73-75`), and only `scan.Deps` gets the store (`ui_cmd.go:79`): #6 adds a setter and gives the same `*scan.Profiles` to the service |
+| 4.12 | **Copy log** at `web/index.html:386` | `#log-copy` at `:494`. The Export menu is `:53-58` |
+| 4.12 | bubbles `MaxBodyChars` at `internal/chat/limits.go:13` | that path is in the bubbles repo (v0.2.0: 8000), not netdiag: nothing copied it, and netdiag's `internal/chat` has no `limits.go`. Add the limit to `internal/bubbles/protocol` next to `MaxAlertText` (`alert.go:13-19`) |
+| 4.12 | the nonce `CreateMessageRequest.Nonce` | already copied: `internal/bubbles/protocol/message.go:115-120`, sent by `Client.PostMessage` (`internal/bubbles/messages.go:18`). `protocol.File` is there (`message.go:99`); `UploadFile` and `pkg/protocol/file.go` are not (v0.6-D22 copied only what alerts need), and the fake server has no upload route yet (`bubblestest.go:153-160`). The stdlib-only test is `TestBubblesStdlibOnly` (`netdiag_test.go:402`) |
+| 4.12 | the alerts channel chosen at pairing | `chat.Connection.Channel`, read through `chat.Manager` (`Status()`, `manager.go:376`) |
+| 4.13 | `i-power` (Quit) at `web/index.html:59` | `:60` |
+| 4.13 | the last 5 saved scans of the range through `Store.Previous(cidr, beforeID)` at `internal/store/history.go:222` | `:312`, and it returns only the newest older one: call it again with each id it returns as `beforeID`, or add a list helper |
+| 4.13 | `arp.Entry.State` from the NL_NEIGHBOR_STATE read | the read is there (`table_windows.go:27`); `arp.Entry` (`arp.go:11-19`) has no `State` yet |
+| 4.13 | `copyHost` at `internal/scan/state.go:148-156` | `:158-166`. It clones slices only: the new `Wake` and `PortScan` pointers are replaced, never changed in place |
+| 4.14 | `ToolNames` at `tools.go:21-25`; `allowList` at `authority_test.go:17-21` | `tools.go:22-27`; `authority_test.go:21-26`. The forbidden calls are `uiOnlyForbidden` (`:54-71`) and the import bans `actionPackages` (`:125-131`) |
+| 4.14 | `list_devices` rows in `compact.go`; `matchQuery` | `DeviceRow` and `Row` (`compact.go:299-331`); `matchQuery` (`:430`) |
+| 4.14 | add a sentence to the instructions at `internal/mcpserver/server.go:20-25` | `:20-28`. The instructions are built from `cannotText()` (`prompts.go:58`), so the five new phrases in `uiOnlyWords` (`prompts.go:45-55`) reach the instructions and every footer by themselves; don't add them a second time. Extend `TestInstructionsV06` (`runbook_test.go:486`) for the new tools |
+| 4.16 | the mocks' `api()` at `tools/uitest/support/mock.mjs:56-80` | `:123-228` |
+| 4.17 | `iconSpriteMaxBytes` at `internal/server/static_test.go:331` | `:504`; the dynamic icon list is `:540`. `web/icons.svg` is 26,637 bytes |
+| 5 | `Since: "0.7"` | `"0.7.0"`: a `since070` next to `since050` and `since060` (`prompts.go:203-206`). New snake_case words in the runbooks (outcomes such as `no_answer`) join `runbookFields` (`runbook_test.go:56`) |
+| 8 | "## 7. v0.7 device toolkit" in the field checklist | also a row in `fieldSections` (`tools/docscheck/docs_test.go:154-163`). The site's pill is `docs/index.html:44` and the `#features` lead `:78` |
+| 3 | **Ignore this MAC**'s confirmation is the inline pattern to reuse | it is still `window.confirm` (`ignoreMac`, `app.js:1084`; **Trust this certificate** `:384`). v0.6 added modal `<dialog>` confirmations (`#restart-dialog`, `index.html:662`; `#chat-off-dialog`, `:673`), but no inline `role="group"` one, so X-8 stands |
+
+Section 2 of this file also cites lines that moved: `allowList` is `authority_test.go:21-26`, the forbidden calls `:54-71`, `iconSpriteMaxBytes` `static_test.go:504`, and `web/icons.svg` is 26,637 bytes.
+
+**Prerequisites after v0.6** (v0.7 §3 and the gate above, against the v0.6 branch head)
+
+| Prerequisite | Status | Where, or what is missing |
+|---|---|---|
+| v0.6 has shipped | **Not met yet** | The v0.6 branch is built (M1-M13); v0.6.0 is tagged in M14. v0.7 M1 waits for the tag |
+| v0.5.7: `portprobe.Dial`/`Refused` with fastRefuse, the per-server DNS probe, remote access (R1) | Met | `dial.go:18`, `:28`; `internal/health/dnsprobe.go`; `internal/remote`, routes `server.go:244-246` |
+| v0.5.8: port cap and bounded `ScanPorts` | Met | `scan.MaxPorts` = 64 (`orchestrator.go:435`), `portprobe.PortWorkers` = 16 (`tcp.go:16`) |
+| v0.5.8: gateway TCP 80/443 fallback | Met | `checkGateway` and `gatewayTCP` (`health.go:332`, `:387`) |
+| v0.5.8: `Service.RunHealth` on the scan interface | Met | `internal/service/health.go:57` |
+| v0.5.8: export redaction and saved-scan export through `ResolveScan` | Met | `Service.ResolveScan` (`scans.go:49`) |
+| v0.5.8: same-host redirects and **Trust this certificate** | Met | `webServer.trustedCert` (`types_store.go:69`), `trustCert` (`app.js:378`) |
+| v0.5.8: the **Ignore this MAC** confirmation as the inline pattern | Met with a different pattern | `window.confirm` (`app.js:1084`); the inline confirm is v0.7's to build (X-8) |
+| v0.5.8: the notify cooldown prune | Met | `Engine.prune` (`notify.go:259`) |
+| Session guard: `X-Netdiag-Session`, method-based, the 401 body | Met | `sessionGuard`, `SessionHeader`, `sessionMessage`, `needsSession` (`internal/server/guard.go`); reads gated by `sessionReads` (settings, bubbles, pairing status). Tests: `TestSessionGuardEveryMutatingRoute`, `TestSessionGuardReads` |
+| The app.js `api()` helper | Met | the Alpine method `api(method, url, body)` (`app.js:1196`), called as `this.api(…)`; `TestSessionTokenUI` allows no other `method:'POST'\|'PUT'\|'DELETE'` |
+| `instance.json` | Met | `instance.Info` (`internal/instance/instance.go:48-56`), which also has `schemaVersion` |
+| F6 action kinds `openRouter`, `openDevicePage`, `openSettings`, `recheck`, `showDevice`, `osSettings` | Met | `model.Action*` (`internal/model/types_advice.go:27-44`); v0.7 adds `ActionOpenPortal` there |
+| The server-validated `openDevicePage` target | Met with a different name | `advice.DevicePageURL(h)` (`advice.go:574`, `pageURL` `:589`). `Host.OpenURL` is not there yet: v0.7 M2 adds it, from `DevicePageURL` |
+| `advice.ActionLabels()` | Met | `advice.go:46`; it already lists **Open its page** (`LabelOpenPage`) |
+| `POST /api/os/open` | Met | `handleOSOpen` (`handlers_remote.go:84`), `remote.OpenOSPage` (`ospage.go:39`); Windows only, 501 elsewhere (v0.6-D28) |
+| The severity map | Met | `notify.severityFor` (`internal/notify/severity.go:45`), with `TriggerSeverity`, `HealthSeverity`, `AlertSeverity`, `ConflictSeverity` (`:22-37`) |
+| Alert keys `notify.Key`, `ConflictKey` (and `HealthKey`, `LinkKey`) | Met | `keys.go:24`, `:61`, `:51`; `reconcile.go:297` |
+| F2: the open-key set, OK notices, the ledger, `Engine.SetHold` | Met | `Engine.Open` (`notify.go:169`), `emitOK` (`:227`), `problems.Ledger` (`ledger.go:104`, `OpenLedger` `:131`), `Engine.SetHold` (`notify.go:159`) |
+| F9: `GET /api/scans/running` and the ReplaceLive guard | Met | `handleRunning` (`handlers.go:65`); `Registry.Start` (`registry.go:61`) and `ScanRequest.ReplaceLive` |
+| F9: the network fingerprint and `network-profile.json` (`scan.Deps.Profiles`) | Met; v0.7's extension missing | `scan.Fingerprint`, `scan.Profiles` (`fingerprint.go`), `Deps.Profiles` (`orchestrator.go:129`). Missing for #6: the `dhcpServer` field, a setter, and the store in the service (M6) |
+| F9: the storm guard and the single-instance lock | Met | `internal/scan/guard.go`; `instance.Acquire` (`lock.go:34`) |
+| F10: the `internal/bubbles` client, `chat.Manager`, the outbox | Met | `internal/bubbles` (`PostMessage` `messages.go:18`), `internal/chat/manager.go`, the unexported `outbox` (`outbox.go`; no `Enqueue`, v0.6-D43). Missing as planned: `UploadFile` (M4 copies it) |
+| F10: `files:write` at the first pairing | Met | `chat.Scopes` (`manager.go:33`) |
+| F11 `service.RedactScan` | Met with a different name | `model.RedactScan` (`internal/model/redact.go:34`), enforced at the service boundary (X-7); `TestSecretCommunityAppearsNowhere` (`internal/server/redact_test.go:79`) |
+| F14 `MDNSInfo.Details` | Met | `internal/model/types_mdns.go:16` |
+| MCP: the runbook registry | Met | the `runbooks` table (`prompts.go:227`) of `runbook{Name, Title, Desc, Since, Args, Tools, Text}` (`:17`) |
+| MCP: the uiOnly split | Met | `uiOnlyWords` (`prompts.go:45`), `uiOnlyForbidden` (`authority_test.go:54`), `TestUIOnlyTableComplete` |
+| MCP: `TestRunbook*` and `TestMCPImportsNoActionPackages` | Met | `runbook_test.go` (`TestRunbookTable`, `References`, `Wording`, `Footer`, `ButtonsExist`); `authority_test.go:133` |
+| MCP: `get_status`, `list_problems`, `get_runbook`; 16 tools and 10 prompts; 7 + 4 resources | Met | `ToolNames` (`tools.go:22-27`), `TestToolSetMatchesAllowList`, `TestPrompts` (`prompts_test.go:96`), `resources.go:28-39` |
+| Counts: 5 nav items, 6 health pills, 8 activity chips | Met | `icons.spec.mjs:34-56`, `tiles.spec.mjs:40` |
+| v0.6-D15 "This network has no internet" | Met | `settings.noInternetNetworks` (`types_store.go:27`), `data.noInternet` on the DNS and internet results |
+| V7-D1 to V7-D13 confirmed | **Not met yet** | each has a recommendation in 12.3 for the product owner to confirm before M1 |
 
 **Milestones** ([§6][v07-6]). M4, M6 and M7 can run in parallel after M2.
 
@@ -807,7 +906,7 @@ There is one function, `notify.severityFor(trigger, ctx)`, owned by [v0.6 §4.7]
 ### 8.3 Session token
 
 - **Header.** `X-Netdiag-Session`.
-- **The token.** 32 random bytes, base64url, new on every launch. It is stored in `<datadir>/instance.json` (`internal/instance`), as `{port, pid, instanceId, token, startedAt, version}`.
+- **The token.** 32 random bytes, base64url, new on every launch. It is stored in `<datadir>/instance.json` (`internal/instance`), as `{schemaVersion, port, pid, instanceId, token, startedAt, version}`.
 - **Getting it to the page.** The launch URL carries it as `#s=<token>`, with `?s=` as the fallback. The page keeps it in `localStorage['netdiag.session']`.
 - **Sending it.** One app.js helper, `api(method, url, body)`, sends the header. A static test allows no `method:'POST'|'PUT'|'DELETE'` outside `api()`.
 - **Gated routes.**
@@ -848,7 +947,7 @@ Token: Y means the session token is required (from v0.6). Every route is mocked 
 - **Read.** `GET /api/jobs/{id}` returns `{id, kind, state: running|done|cancelled|failed, origin, target, startedAt, finishedAt, progress{done, total, etaSec}, result}`.
 - **Stream.** `GET /api/jobs/{id}/events` sends `job_progress`, then the kind's own events, then a terminal `done`. The v0.7 kind events are `portscan_port`, `internet_step`, `printer_step` and `wake_phase`. A client that reconnects reads the snapshot first.
 - **Cancel and list.** `POST /api/jobs/{id}/cancel` → 204. `GET /api/jobs?state=running` → `[{id, kind, state, origin, target, startedAt}]`.
-- **`Job.Origin`** is `ui` or `mcp`. `CancelJob(id, origin)` refuses an agent that tries to cancel a UI job.
+- **`Job.Origin`** is `ui` or `mcp`: the v0.6 constants `model.OriginUI` and `model.OriginMCP` (`internal/model/model.go:44-48`), which scans already carry (v0.6-D48). `CancelJob(id, origin)` refuses an agent that tries to cancel a UI job.
 - **Classes.** Light and heavy (v0.7); singleton (v0.9).
 - **Kinds and limits:**
   - v0.7:
@@ -889,7 +988,7 @@ Token: Y means the session token is required (from v0.6). Every route is mocked 
 
 ### 8.7 Names, settings and advice
 
-- **`names.Best(h)`** (v0.7) is the only namer. Its order: the inventory name, then the mDNS instance (F14 `Details`), then SNMP sysName, then the hostname, then the printer model, then the IP. It replaces `label()` (`internal/notify/notify.go:120`) and the v0.6 chat-title chain.
+- **`names.Best(h)`** (v0.7) is the only namer. Its order: the inventory name, then the mDNS instance (`MDNSInfo.Instance`; F14 `Details`), then SNMP sysName, then the hostname, then the printer model, then the IP. It replaces `label()` (`internal/notify/notify.go:368`) and the v0.6 namers: `notify.Name`/`bestName` (`notify.go:380-396`), chat's `bestName` (`internal/chat/content.go:87`), the OK message's `fault.label` (`internal/notify/reconcile.go:152`) and app.js `hostName` (v0.6-D48).
 - **Settings.**
   - `settings.json` stays at schemaVersion 1, and new fields take their defaults when the file is read.
   - **`RepairSettings`** (v0.6 F7) repairs a bad field on load, field by field, and reports it in `repaired`. Every later version adds its load rules here. It shares one rule set with `NormalizeSettings` (`normalize` in `internal/store/settings.go`), so a new rule is written once.
@@ -905,7 +1004,7 @@ Token: Y means the session token is required (from v0.6). Every route is mocked 
   - **`openSettings` targets** (`model.SettingsSection*`): `webserver` (the Web server URL), `health` (the Internet check URL), `noInternet` (the "This network has no internet" switch), `alerts` and `chat`. The page puts focus on the matching field.
   - **Where advice lives** (v0.6 M7): `HealthCheck.advice`, `Notice.advice`, `Conflict.advice` and `Host.advice` (a printer that reports no status). Notices also carry **`code`** (the printer alert's code, such as `hrPrinterDetectedErrorState.doorOpen` or `media-jam-error`; on a `netdiagLink` notice, the storm guard's reason, below) and **`detail`** (the alert's or low supply's description), so advice never parses a message. `Conflict.vendors` names each conflict MAC's maker.
   - **Health reasons** (`model.Reason*`, in a check's `data.reason`; every result that is not ok has one, and so does a router that answers only on its web ports): any check `timeout`, `error`; gateway `no_reply`, `tcp_only` (status ok; `data.pingError` when ping could not run on this computer), `slow`, `no_gateway`, `ping_error`; dhcp `apipa`, `no_lease`; dns `slow`, `local_mismatch`, `nxdomain`, `no_internet`, `no_reply`, `no_server`; webserver `not_set`, `status`, `content`, `request`, `tls`, `redirect`, `invalid`, `slow`, `expired`; internet `portal`, `no_response`, `status`, `invalid`; wifi `weak`, `not_connected`, `hidden_location`. On a network the D15 switch is on for, the dns `no_internet` result is `info` and it and a not-ok internet result carry `data.noInternet`. Later versions add reasons here (v0.7 `internet.*` keys build on them).
-  - **`openDevicePage`** accepts only an http(s) URL whose host is the device's own IP, validated on the server. The page renders a link only from the validated `Host.OpenURL`.
+  - **`openDevicePage`** accepts only an http(s) URL whose host is the device's own IP, validated on the server by **`advice.DevicePageURL(h)`** (v0.6, the one validator). The page renders a link only from a validated target: the advice action's in v0.6, and from v0.7 also `Host.OpenURL`, which only `DevicePageURL` fills (v0.6-D48).
   - **`osSettings`** goes through `POST /api/os/open {page}` with a fixed map:
     - `location`: v0.6, Windows only; macOS gets 501
     - `printers`: v0.9, Windows and macOS
@@ -946,7 +1045,7 @@ Token: Y means the session token is required (from v0.6). Every route is mocked 
 
 | Version | Tools added | Total |
 |---|---|---|
-| today (v0.5.7, v0.5.8) | `list_interfaces`, `start_scan`, `get_scan`, `cancel_scan`, `list_devices`, `get_device`, `get_events`, `get_health`, `run_health_check`, `probe_host`, `list_history`, `compare_scans`, `get_settings` (`ToolNames`, `internal/mcpserver/tools.go:22-26`) | 13 |
+| today (v0.5.7, v0.5.8) | `list_interfaces`, `start_scan`, `get_scan`, `cancel_scan`, `list_devices`, `get_device`, `get_events`, `get_health`, `run_health_check`, `probe_host`, `list_history`, `compare_scans`, `get_settings` (`ToolNames`, `internal/mcpserver/tools.go:22-27` on the v0.6 branch head) | 13 |
 | v0.6 | `get_status`, `list_problems`, `get_runbook` | 16 |
 | v0.7 | `check_internet`, `check_printer` (both probe class, allowed) | 18 |
 | v0.8 | `get_report` | 19 |
@@ -979,7 +1078,7 @@ Token: Y means the session token is required (from v0.6). Every route is mocked 
 
 | Version | Runbooks (prompts) | Total |
 |---|---|---|
-| today | `triage_network`, `diagnose_printer`, `explain_conflict`, `device_missing`, `what_changed` (`PromptNames`, `internal/mcpserver/prompts.go:14`) | 5 |
+| today | `triage_network`, `diagnose_printer`, `explain_conflict`, `device_missing`, `what_changed` (`PromptNames`, `internal/mcpserver/prompts.go:31` on the v0.6 branch head, built from the `runbooks` table at `:227`; each row's `Since` is a full version, `"0.7.0"` for v0.7) | 5 |
 | v0.6 | `explain_problems`, `internet_not_working`, `device_offline`, `check_chat_alerts`, `first_look` | 10 |
 | v0.7 | `printer_wont_print`, `device_services`, `name_devices` | 13 |
 | v0.8 | `prepare_it_handoff`, `changes_since`, `check_watched_devices`, `morning_check` | 17 |
@@ -1014,7 +1113,7 @@ Everything else is UI-only.
 | Version | MCP tools | Prompts | Resources (fixed + templates) | Nav items | Health pills | Activity chips | devices.json | Sprite (budget 40,960 B) |
 |---|---|---|---|---|---|---|---|---|
 | v0.5.7 / v0.5.8 | 13 | 5 | 4 + 3 | 5 | 6 | 8 | none | 24,027 B |
-| v0.6 | 16 | 10 | 7 + 4 | 5 | 6 | 8 | none | about 26.5 KB (+7 icons) |
+| v0.6 | 16 | 10 | 7 + 4 | 5 | 6 | 8 | none | 26,637 B (+7 icons; measured on the v0.6 branch head) |
 | v0.7 | 18 | 13 | 7 + 4 | 5 | 6 | 8 | schema 1 | about 28.5 KB (+5 icons) |
 | v0.8 | 19 | 17 | 7 + 4 | 6 (Get help) | 6 | 8 | schema 2 | about 30.5 KB (+4 icons) |
 | v0.9 | 24 | 21 | 7 + 4 | 6 (Help replaces Get help) | 6 | 8 | schema 3 | about 33.5 KB (+6 icons; `i-life-buoy` reused) |
@@ -1280,10 +1379,11 @@ Plan: [§10][v06-10].
 | v0.6-D45 | What MCP part 2 (M12) reports in `get_status.chat`, and how `--attach` finds and uses the window | Decided (implementation, 2026-10-17) | **`get_status.chat`** is `service.ChatStatus`, read from the window's one `chat.Manager`: `state` (the manager's six states), `reason`, `since`, `server{name,host,port}`, `channel` (the channel's name, which bubbles' `list_alerts` takes) and `channelId`, `appName`, `waiting`, `lastSentAt`, plus `sendAlerts` and `minSeverity`, the saved **Send alerts to team chat** switch and level, which 4.14 lacks: with Send off netdiag posts nothing new, and the runbook must say so. A netdiag that is not the window's reports `unknown` (it holds no connection), and a window without a data folder `off`. It never holds the token or `tokenPrefix`. **`check_chat_alerts`** sits before `first_look` in the runbooks table (5.0's order), explains each state in the window's words (by `chat.reason` where one state has two causes; for `identity_changed`, ask the chat admin before **Reconnect**, as 4.9 and 4.10 say) with its Settings button, says D10 when nothing watches only on a connection that sees the window, and closes only after netdiag lists the key as fixed, a minute has passed, `chat.waiting` is 0 and the person said yes, checking `list_problems` and `get_status` once more right before `resolve_alert`. netdiag's alerts are those by `chat.appName`, or an app's whose key netdiag lists or has netdiag's key shape (`<trigger>|`), because netdiag learns the app's name only when it pairs and a chat admin can rename the app. Its first line is tried in order: Problem; Not checked when Claude has no bubbles tools, `chat.state` is not `connected`, or an alert is in neither list (footer v2's status word, as in `explain_problems`); else OK. **`TestNoToolNameClashWithBubbles`** checks against bubbles v0.2.0's eight tools, copied into the test (bubbles v0.2.0 has no prompts or resources); `TestBubblesToolsAtV020` re-reads them with `git show v0.2.0:internal/mcpserver/tools.go` when a bubbles checkout is next to this repository, and skips otherwise (CI). **`--attach`** counts the window as there only when the `instance.json` port passes the identity proof (v0.6-D33; the session token is used for that proof and never sent to `/mcp`, which stays outside the session guard, 4.1) and `GET /mcp` does not answer 404 (Agent access off); otherwise it runs the standalone server and prints `NoteNoWindow` or `NoteAgentOff` to stderr, as `get_status.note` says. The relay never opens the window's stream for messages nobody asked for (netdiag's tools, prompts and resources never change while it runs); it sends each call on its own, adds the `MCP-Protocol-Version` agreed in `initialize`, answers a call the window refused with an error (the window's own JSON-RPC error when it gave one, so one refused call ends only that call), and exits 1 only when the window ends the session (Agent access turned off: `ErrSessionMissing`), is gone (Quit: a failed dial), or the SDK gave up on the connection, so a client never keeps a dead connection. The choice is made once, at start: a window opened later is used from the next start | M12 |
 | v0.6-D46 | What the docs milestone (M13) checks by itself, and what waits for the test rig | Decided (implementation, 2026-10-17) | **Docs kept equal to the code by tests:** `docs/mcp.md` gets a Runbooks table (Situation, Say this to Claude, Runbook, What Claude does, Buttons, Needs the window?, Since) whose Buttons column is exactly the bold labels of each runbook's text ("none" when it names none), a Tools table whose **Kind** follows the tool's annotations (**Read**: read-only; **Probe**: sends network traffic; **Stop**: `cancel_scan`) and whose Since follows §8.9, and a "What Claude can never do" list equal to `uiOnlyWords` (`TestDocsRunbooksTable`, `TestDocsToolsTable`, `TestDocsNeverList`). A test-only package, `tools/docscheck`, checks the wording rule in README.md, HOW-TO-OPEN.txt, `docs/mcp.md`, the field checklist and the site (Windows' "Event Viewer" is a product name, like Wake-on-LAN), that every image they show exists, and that each release section of the field checklist (a table of heading and check titles, `TestFieldChecklist`; a section ends at the next `## ` heading, so v0.7's `## 7.` is its own) holds exactly its checks with "Steps:" and a "Date: · OS: · Result:" line, ticked only when filled in. **Screenshots:** `docs-shots.spec` now copies every README shot into `docs/img` itself (including `settings-printer-poll.png`, which nothing made since v0.4), so the full suite refreshes them; `TestShotsGenerated` fails for a shown shot that neither spec makes and that is not one of the five test-rig shots field check 6.1 retakes in one run (`real-zebra-fault`, `-fault-drawer`, `-recovered`, `-activity` and `bubbles-resolved`). Until that run the site keeps the v0.5 Zebra story with a note that v0.6 raises one alert and turns it into Fixed, and its team chat band uses `chat-connect.png` and `settings-chat.png`. The version pill stays at v0.5.8, and the Feature index (§7) stays unticked, until M14 tags v0.6.0 (§13.1 step 8) | M13 |
 | v0.6-D47 | Claude's own bubbles token, and what the docs promise about agents and team chat | Decided (implementation, 2026-10-17) | netdiag's MCP surface cannot post to team chat, but a token for bubbles' MCP server is a separate key with its chat app's powers: a token of the netdiag app (D11's fallback) lets Claude post and close alerts as netdiag, and it sits in Claude's configuration as plain text, where a prompt injection through chat text or device names could use it (§9 "Phishing posts as the bot"). So the docs (`docs/mcp.md`, README, the site's safety line) say "through netdiag" for every "Claude cannot", recommend an app of Claude's own (Claude then asks the person to press **Resolve**), describe the netdiag-app token as the fallback with what it allows, and say to remove the token in **Admin > Apps** when it is not needed. Claude's scopes are `mcp`, `alerts:write` and `messages:read` (bubbles v0.2.0's `list_alerts` needs the last two), plus `messages:write` only for the runbook's notes (`post_message`); `check_chat_alerts` step 8 says to skip the note when bubbles refuses it for that scope. `TestDocsChatTokenScopes` keeps the docs naming every scope of the bubbles tools the runbook lists (`bubblesScopes`, checked against bubbles v0.2.0 by `TestBubblesToolsAtV020`) | M13 |
+| v0.6-D48 | Registry names v0.6 shipped differently, for the v0.7 re-base (5.2 "Corrections after v0.6") | Decided (implementation, 2026-10-17) | The registry follows the v0.6 code, and v0.7 builds on these names instead of making new ones: **`Job.Origin`** takes the v0.6 scan origins `model.OriginUI` and `model.OriginMCP` (8.5), not a new `service.Origin` type. The **`openDevicePage` validator** is `advice.DevicePageURL(h)`; v0.7's `Host.OpenURL` is filled only by it (8.7). **`names.Best`** replaces every v0.6 namer, not only `label()`: `notify.Name`/`bestName`, chat's `bestName`, the OK message's `fault.label` and app.js `hostName` (8.7). A runbook's **`Since`** is a full version (`"0.7.0"`, 8.10). v0.7's drawer action row and check-step list get **scoped styles**, because `.actions` (dialog button rows) and `ol.steps` (advice "What to try" lists) already exist. No name in the code changes | v0.7 M1 |
 
 ### 12.3 v0.7 "Device toolkit"
 
-Plan: [§10][v07-10]. The product owner confirms V7-D1 to V7-D13 before M1.
+Plan: [§10][v07-10]. The product owner confirms V7-D1 to V7-D13 before M1. The last column of each row is a one-line recommendation to confirm as it stands; each was checked again against the v0.6 branch head on 2026-10-17 (5.2) and still fits what v0.6 built.
 
 | ID | Decision | Status | Outcome or recommendation | Needed by |
 |---|---|---|---|---|
@@ -1293,13 +1393,13 @@ Plan: [§10][v07-10]. The product owner confirms V7-D1 to V7-D13 before M1.
 | V7-D4 | The Zebra and **Make it beep** | Open | B, if the owner accepts that one click prints one label: **Print a label to find it**, after a confirmation, sent as ZPL over 9100 by `ippident.PrintFindLabel`, at most once a minute, UI-only. Otherwise A: no button, and "This printer can't beep. Its address is on its configuration label." Either way, no *check* ever prints | M1 |
 | V7-D5 | Scope of names | Open | Per PC, keyed by MAC. Per-network names can follow with multi-site work | M1 |
 | V7-D6 | What **Copy for IT** includes | Open | Include MAC and serial, since it is for IT: name, room, address, MAC, maker, model, serial, what's wrong and since when, the last port check and the last wake. The chat preview shows them before sending | M1 |
-| V7-D7 | Which channel **Send to chat** posts to | Open | The alerts channel only | M1 |
+| V7-D7 | Which channel **Send to chat** posts to | Open | The alerts channel only: the one chosen at pairing or with **Change channel** (`chat.Connection.Channel`) | M1 |
 | V7-D8 | The port check before signing | Open | Ship the small presets and First 1,024 ports with the RC Defender gate. 'All ports' and any MCP tool wait for signing. Hold the whole feature if Defender flags the RC | M1 and release |
 | V7-D9 | `probe_host` updates the live scan | Open | Yes, through `Scan.Reprobe`, with `updatedLiveScan` in the output (see MCP-2) | M1 |
-| V7-D10 | Where interface kinds are built | Open | v0.9 M1. v0.7 uses the scan-interface prefix plus `virtualRe` (X-3) | M1 |
+| V7-D10 | Where interface kinds are built | Open | v0.9 M1. v0.7 uses the scan-interface prefix (saved with each scan as `Self.CIDR` since v0.6) plus `virtualRe` (X-3) | M1 |
 | V7-D11 | Captive-portal button | Open | Add the advice action kind `openPortal` to the F6 registry: the http(s) redirect URL the internet check saw, labelled **Open the Wi-Fi login page** in `advice.ActionLabels()` | M1 |
 | V7-D12 | Risky-service wording in a port check | Open | A plain line for Telnet and FTP only, for example "23 Telnet: old and unsafe; turn it off if nobody uses it". No other security verdicts | M1 |
-| V7-D13 | Should `GET /api/inventory` need the session token? | Open | No. Names and rooms are in the scan snapshot already; the help text says not to put passwords in notes | M1 |
+| V7-D13 | Should `GET /api/inventory` need the session token? | Open | No: it stays out of `sessionReads` (`internal/server/guard.go`). Names and rooms are in the scan snapshot already; the help text says not to put passwords in notes | M1 |
 | – | Optional CLI `netdiag wake <mac\|ip>` as a field-test aid (research-wol §15.5) | Open | Optional, low cost; not needed for the release | M8 |
 
 ### 12.4 v0.8 "Always watching"
