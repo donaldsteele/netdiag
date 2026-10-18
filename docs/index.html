@@ -80,7 +80,7 @@
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-radar"></use></svg><h3>Every device</h3><p>Parallel ping sweep plus the ARP table, so devices that block ping still show up. Vendor from the MAC, names from DNS and mDNS.</p></article>
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-printer"></use></svg><h3>Printers, in detail</h3><p>Model, serial, page count, toner and drum levels, trays, covers and alerts over SNMP and IPP. Jams and open doors in seconds in live mode.</p></article>
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-globe"></use></svg><h3>Web pages and remote desktop</h3><p>Ports 80, 443, 8080 and 8443 probed for status, title, server and certificate, with a link to open each one. Computers with Remote Desktop or screen sharing open in one click.</p></article>
-        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-heart-pulse"></use></svg><h3>Network health</h3><p>Gateway, DHCP lease, DNS, a web server you rely on, internet reachability and Wi-Fi signal, each with a plain-word status.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-heart-pulse"></use></svg><h3>Network health</h3><p>Router, getting an address (DHCP), name lookup (DNS), a web server you rely on, the internet and Wi-Fi signal, each with a plain-word status.</p></article>
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-shield-alert"></use></svg><h3>IP conflicts</h3><p>Two devices fighting over one address, one MAC on many IPs, or duplicate names. Mesh nodes and extenders can be ignored in one click.</p></article>
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-bell-ring"></use></svg><h3>Live alerts</h3><p>Leave it running: a <b>Problems right now</b> card, banners and a beep when a printer jams, a supply runs low or a device drops off, and a quiet <b>Fixed</b> when it is sorted. Each one says what to try. <a href="#live">How it works</a></p></article>
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-type-computer"></use></svg><h3>Device types</h3><p>Printer, TV, NAS, phone, camera, network gear, smart home and more, from real signals. Unknown stays unknown: no guessing.</p></article>
@@ -108,8 +108,8 @@
 
       <div class="livegrid">
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-clock"></use></svg><h3>Checks every few seconds</h3><p>Every 5 seconds by default (2 to 300, in Settings), each printer gets a tiny three-value SNMP read. A full read of supplies, trays and alerts runs when something changes, and every 60 seconds.</p></article>
-        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-printer"></use></svg><h3>Error flags become words</h3><p>Some printers, Zebra label printers among them, report trouble only as SNMP error flags. netdiag names them: <b>out of paper or toner, door open, paper jam, offline or paused, service requested</b> are critical; low paper or toner is a warning.</p></article>
-        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-bell-ring"></use></svg><h3>Alerts that do not nag</h3><p>Only changes alert, never every check. Each alert has a cooldown (300 s by default), critical and warning tones differ, and you choose which kinds alert at all.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-printer"></use></svg><h3>Error flags become words</h3><p>Some printers, Zebra label printers among them, report trouble only as SNMP error flags. netdiag names them: <b>out of paper or toner, door open, paper jam, offline or paused, service requested</b> are urgent; low paper or toner is a warning.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-bell-ring"></use></svg><h3>Alerts that do not nag</h3><p>Only changes alert, never every check. Each alert has a cooldown (300 s by default), urgent and warning tones differ, and you choose which kinds alert at all.</p></article>
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-wifi-off"></use></svg><h3>More than printers</h3><p>New devices are highlighted, devices that miss two checks are marked offline, and conflicts and failing health checks raise their own alerts. Live mode saves a checkpoint every five minutes.</p></article>
       </div>
 
@@ -117,7 +117,7 @@
         <div class="copy">
           <p class="reading-label">The drawer, mid-fault</p>
           <h3>Exactly what the printer is saying.</h3>
-          <p>The Zebra reports trouble only through its SNMP error flags, and its own alert list stays empty. netdiag turns <code>doorOpen</code> and <code>offline</code> into named critical alerts, and shows the raw device status, printer status and error state underneath.</p>
+          <p>The Zebra reports trouble only through its SNMP error flags, and its own alert list stays empty. netdiag turns <code>doorOpen</code> and <code>offline</code> into named urgent alerts, and shows the raw device status, printer status and error state underneath.</p>
           <ul class="readings"><li class="r-bad">device status down</li><li class="r-bad">doorOpen, offline</li><li>via SNMP</li></ul>
         </div>
         <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Devices · 192.168.68.76</span></div>
@@ -203,7 +203,7 @@
           <ul class="readings"><li class="r-ok">gateway 1.4 ms</li><li class="r-ok">DNS 18.2 ms</li><li class="r-warn">Wi-Fi 48%: what to try</li></ul>
         </div>
         <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Health</span></div>
-          <button type="button" class="zoom" aria-label="Enlarge screenshot: health view"><img src="assets/shots/health.png" width="2560" height="1600" loading="lazy" alt="Health view with cards for gateway, DHCP, DNS, web server, internet and Wi-Fi; the weak Wi-Fi card says what it means and what to try"></button></div></figure>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: health view"><img src="assets/shots/health.png" width="2560" height="1600" loading="lazy" alt="Health view with cards for the router, getting an address (DHCP), name lookup (DNS), web server, internet and Wi-Fi; the weak Wi-Fi card is a note that says what it means and what to try"></button></div></figure>
       </div>
 
       <div class="feature">

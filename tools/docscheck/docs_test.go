@@ -60,8 +60,8 @@ var retiredWords = []struct {
 	why string
 }{
 	{regexp.MustCompile(`Recheck`), "the button that runs the health checks again is Check again"},
-	{regexp.MustCompile(`was down|\(after (\d+|N) min\)`), `a fixed problem says how long it lasted: "(lasted 12 min)"`},
-	{regexp.MustCompile(`Gateway reachable|DNS resolving|Internet reachability|Gateway (row|check)\b`), "the checks are Router, Getting an address (DHCP), Name lookup (DNS), Web server, Internet and Wi-Fi"},
+	{regexp.MustCompile(`was down|\(after (\d+|N) min\)`),`a fixed problem says how long it lasted: "(lasted 12 min)"`},
+	{regexp.MustCompile(`(?i)gateway reachable|DNS resolving|internet reachability|\bDHCP lease\b|\bGateway (row|check)\b`), "the checks are Router, Getting an address (DHCP), Name lookup (DNS), Web server, Internet and Wi-Fi"},
 	{regexp.MustCompile(`netdiag lost the network`), `the notices are "This computer lost the network" and "The router stopped answering"`},
 	{regexp.MustCompile(`with (\*\*)?Live mode(\*\*)? ticked\.`), "ticking Live mode alone does not start watching: tick Live mode and press Scan"},
 	{regexp.MustCompile(`Windows Firewall or a separate`), "the wizard says a firewall on this computer, on every OS"},
@@ -69,14 +69,24 @@ var retiredWords = []struct {
 	{regexp.MustCompile(`(?i)by typing the address|typed by hand`), "a typed address in the browser netdiag opened works; another browser, or a page from before a restart, is locked"},
 	{regexp.MustCompile(`Critical: |Notice: `), "the banners say Urgent, Warning, Note and Fixed, as the card does"},
 	{regexp.MustCompile(`Health: [^"]*\bwarn\b`), `the header chip says "Health: 1 failing, 2 notes"`},
+	{regexp.MustCompile(`(?i)\*\*critical\*\*|<b>critical</b>|\bare critical\b|\b(a|named) critical alerts?\b`), "the urgent level is called urgent, as on the banners, the card and Settings > Send"},
+	{regexp.MustCompile(`off before, it stays off`), "a new connection and Reconnect turn Send alerts to team chat on; only Change channel leaves it as it was"},
+	{regexp.MustCompile(`pages already open work again too\.`), "only the pages in the browser netdiag opens get the fresh key; another browser stays off"},
+	{regexp.MustCompile(`\(lasted [^)]*\): Health check OK again`), "a fixed item keeps the problem's own title (Health check failed), as the ledger does"},
 }
 
-// TestDocsRetiredWords: see retiredWords. "usually no typing" is the one
-// allowed use of "no typing".
+// retiredAllowed are the uses of a retired word that stay: "usually no
+// typing", and a DHCP lease as the thing a computer gets (not the old name
+// of the check).
+var retiredAllowed = []string{"usually no typing", "Usually no typing", "on a DHCP lease", "its DHCP lease"}
+
+// TestDocsRetiredWords: see retiredWords and retiredAllowed.
 func TestDocsRetiredWords(t *testing.T) {
 	for _, name := range append([]string{"web/index.html", "web/app.js"}, userDocs...) {
 		for i, line := range strings.Split(read(t, name), "\n") {
-			line = strings.ReplaceAll(strings.ReplaceAll(line, "usually no typing", ""), "Usually no typing", "")
+			for _, a := range retiredAllowed {
+				line = strings.ReplaceAll(line, a, "")
+			}
 			for _, w := range retiredWords {
 				if m := w.re.FindString(line); m != "" {
 					t.Errorf("%s:%d says %q: %s", name, i+1, m, w.why)

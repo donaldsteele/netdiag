@@ -99,10 +99,12 @@ WHAT YOU WILL SEE
   same page, at the same address (normally http://127.0.0.1:8787).
 - Only one netdiag runs at a time. Starting it again does not start a
   second copy: it opens the page of the one that is running.
-- A page opened in another browser, or left open from before netdiag
-  was started again, shows the results, but its buttons stay off
-  ("Buttons on this page are turned off for safety"). Double-click
-  netdiag again to get a page whose buttons work.
+- A page left open from before netdiag was started again shows the
+  results, but its buttons stay off ("Buttons on this page are turned
+  off for safety"). Double-click netdiag again: it opens a page whose
+  buttons work, and the other pages in that browser work again too.
+  A page in another browser, or one opened as localhost, stays off:
+  use the page netdiag opened.
 - Team chat: Settings > Team chat (bubbles) > "Connect to team chat"
   sends the alerts to your team chat too, while netdiag is open and
   watching: tick Live mode and press Scan. Your chat admin approves it

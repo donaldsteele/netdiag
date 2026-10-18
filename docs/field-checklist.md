@@ -101,15 +101,15 @@ Tick only after observing the behaviour on real hardware.
 - [ ] Router row shows `ok` with a latency; unplugging the router shows `fail` text, not colour alone
 - [ ] "Getting an address (DHCP)" row shows `ok` on a DHCP lease and `fail` on a 169.254.x.x (APIPA) address
 - [ ] DNS row resolves the internet test name (connectivitycheck.gstatic.com, or the internet check host) and shows a latency
-- [ ] On a local network without internet, the "Name lookup (DNS)" row is `warn` (not `fail`) and names the DNS server that answers, while the router's DNS server is reachable; it is `fail` when no DNS server answers
+- [ ] On a local network without internet, the "Name lookup (DNS)" row is **Note** (`warn`, not `fail`) and names the DNS server that answers, while the router's DNS server is reachable; it is `fail` when no DNS server answers
 - [ ] Web server row shows HTTP status, latency and the must-contain result, once a URL is set in Settings
 - [ ] Web server row shows "not configured" (info) when no URL is set
 - [ ] Internet row is `info` (never `fail`) on an offline local network
 - [ ] Wi-Fi row shows SSID, signal and channel on Wi-Fi; "not on Wi-Fi" on a cable
-- [ ] Wi-Fi and DHCP rows show real data (not "unavailable") on a non-English Windows install
+- [ ] Wi-Fi and DHCP rows show real data (not **Could not run**) on a non-English Windows install
 - [ ] macOS Wi-Fi row shows "hidden by macOS" without Location permission
 - [ ] **Check again** finishes within about 10 seconds
-- [ ] Header summary chip reads "Health: N failing, M notes" (or "Health: OK")
+- [ ] Header summary chip reads "Health: N failing, M notes" (or "Health: K could not run", or "Health: OK"), with the shape the **Problems right now** card gives the most serious check: ✖ for a failed router, ▲ for another failed check or one that could not run, ⓘ for notes only
 
 ### Conflicts
 - [ ] Two devices given the same static IP produce a MAC flap conflict after two alternations within 10 minutes
