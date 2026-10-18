@@ -312,7 +312,7 @@ func TestReadBackfillsDeviceType(t *testing.T) {
 }
 
 // TestReadNamesOldHealthChecks: a scan an older netdiag saved shows its
-// checks by the names this one uses (v0.6-D50); a check netdiag has no
+// checks by the names this one uses (v0.6-D54); a check netdiag has no
 // name for keeps its label.
 func TestReadNamesOldHealthChecks(t *testing.T) {
 	s := open(t)
