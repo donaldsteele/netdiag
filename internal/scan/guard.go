@@ -238,13 +238,14 @@ func (r *runner) guardPresence(hosts []model.Host, checked []string, ok map[stri
 	return g.counts()
 }
 
-// guardEnd ends a live cycle. A cycle that saw the network it watches
-// again (after one that did not) lets the held-back notices out. A hold
+// guardEnd ends a live cycle. After one that saw another network, a cycle
+// with this computer's link fine that did not lets the held-back notices
+// out; one without a link tells nothing, so they wait for the next. A hold
 // other than network_changed ends after GuardClearCycles good cycles in a
 // row.
 func (r *runner) guardEnd() {
 	g := &r.guard
-	if g.away > 0 && !g.seen && !g.left() {
+	if g.away > 0 && !g.seen && !g.left() && g.linkOK {
 		g.away, g.home = 0, nil
 		r.st.setAway(false)
 		r.st.post(r.notify.Release)

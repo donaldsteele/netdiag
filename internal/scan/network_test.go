@@ -290,3 +290,37 @@ func TestSelfAssignedAddress(t *testing.T) {
 		}
 	}
 }
+
+// Another router, then a cycle without a link (Wi-Fi dropped), then the
+// next cycle tells: the same router again lets the held-back notices out
+// (the new device is announced), another router again holds
+// network_changed and drops them.
+func TestOtherRouterAcrossLinkLoss(t *testing.T) {
+	a := []arp.Entry{{IP: "10.0.0.1", MAC: gwMAC}}
+	b := []arp.Entry{{IP: "10.0.0.1", MAC: "00:11:22:33:44:02"}, {IP: "10.0.0.12", MAC: "00:07:4D:00:00:12"}}
+	for _, tc := range []struct {
+		name  string
+		after []arp.Entry // the ARP read of cycle 4
+		codes []string
+		isNew bool
+	}{
+		{"back", a, []string{model.HeldLink}, true},
+		{"other", b, []string{model.HeldLink, model.HeldNetworkChanged}, false},
+	} {
+		d := presenceDeps()
+		d.Pinger = &scriptPinger{sweepAlive: map[string]bool{}, script: map[string][]bool{}, presence: map[string]int{}}
+		d.ARP = &scriptARP{tables: [][]arp.Entry{a, a, b, nil, tc.after}} // harvest, cycles 1 to 4
+		d.Env = &flakyEnv{fail: map[int32]bool{4: true}}                  // cycle 3
+		_, res := runCycles(t, d, "10.0.0.0/28", 6)
+		var codes []string
+		for _, n := range notices(res, model.TriggerNetdiagLink) {
+			if !n.OK {
+				codes = append(codes, n.Code)
+			}
+		}
+		isNew := slices.ContainsFunc(notices(res, model.TriggerNewDevice), func(n model.Notice) bool { return n.IP == "10.0.0.12" })
+		if !slices.Equal(codes, tc.codes) || isNew != tc.isNew {
+			t.Fatalf("%s: link codes %v, new device %v: %+v", tc.name, codes, isNew, res.Notices)
+		}
+	}
+}
