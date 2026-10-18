@@ -102,7 +102,7 @@ func heldNotice(reason string) (title, msg string) {
 	case model.HeldNetworkChanged:
 		return "This computer is on a different network", "netdiag stopped its alerts for the network it was watching. Press Restart watching to watch this one."
 	case model.HeldGateway:
-		return "netdiag lost the network", "The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline."
+		return "The router stopped answering", "The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline."
 	}
 	return "netdiag lost the network", "This computer lost the local network, so netdiag paused its checks. They start again by themselves when the network is back."
 }

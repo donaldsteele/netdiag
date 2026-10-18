@@ -466,8 +466,11 @@ func TestAlertContentLimits(t *testing.T) {
 	if in.Title != "Network conflict: 192.168.1.50" || strings.Join(names, ",") != "Address,MAC address" || in.DedupeKey != cf.Key {
 		t.Fatalf("conflict %+v", in)
 	}
+	// From a day on, days (a long hold read "193 h 52 min").
 	for d, want := range map[time.Duration]string{30 * time.Second: "less than a minute", 12 * time.Minute: "12 min",
-		125 * time.Minute: "2 h 5 min", 120 * time.Minute: "2 h", 180*time.Minute + 30*time.Second: "3 h"} {
+		125 * time.Minute: "2 h 5 min", 120 * time.Minute: "2 h", 180*time.Minute + 30*time.Second: "3 h",
+		23*time.Hour + 59*time.Minute: "23 h 59 min", 24 * time.Hour: "1 day", 25*time.Hour + 59*time.Minute: "1 day 1 h",
+		193*time.Hour + 52*time.Minute: "8 days 1 h", 8 * 24 * time.Hour: "8 days"} {
 		if got := downFor(d); got != want {
 			t.Errorf("downFor(%v) = %q, want %q", d, got, want)
 		}

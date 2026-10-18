@@ -211,7 +211,10 @@ func TestGatewayMassMissHolds(t *testing.T) {
 	if n := append(notices(res, model.TriggerPrinterOffline), notices(res, model.TriggerDeviceOffline)...); len(n) != 0 {
 		t.Fatalf("offline notices: %+v", n)
 	}
-	if link := notices(res, model.TriggerNetdiagLink); len(link) != 2 || link[0].OK || !link[1].OK {
+	// The title blames the router, as the live pill and the card do, not
+	// this computer.
+	if link := notices(res, model.TriggerNetdiagLink); len(link) != 2 || link[0].OK || !link[1].OK ||
+		link[0].Title != "The router stopped answering" || link[0].Code != model.HeldGateway {
 		t.Fatalf("netdiagLink notices: %+v", link)
 	}
 	reasons := map[string]bool{}

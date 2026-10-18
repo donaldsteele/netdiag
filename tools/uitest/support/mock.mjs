@@ -138,7 +138,7 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
       const what = `${method} ${p} (X-Netdiag-Session: ${token ? 'wrong' : 'missing'})`;
       rec.unauthorized.push(what);
       if (!stale) rec.unmatched.push(what);
-      return json(route, 401, { error: 'Open netdiag again to use this button.', session: false });
+      return json(route, 401, { error: 'Double-click netdiag to open a fresh page.', session: false });
     }
 
     if (method === 'GET' && p === '/api/interfaces') return json(route, 200, fx.interfaces());

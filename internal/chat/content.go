@@ -265,8 +265,9 @@ func fixedText(n model.Notice, now time.Time) string {
 	return clip(s, protocol.MaxAlertText)
 }
 
-// downFor is a duration in words: "less than a minute", "12 min", "2 h 5
-// min", "2 h".
+// downFor is a duration in words, with the page's days (app.js downFor):
+// "less than a minute", "12 min", "2 h 5 min", "2 h", and from a day on
+// "1 day", "8 days 2 h".
 func downFor(d time.Duration) string {
 	m := int(d / time.Minute)
 	switch {
@@ -274,8 +275,18 @@ func downFor(d time.Duration) string {
 		return "less than a minute"
 	case m < 60:
 		return fmt.Sprintf("%d min", m)
-	case m%60 == 0:
+	case m < 24*60 && m%60 == 0:
 		return fmt.Sprintf("%d h", m/60)
+	case m < 24*60:
+		return fmt.Sprintf("%d h %d min", m/60, m%60)
 	}
-	return fmt.Sprintf("%d h %d min", m/60, m%60)
+	days, h := m/(24*60), m%(24*60)/60
+	s := fmt.Sprintf("%d days", days)
+	if days == 1 {
+		s = "1 day"
+	}
+	if h > 0 {
+		s += fmt.Sprintf(" %d h", h)
+	}
+	return s
 }

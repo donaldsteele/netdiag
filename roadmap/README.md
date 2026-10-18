@@ -916,7 +916,7 @@ There is one function, `notify.severityFor(trigger, ctx)`, owned by [v0.6 §4.7]
   - Every POST, PUT and DELETE under `/api/`. The guard is method-based, so it covers the v0.5.7 `POST /api/scans/{id}/remote` and every later action route.
   - `GET /api/settings` and `GET /api/bubbles` (v0.6-D14). The v0.6 API table also gates `GET /api/bubbles/pair/status`.
   - v0.7: `GET /api/inventory`. It carries each device's owner and notes, and the scan snapshot doesn't (V7-D13, as recommended).
-- **Failure.** 401 `{"error":"Open netdiag again to use this button.","session":false}`. A page that gets 401 on `GET /api/settings` makes no alert sound and does not take the beeping until a call passes again (v0.6-D34).
+- **Failure.** 401 `{"error":"Double-click netdiag to open a fresh page.","session":false}`. A page that gets 401 on `GET /api/settings` makes no alert sound and does not take the beeping until a call passes again (v0.6-D34).
 - **Second launch.** `GET /api/identity` stays token-free. With `?nonce=<n>` (at most 128 characters) its answer also carries `proof`: base64url HMAC-SHA256, keyed by the token, of `"netdiag identity\0" + n`. A launch opens the running page only when the `instanceId` matches `instance.json` and the proof checks out for a new nonce; otherwise the answer is a foreign netdiag (v0.6-D33).
 - **`/mcp`** is unchanged: the Agent access switch and the Origin check remain its consent.
 - **Tests.** Every new action route gets a 401 test.

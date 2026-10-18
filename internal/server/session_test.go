@@ -37,7 +37,7 @@ func sessionRefused(t *testing.T, what string, r *http.Response, b string) {
 		Error   string `json:"error"`
 		Session *bool  `json:"session"`
 	}
-	if err := json.Unmarshal([]byte(b), &j); err != nil || j.Error != "Open netdiag again to use this button." ||
+	if err := json.Unmarshal([]byte(b), &j); err != nil || j.Error != "Double-click netdiag to open a fresh page." ||
 		j.Session == nil || *j.Session {
 		t.Errorf("%s: body %s", what, b)
 	}

@@ -32,7 +32,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 const SessionHeader = "X-Netdiag-Session"
 
 // sessionMessage is the 401 answer's error. The page shows its own banner.
-const sessionMessage = "Open netdiag again to use this button."
+const sessionMessage = "Double-click netdiag to open a fresh page."
 
 // sessionGuard requires the launch token in X-Netdiag-Session on every
 // request under /api/ that is not a GET or HEAD, whatever its route (so a
