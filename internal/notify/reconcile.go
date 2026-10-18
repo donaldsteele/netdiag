@@ -278,9 +278,10 @@ func LinkKey(network string) string {
 }
 
 // LinkLost opens the storm guard's problem for network and returns its
-// notice, or nothing when it is already open. It is local only and needs no
-// trigger switch: it says why netdiag reports nothing while it holds.
-func (e *Engine) LinkLost(network, title, msg string) []model.Notice {
+// notice, which carries reason (model.Held*) as its Code, or nothing when it
+// is already open. It is local only and needs no trigger switch: it says why
+// netdiag reports nothing while it holds.
+func (e *Engine) LinkLost(network, reason, title, msg string) []model.Notice {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	key := LinkKey(network)
@@ -289,7 +290,7 @@ func (e *Engine) LinkLost(network, title, msg string) []model.Notice {
 	}
 	now := e.now()
 	n := model.Notice{Trigger: model.TriggerNetdiagLink, Severity: severityFor(model.TriggerNetdiagLink, sevCtx{}),
-		Title: title, Message: msg, Key: key}
+		Title: title, Message: msg, Key: key, Code: reason}
 	n.ID, n.At = e.next(now)
 	e.open[key] = &fault{OpenFault: OpenFault{Key: key, Trigger: n.Trigger, Severity: n.Severity,
 		Title: title, OpenedAt: now}}

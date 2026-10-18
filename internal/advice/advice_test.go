@@ -76,6 +76,11 @@ func every() map[string]*model.Advice {
 				out[goos+" notice "+tr+" "+code] = Notice(n, nil, x(goos))
 			}
 		}
+		// The storm guard's notice says why it holds (v0.6 M6).
+		for _, reason := range []string{model.HeldLink, model.HeldGateway, model.HeldNetworkChanged} {
+			n := model.Notice{Trigger: model.TriggerNetdiagLink, Code: reason, Message: "raw message"}
+			out[goos+" notice netdiagLink "+reason] = Notice(n, nil, x(goos))
+		}
 		for _, kind := range ConflictKinds() {
 			for _, ip := range []string{"192.168.1.50", "192.168.1.60"} {
 				c := model.Conflict{Kind: kind, IPs: []string{ip}, Name: "printer-2", Detail: "raw conflict detail"}

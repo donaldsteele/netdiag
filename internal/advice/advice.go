@@ -354,6 +354,15 @@ func notice(n model.Notice, h *model.Host) *model.Advice {
 	case model.TriggerHealthFailed:
 		return adv("A network health check keeps failing.", steps("Open Health to see what to try."))
 	case model.TriggerNetdiagLink:
+		switch n.Code {
+		case model.HeldGateway:
+			return adv("The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline.",
+				steps("Check that the router is switched on and its lights look normal.",
+					"Check this computer's network cable or Wi-Fi."))
+		case model.HeldNetworkChanged:
+			return adv("This computer is on a different network now, so netdiag stopped the alerts for the network it was watching.",
+				steps("If this computer moved on purpose, press Restart watching to watch the network it is on now."))
+		}
 		return adv("This computer lost the local network, so netdiag paused its checks instead of reporting every device offline.",
 			steps("Check this computer's network cable or Wi-Fi."))
 	case model.TriggerChatTest:

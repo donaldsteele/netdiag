@@ -249,11 +249,11 @@ func TestLinkNotices(t *testing.T) {
 	cfg := DefaultConfig()
 	clear(cfg.Triggers)
 	e.SetConfig(cfg)
-	n := e.LinkLost("n-0123456789ab", "netdiag lost the network", "x")
+	n := e.LinkLost("n-0123456789ab", model.HeldLink, "netdiag lost the network", "x")
 	if len(n) != 1 || n[0].Key != "netdiagLink||n-0123456789ab" || n[0].Severity != "warn" || n[0].Trigger != model.TriggerNetdiagLink {
 		t.Fatalf("lost: %v", n)
 	}
-	if n := e.LinkLost("n-0123456789ab", "netdiag lost the network", "x"); len(n) != 0 {
+	if n := e.LinkLost("n-0123456789ab", model.HeldLink, "netdiag lost the network", "x"); len(n) != 0 {
 		t.Fatalf("again: %v", n)
 	}
 	n = e.LinkBack("n-0123456789ab")

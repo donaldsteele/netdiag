@@ -68,8 +68,10 @@ type Notice struct {
 	MAC string `json:"mac,omitempty"`
 	// Name is the best name netdiag has for the device (empty: use IP).
 	Name string `json:"name,omitempty"`
-	// Code is the printer alert's code (printerAlert faults only), such as
-	// hrPrinterDetectedErrorState.doorOpen or media-jam-error.
+	// Code is the printer alert's code (printerAlert faults), such as
+	// hrPrinterDetectedErrorState.doorOpen or media-jam-error, or the storm
+	// guard's reason (netdiagLink faults: HeldLink, HeldGateway or
+	// HeldNetworkChanged).
 	Code string `json:"code,omitempty"`
 	// Detail names what the fault is about: the printer alert's or the
 	// low supply's description (printerAlert and supplyLow faults).

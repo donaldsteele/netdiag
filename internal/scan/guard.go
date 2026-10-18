@@ -182,7 +182,7 @@ func (r *runner) hold(reason string) {
 	r.notify.SetHold(true)
 	title, msg := heldNotice(reason)
 	network := r.fp.ID
-	r.st.post(func() []model.Notice { return r.notify.LinkLost(network, title, msg) })
+	r.st.post(func() []model.Notice { return r.notify.LinkLost(network, reason, title, msg) })
 }
 
 // unhold turns the guard off: checks count again and the netdiagLink

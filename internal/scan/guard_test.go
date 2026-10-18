@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -161,7 +162,7 @@ func TestEnvSelfErrorHolds(t *testing.T) {
 	d.Env = &flakyEnv{fail: map[int32]bool{3: true, 4: true}} // cycles 2 and 3
 	evs, res := runCycles(t, d, "10.0.0.0/28", 7)
 	link := notices(res, model.TriggerNetdiagLink)
-	if len(link) != 2 || link[0].OK || link[0].Title != "netdiag lost the network" || link[0].Severity != "warn" ||
+	if len(link) != 2 || link[0].OK || link[0].Title != "netdiag lost the network" || link[0].Severity != "warn" || link[0].Code != model.HeldLink || link[0].Advice == nil ||
 		!link[1].OK || link[1].Key != link[0].Key || link[1].Title != "netdiag is back on the network" {
 		t.Fatalf("netdiagLink notices: %+v", link)
 	}
@@ -256,7 +257,8 @@ func TestNetworkChangedStaysHeld(t *testing.T) {
 		t.Fatalf("last status %+v", last)
 	}
 	link := notices(res, model.TriggerNetdiagLink)
-	if len(link) != 1 || link[0].OK || link[0].Title != "This computer is on a different network" || link[0].Key != "netdiagLink||"+want {
+	if len(link) != 1 || link[0].OK || link[0].Title != "This computer is on a different network" || link[0].Key != "netdiagLink||"+want ||
+		link[0].Code != model.HeldNetworkChanged || link[0].Advice == nil || !strings.Contains(link[0].Advice.Meaning, "different network") {
 		t.Fatalf("netdiagLink notices: %+v", link)
 	}
 }
