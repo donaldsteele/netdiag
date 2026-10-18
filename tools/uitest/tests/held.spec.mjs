@@ -4,7 +4,7 @@
 // and when this computer is on another network the banner offers Restart
 // watching.
 import { test, expect } from '@playwright/test';
-import { installMocks, initStorage } from '../support/mock.mjs';
+import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import { runAxe } from '../support/axe.mjs';
 import { THEMES } from '../support/config.mjs';
 import * as fx from '../fixtures/index.mjs';
@@ -12,7 +12,7 @@ import * as fx from '../fixtures/index.mjs';
 async function liveWith(page, frames, theme = 'dark') {
   await initStorage(page, { theme, live: true });
   const rec = await installMocks(page, { scenario: 'live', frames });
-  await page.goto('/');
+  await page.goto(HOME);
   await page.getByRole('button', { name: 'Scan', exact: true }).click();
   await expect(page.locator('.livepill')).toContainText('Live');
   return rec;

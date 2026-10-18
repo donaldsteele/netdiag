@@ -390,7 +390,7 @@ func TestQuitSavesLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := New(Config{Registry: scan.NewRegistry(scan.New(scan.Deps{Env: fakeEnv{}})), Store: st, Health: fakeHealth{},
-		Gateway: func() (string, error) { return "10.0.0.1", nil }, Ledger: ledger})
+		Gateway: func() (string, error) { return "10.0.0.1", nil }, Ledger: ledger, SessionToken: testToken})
 	if err := s.Listen(0); err != nil {
 		t.Fatal(err)
 	}

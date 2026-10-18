@@ -150,8 +150,13 @@ for (const width of [360, 390, 768, 1100, 1440]) for (const theme of ['dark', 'l
     const all = [];
     for (const reason of ['link', 'network_changed']) {
       rec.frames = [...fx.replayFrames(), { type: 'live', data: fx.heldStatus(reason) }, { type: 'notice', data: fx.linkNotice(reason) }];
-      await page.goto('/');
-      await expect(page.locator('.livepill.held svg.ico')).toBeVisible();
+      // The page drops #s= from its address once it has the token, so a
+      // second goto(HOME) would only change the hash: load a fresh page.
+      await page.goto('about:blank');
+      await page.goto(HOME);
+      // The held status comes after the whole replayed scan, which takes the
+      // page 2 to 6 s to draw when several workers run at once.
+      await expect(page.locator('.livepill.held svg.ico')).toBeVisible({ timeout: 20_000 });
       const b = page.locator('#alerts div.banner:not(.more)').filter({ hasText: fx.linkNotice(reason).title });
       await expect(b).toHaveCount(1);
       if (reason === 'network_changed') await expect(b.locator('button.brestart')).toBeVisible();
