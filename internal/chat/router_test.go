@@ -951,7 +951,7 @@ func TestFirstConnectBurst(t *testing.T) {
 
 // The status says whether the manager sends (the switch it last applied),
 // so a page whose own copy of the settings is out of date, because
-// another page saved them, never claims alerts go when they don't (v0.6-D51).
+// another page saved them, never claims alerts go when they don't (v0.6-D52).
 func TestStatusSendAlerts(t *testing.T) {
 	f := bubblestest.New(t)
 	st, _ := newStore(t)

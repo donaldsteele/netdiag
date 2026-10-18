@@ -169,7 +169,7 @@ func TestChatRoutes(t *testing.T) {
 	if m := f.Messages(); len(m) != 1 || !strings.Contains(m[0], "netdiag on FRONTDESK-PC is connected.") {
 		t.Fatalf("messages %q", m)
 	}
-	// The status says so too, for every page open (v0.6-D51).
+	// The status says so too, for every page open (v0.6-D52).
 	if _, b := do(t, "GET", u+"/api/bubbles", "", ""); !strings.Contains(b, `"sendAlerts":true`) {
 		t.Fatalf("status after Send alerts was saved on: %s", b)
 	}
@@ -270,7 +270,7 @@ func (l *logLines) has(parts ...string) bool {
 
 // A Disconnect that cannot remove bubbles.json answers 500 with plain
 // words and a next step, which Settings shows as they are; the OS error
-// and the file's path go only to the diagnostics log (v0.6-D51).
+// and the file's path go only to the diagnostics log (v0.6-D52).
 func TestChatDisconnectFails(t *testing.T) {
 	f := bubblestest.New(t)
 	var log logLines
