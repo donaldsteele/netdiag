@@ -108,8 +108,9 @@ func runAttached(ctx context.Context, endpoint string, stdin io.ReadCloser, stdo
 // window) and back. Each call is sent on its own, as the SDK's client does,
 // since a POST answers only when its result (or a first progress note)
 // is ready; notifications and responses go in order. A call the window does
-// not take gets an error answer, so the agent is not left waiting. It
-// returns nil when local ends (stdin closed), else what stopped it.
+// not take gets an error answer, so the agent is not left waiting, and ends
+// the relay: the window quit or closed the session. It returns nil when
+// local ends (stdin closed), else what stopped it.
 //
 // The relay never starts the window's stream for messages nobody asked for
 // (the SDK client starts it only for its own sessions): netdiag's server
@@ -119,15 +120,24 @@ func relay(ctx context.Context, local, remote mcp.Connection, ver *protoVersion)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var calls sync.WaitGroup
-	errc := make(chan error, 2)
+	// The first end wins; stop never blocks.
+	errc := make(chan error, 1)
+	stop := func(err error) {
+		select {
+		case errc <- err:
+		default:
+		}
+	}
+	reading := make(chan struct{}) // closed when the agent side stops reading
 	go func() {
+		defer close(reading)
 		for {
 			msg, err := local.Read(ctx)
 			if err != nil {
 				if errors.Is(err, io.EOF) {
 					err = nil
 				}
-				errc <- err
+				stop(err)
 				return
 			}
 			if req, ok := msg.(*jsonrpc.Request); ok && req.IsCall() {
@@ -138,12 +148,15 @@ func relay(ctx context.Context, local, remote mcp.Connection, ver *protoVersion)
 					if err := remote.Write(ctx, req); err != nil && ctx.Err() == nil {
 						_ = local.Write(ctx, &jsonrpc.Response{ID: req.ID,
 							Error: &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "the netdiag window did not take this request: " + err.Error()}})
+						// The window quit, or ended this session (Agent
+						// access off): stop, so the agent sees it.
+						stop(err)
 					}
 				}()
 				continue
 			}
 			if err := remote.Write(ctx, msg); err != nil {
-				errc <- err
+				stop(err)
 				return
 			}
 		}
@@ -152,18 +165,19 @@ func relay(ctx context.Context, local, remote mcp.Connection, ver *protoVersion)
 		for {
 			msg, err := remote.Read(ctx)
 			if err != nil {
-				errc <- err
+				stop(err)
 				return
 			}
 			ver.seen(msg)
 			if err := local.Write(ctx, msg); err != nil {
-				errc <- err
+				stop(err)
 				return
 			}
 		}
 	}()
 	err := <-errc
 	cancel() // the calls still on their way stop
+	<-reading
 	calls.Wait()
 	return err
 }

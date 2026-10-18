@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -373,6 +374,35 @@ func TestMCPAttachEndsWhenAgentAccessGoesOff(t *testing.T) {
 	defer cancel()
 	if res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "get_status", Arguments: map[string]any{}}); err == nil && !res.IsError {
 		t.Fatalf("a call after Agent access went off worked: %+v", res)
+	}
+	if c := exited(t, code, errb); c != 1 || !strings.Contains(errb.String(), "MCP connection ended") {
+		t.Fatalf("exit %d; stderr=%s", c, errb.String())
+	}
+}
+
+// Quitting the window ends the attached netdiag mcp too: the next call gets
+// an error answer (never no answer) and it exits with 1.
+func TestMCPAttachEndsWhenWindowQuits(t *testing.T) {
+	_, _, info := testWindow(t, true)
+	cs, code, errb := attached(t, "--attach")
+	if s := getStatus(t, cs); s.Transport != "http" {
+		t.Fatalf("not attached: %+v", s)
+	}
+	if c := post(t, "http://127.0.0.1:"+strconv.Itoa(info.Port)+"/api/quit", info.Token); c != 204 {
+		t.Fatalf("quit: %d", c)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if running, _ := instance.Running(context.Background(), info); !running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the window did not quit")
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "get_status", Arguments: map[string]any{}}); err == nil && !res.IsError {
+		t.Fatalf("a call after Quit worked: %+v", res)
 	}
 	if c := exited(t, code, errb); c != 1 || !strings.Contains(errb.String(), "MCP connection ended") {
 		t.Fatalf("exit %d; stderr=%s", c, errb.String())
