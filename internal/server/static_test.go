@@ -549,7 +549,7 @@ func TestIconSpriteBudgetAndRefs(t *testing.T) {
 		// actionIcon (advice buttons, v0.6 M7).
 		"i-refresh-cw", "i-settings", "i-monitor", "i-map-pin", "i-external-link",
 		// chatIcon: the team chat status tool's three shapes (v0.6 M10).
-		"i-chat", "i-chat-warn", "i-chat-off"}
+		"i-chat", "i-chat-warn", "i-chat-off", "i-chat-paused"}
 	for _, id := range dynamic {
 		if !has(id) {
 			t.Errorf("icons.svg missing dynamically referenced symbol %s", id)

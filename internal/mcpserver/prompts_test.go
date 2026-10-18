@@ -64,6 +64,10 @@ func TestPrompts(t *testing.T) {
 			// Each chat state in plain words, with the Settings button that
 			// helps; the open, fixed and neither cases; D10 and D11.
 			`"unreachable": "netdiag can't reach the chat server since`, "**Try now**", "**Reconnect**", "**Change channel**", "**Connect to team chat**",
+			// The window's words: only the last hour's alerts are sent, and a
+			// channel never chosen is chosen, not changed.
+			"Alerts from the last hour are sent when it is back.", "never promise to send all of chat.waiting",
+			"suggest **Choose a channel** when chat.channel is empty",
 			`"unknown"`, "--attach", "chat.sendAlerts", "**Send alerts to team chat**",
 			// The window's words for each cause (app.js chatTrouble,
 			// index.html #chat-identity): a changed identity is never

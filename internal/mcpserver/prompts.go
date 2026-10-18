@@ -417,7 +417,7 @@ var runbooks = []runbook{
 			return "Check netdiag's alerts in team chat (bubbles): re-check each one that is still open, and close only what netdiag confirms is fixed. " +
 				"netdiag posts its own alerts and closes them itself when the problem is fixed; you help the person see where things stand. Follow these steps:\n" +
 				"1. Call get_status and read chat. If chat.state is not \"connected\", explain it in the netdiag window's own words below, and go on with netdiag only:\n" +
-				"   - \"unreachable\": \"netdiag can't reach the chat server since <chat.since, in local time>. It keeps trying, and sends the waiting alerts (chat.waiting) when it is back.\" " +
+				"   - \"unreachable\": \"netdiag can't reach the chat server since <chat.since, in local time>. It keeps trying. Alerts from the last hour are sent when it is back.\" (older ones are dropped, so never promise to send all of chat.waiting) " +
 				"Suggest **Try now** in **Settings > Team chat (bubbles)**.\n" +
 				"   - \"needs_reconnect\": if chat.reason is \"unreadable\", \"netdiag can't open its saved team chat connection on this computer (it may have been copied from another computer or Windows user), so it has to be connected again.\" " +
 				"Otherwise, \"The chat server no longer accepts netdiag (your chat admin may have removed it).\" " +
@@ -425,7 +425,7 @@ var runbooks = []runbook{
 				"   - \"identity_changed\": \"Warning: the chat server's identity changed, so netdiag stopped sending alerts. This happens when the chat server is reinstalled, or when something is pretending to be it.\" " +
 				"Tell the person to ask their chat admin before they press **Reconnect** in **Settings > Team chat (bubbles)**, and never suggest reconnecting without that.\n" +
 				"   - \"no_channel\": if chat.reason is \"not_allowed\", \"netdiag isn't allowed to post in #<chat.channel> any more.\" Suggest asking the chat admin to add netdiag to it again, or **Change channel**. " +
-				"If chat.reason is \"archived\", \"The channel #<chat.channel> is archived.\" Suggest **Change channel**. Otherwise netdiag isn't posting anywhere yet: suggest **Change channel**. " +
+				"If chat.reason is \"archived\", \"The channel #<chat.channel> is archived.\" Suggest **Change channel**. Otherwise netdiag isn't posting anywhere yet: suggest **Choose a channel** when chat.channel is empty (no channel was ever chosen), else **Change channel**. " +
 				"The button is in **Settings > Team chat (bubbles)**.\n" +
 				"   - \"off\": netdiag is not connected to team chat. Suggest **Connect to team chat** in **Settings > Team chat (bubbles)**.\n" +
 				"   - \"unknown\": this connection is not the netdiag window's, so it sees neither team chat nor whether netdiag is watching the network now. " +
