@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"errors"
 	"net/netip"
 	"slices"
 	"time"
@@ -116,13 +117,20 @@ func heldNotice(reason string) (title, msg string) {
 // address (or a self-assigned 169.254 one where the scan began with a
 // lease: the lease is gone) or giving one outside the target it was in is
 // a lost link; an address on another prefix than the fingerprint's is
-// another network.
+// another network. So is an address of another adapter than the one the
+// scan began on: Env.Self falls back to the first adapter with an address
+// when that one has none (its cable is out, its Wi-Fi is off), and that
+// may be a virtual one (Hyper-V, WSL, a VPN) on another prefix, which says
+// nothing about the network netdiag watches.
 func (r *runner) guardStart(interval time.Duration) {
 	g := &r.guard
 	if slept(g.lastEnd, r.d.Wall(), interval) {
 		g.quiet = QuietCycles
 	}
 	self, err := r.d.Env.Self(r.req.Interface)
+	if err == nil && r.self.Interface != "" && self.Interface != "" && self.Interface != r.self.Interface {
+		err = errOtherAdapter
+	}
 	a, perr := netip.ParseAddr(self.IP)
 	g.self = self
 	up := err == nil && perr == nil && a.Is4() && (!a.IsLinkLocalUnicast() || linkLocal(r.self.IP))
@@ -135,6 +143,10 @@ func (r *runner) guardStart(interval time.Duration) {
 		r.otherNetwork()
 	}
 }
+
+// errOtherAdapter is Env.Self answering for another adapter than the
+// scan's: the scan's has no address.
+var errOtherAdapter = errors.New("the scan's network adapter has no IPv4 address")
 
 // linkLocal reports whether ip is a self-assigned (169.254) address.
 func linkLocal(ip string) bool {

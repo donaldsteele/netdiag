@@ -291,6 +291,45 @@ func TestSelfAssignedAddress(t *testing.T) {
 	}
 }
 
+// adapterEnv is this computer on eth0 (10.0.0.30/28) except on the Self
+// calls in gone (1 is the scan's start): then eth0 has no address and Self
+// falls back to another adapter, as osEnv does.
+type adapterEnv struct {
+	n     atomic.Int32
+	gone  map[int32]bool
+	other model.SelfInfo
+}
+
+func (e *adapterEnv) Self(string) (model.SelfInfo, error) {
+	if e.gone[e.n.Add(1)] {
+		return e.other, nil
+	}
+	return model.SelfInfo{IP: "10.0.0.30", MAC: "aa:bb:cc:00:00:30", Interface: "eth0", CIDR: "10.0.0.0/28"}, nil
+}
+
+func (*adapterEnv) Gateway() (string, error) { return "10.0.0.1", nil }
+
+// Field run 2026-10-18: the cable out for 2 minutes on a PC with a WSL
+// adapter. The Ethernet adapter loses its address, Env.Self answers with
+// the virtual adapter (another prefix), and that is a lost link, not
+// another network: held link, never network_changed, and the OK once the
+// cable is back.
+func TestOtherAdapterIsLostLink(t *testing.T) {
+	d := presenceDeps()
+	d.ARP = fakeARP{{IP: "10.0.0.1", MAC: gwMAC}}
+	d.Env = &adapterEnv{gone: map[int32]bool{3: true, 4: true, 5: true}, // cycles 2 to 4
+		other: model.SelfInfo{IP: "172.20.0.5", MAC: "00:15:5d:00:00:05", Interface: "vEthernet (WSL)", CIDR: "172.20.0.0/20"}}
+	evs, res := runCycles(t, d, "10.0.0.0/28", 9)
+	reasons := heldReasons(evs)
+	if !slices.Contains(reasons, model.HeldLink) || slices.Contains(reasons, model.HeldNetworkChanged) || reasons[len(reasons)-1] != "" {
+		t.Fatalf("reasons %v", reasons)
+	}
+	link := notices(res, model.TriggerNetdiagLink)
+	if len(link) != 2 || link[0].OK || link[0].Code != model.HeldLink || !link[1].OK || link[1].Key != link[0].Key {
+		t.Fatalf("netdiagLink notices: %+v", link)
+	}
+}
+
 // Another router, then a cycle without a link (Wi-Fi dropped), then the
 // next cycle tells: the same router again lets the held-back notices out
 // (the new device is announced), another router again holds
