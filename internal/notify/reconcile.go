@@ -29,7 +29,14 @@ func (e *Engine) Defer() {
 // run already found (its notice held back by Defer) is the same problem:
 // it keeps the ledger's OpenedAt, and Reconcile drops its held notice. The
 // others are open again as they were, for Reconcile to check.
-func (e *Engine) Seed(open []OpenFault) {
+func (e *Engine) Seed(open []OpenFault) { e.seed(open, true) }
+
+// Adopt is Seed for problems the first pass could not tell about (a scan
+// whose target leaves their device out): they are open again as they were,
+// and Reconcile does not check them.
+func (e *Engine) Adopt(open []OpenFault) { e.seed(open, false) }
+
+func (e *Engine) seed(open []OpenFault, check bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for _, o := range open {
@@ -43,7 +50,7 @@ func (e *Engine) Seed(open []OpenFault) {
 			f.again = true
 			continue
 		}
-		e.open[o.Key] = &fault{OpenFault: o, seeded: true}
+		e.open[o.Key] = &fault{OpenFault: o, seeded: check, outside: !check}
 	}
 }
 

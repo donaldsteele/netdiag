@@ -99,6 +99,10 @@ type fault struct {
 	// ledger already had open: its notice was given before, so Reconcile
 	// drops the one held back.
 	again bool
+	// outside marks a problem adopted without a check (Adopt): the scan
+	// does not cover its devices, so its absence from the scan's conflict
+	// analyses does not close it.
+	outside bool
 }
 
 // Engine produces Notices from transitions.
@@ -613,7 +617,7 @@ func (e *Engine) ObserveConflicts(cur []model.Conflict, cycle bool) []model.Noti
 		return out
 	}
 	for _, f := range e.openOf(model.TriggerIPConflict, model.TriggerIPConflict+"|") {
-		if present[f.Key] {
+		if present[f.Key] || f.outside {
 			continue
 		}
 		if f.good++; f.good < ConflictOKRuns {

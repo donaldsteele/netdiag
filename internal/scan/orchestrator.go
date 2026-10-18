@@ -120,6 +120,16 @@ type Deps struct {
 	// LocalPrefixes lists the local interface subnets ProbeHost accepts. When
 	// nil it is derived from netinfo.Interfaces (tests inject a fake).
 	LocalPrefixes func() ([]netip.Prefix, error)
+
+	// v0.6 dependencies. nil turns each off, and DefaultDeps leaves them
+	// nil: `netdiag ui` passes the one ledger and profile store of the
+	// process, so each file has one writer.
+	Ledger   ProblemLedger // open-problem ledger, reconciled after the first pass
+	Profiles ProfileStore  // network-profile.json
+	// Wall is the wall clock the storm guard measures sleep with (tests);
+	// nil uses time.Now without its monotonic reading, which keeps counting
+	// while the computer sleeps on some systems and not on others.
+	Wall func() time.Time
 }
 
 // DefaultDeps returns the production dependencies, including health, mDNS,
@@ -281,6 +291,9 @@ func New(d Deps) *Orchestrator {
 	}
 	if d.Now == nil {
 		d.Now = time.Now
+	}
+	if d.Wall == nil {
+		d.Wall = func() time.Time { return time.Now().Round(0) }
 	}
 	return &Orchestrator{deps: d}
 }
@@ -494,6 +507,7 @@ type runner struct {
 	lastProg map[string]time.Time
 
 	gateway   string
+	notify    *notify.Engine // the state's alert engine (safe for concurrent use)
 	smu       sync.Mutex
 	settings  model.Settings       // guarded by smu
 	reprobeAt map[string]time.Time // live goroutine only
@@ -501,6 +515,15 @@ type runner struct {
 	tmu       sync.Mutex
 	targets   map[string]snmpprobe.StatusTarget // printer status rows; guarded by tmu
 	cpWG      sync.WaitGroup                    // in-flight live checkpoints
+
+	// Run and live goroutine only: the router's MAC from the first pass's
+	// ARP read, the network fingerprint taken at the end of the first pass,
+	// whether this computer's address was inside the target then, and the
+	// storm guard (guard.go).
+	gatewayMAC  string
+	fp          Fingerprint
+	selfInRange bool
+	guard       stormGuard
 }
 
 func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, targets []netip.Addr) {
@@ -551,7 +574,15 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 	r.st.vendor = d.Vendors.Lookup
 	r.st.ignored = slices.Clone(s.settings.IgnoredConflictMACs)
 	r.st.keepHist = req.Live
-	r.st.notify = notify.New(notifyConfig(s.settings), d.Now)
+	r.notify = notify.New(notifyConfig(s.settings), d.Now)
+	r.st.notify = r.notify
+	if d.Ledger != nil {
+		// The first pass reports nothing until it is reconciled with the
+		// ledger (finishFirstPass), so a restart repeats no problem.
+		r.notify.Defer()
+		r.st.ledger = d.Ledger
+	}
+	r.selfInRange = r.inRange[self.IP]
 	r.st.onChange = func(h *model.HealthReport, c []model.Conflict, n []model.Notice) {
 		s.mu.Lock()
 		s.header.Health, s.header.Conflicts, s.header.Notices = h, c, n
@@ -646,9 +677,10 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 	wg.Wait()
 	bg.Wait() // health
 	r.st.analyze()
+	initialDone := ctx.Err() == nil
+	r.finishFirstPass(initialDone)
 
 	// Live: keep watching for new hosts until cancelled.
-	initialDone := ctx.Err() == nil
 	if initialDone && req.Live {
 		r.live(ctx, targets)
 	}
@@ -749,6 +781,7 @@ func (r *runner) harvest(ctx context.Context) {
 		}
 	}
 	r.st.observeMACs(seen)
+	r.gatewayMAC = gatewayMAC(entries, r.gateway)
 	for _, e := range entries {
 		if !r.inRange[e.IP] {
 			continue
@@ -783,6 +816,73 @@ func (r *runner) harvest(ctx context.Context) {
 		}
 	}
 	r.forceProgress(ctx, model.StageARP, 1, 1)
+}
+
+// gatewayMAC returns the router's MAC from an ARP read, in or out of the
+// target, or "" when the read does not have it.
+func gatewayMAC(entries []arp.Entry, gateway string) string {
+	if gateway == "" {
+		return ""
+	}
+	for _, e := range entries {
+		if e.IP == gateway {
+			if mac, ok := arp.NormalizeMAC(e.MAC); ok {
+				return mac
+			}
+		}
+	}
+	return ""
+}
+
+// finishFirstPass takes the network fingerprint and reconciles the alert
+// engine with the open-problem ledger, once, right after the first pass's
+// analysis (v0.6 X-1), for live and one-shot scans alike. A problem the
+// ledger has for this network is checked against what the pass found when
+// the pass covered it: one on a device in the target, a conflict when the
+// target covers this computer's whole network, and every health check. The
+// others are kept open as they are. A cancelled pass checks nothing.
+func (r *runner) finishFirstPass(complete bool) {
+	r.fp = NewFingerprint(r.self.CIDR, r.gateway, r.gatewayMAC)
+	var check, keep []notify.OpenFault
+	if r.d.Ledger != nil && r.fp.ID != "" {
+		whole := r.coversNetwork()
+		for _, f := range r.d.Ledger.OpenFor(r.fp.ID) {
+			switch {
+			case f.Trigger == model.TriggerHealthFailed,
+				f.Trigger == model.TriggerIPConflict && whole,
+				f.Trigger != model.TriggerIPConflict && r.inRange[f.IP]:
+				check = append(check, f)
+			default:
+				keep = append(keep, f)
+			}
+		}
+	}
+	r.st.reconcile(r.fp.ID, check, keep, complete)
+	if complete {
+		r.saveProfile(r.fp)
+	}
+}
+
+// coversNetwork reports whether the target is this computer's whole network
+// (or more), so a conflict the analysis did not find is really gone.
+func (r *runner) coversNetwork() bool {
+	q, err := netip.ParsePrefix(r.self.CIDR)
+	if err != nil {
+		return false
+	}
+	p, err := netip.ParsePrefix(strings.TrimSpace(r.req.CIDR))
+	return err == nil && p.Bits() <= q.Bits() && p.Masked().Contains(q.Masked().Addr())
+}
+
+// saveProfile records the network in network-profile.json; a failure
+// becomes a warning.
+func (r *runner) saveProfile(fp Fingerprint) {
+	if r.d.Profiles == nil || fp.ID == "" {
+		return
+	}
+	if err := r.d.Profiles.Seen(fp, r.d.Now()); err != nil {
+		r.warn("network profile: " + err.Error())
+	}
 }
 
 // probe runs the per-host job: TCP then web, with SNMP and reverse DNS in

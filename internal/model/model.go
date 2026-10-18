@@ -326,7 +326,25 @@ type LiveStatus struct {
 	IntervalSec int    `json:"intervalSec"`
 	LastCheckAt string `json:"lastCheckAt"`
 	NextCheckAt string `json:"nextCheckAt"`
+	// Held is the storm guard: this computer lost the network (HeldReason
+	// "link"), the router and most devices stopped answering at once
+	// ("gateway"), or this computer is on another network now
+	// ("network_changed", which does not end by itself). While held, missed
+	// checks do not count and no device is reported offline.
+	Held       bool   `json:"held,omitempty"`
+	HeldReason string `json:"heldReason,omitempty"`
+	HeldSince  string `json:"heldSince,omitempty"` // RFC 3339
+	// Network is the id (NetworkID) of the network being watched, "" when
+	// netdiag cannot tell it apart (the router's MAC is unknown).
+	Network string `json:"network,omitempty"`
 }
+
+// Storm guard reasons (LiveStatus.HeldReason).
+const (
+	HeldLink           = "link"
+	HeldGateway        = "gateway"
+	HeldNetworkChanged = "network_changed"
+)
 
 // Presence is the payload of a "presence" event, published only when a known
 // host transitions between online and offline.

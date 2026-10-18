@@ -30,6 +30,9 @@ func (s *state) addNotices(hosts map[string]*model.Host, ns []model.Notice) {
 		return
 	}
 	s.advise(hosts, ns)
+	if s.ledger != nil && s.reconciled {
+		s.ledger.Apply(s.network, ns)
+	}
 	all := make([]model.Notice, 0, len(s.notices)+len(ns))
 	all = append(all, s.notices...)
 	all = append(all, ns...)
@@ -143,8 +146,50 @@ func (s *state) observeMACs(seen map[string]string) {
 }
 
 // analyze queues a conflict analysis (once per cycle, after its evidence).
+// Once the first pass is reconciled it also tells the ledger netdiag is
+// still on its network.
 func (s *state) analyze() {
-	s.ops <- func(hosts map[string]*model.Host) { s.analyzeOp(hosts, true) }
+	s.ops <- func(hosts map[string]*model.Host) {
+		s.analyzeOp(hosts, true)
+		if s.ledger != nil && s.reconciled {
+			s.ledger.Apply(s.network, nil)
+		}
+	}
+}
+
+// reconcile ends the first pass (finishFirstPass): it seeds the alert engine
+// with the ledger's open problems for network, checks those in check
+// against what the pass found (all of the hosts, the conflicts and the
+// health report) and keeps those in keep open unchecked. A cancelled pass
+// (complete false) checks nothing. The notices the first pass held back go
+// out then, and from here on every notice goes into the ledger under
+// network.
+func (s *state) reconcile(network string, check, keep []notify.OpenFault, complete bool) {
+	s.ops <- func(hosts map[string]*model.Host) {
+		s.network = network
+		s.reconciled = true
+		if s.notify == nil {
+			return
+		}
+		s.notify.Seed(check)
+		s.notify.Adopt(keep)
+		var ns []model.Notice
+		if complete {
+			ns = s.notify.Reconcile(hostList(hosts), s.conflicts, s.health)
+		} else {
+			ns = s.notify.Release()
+		}
+		if s.ledger != nil {
+			s.ledger.Apply(network, nil) // this network's problems are seen again
+		}
+		s.addNotices(hosts, ns)
+	}
+}
+
+// post queues fn on the state goroutine and records the notices it returns
+// (the storm guard's own notices).
+func (s *state) post(fn func() []model.Notice) {
+	s.ops <- func(hosts map[string]*model.Host) { s.addNotices(hosts, fn()) }
 }
 
 // applySettings updates the alert config and ignore list, then re-analyzes.

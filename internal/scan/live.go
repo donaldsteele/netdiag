@@ -56,7 +56,9 @@ func (r *runner) live(ctx context.Context, targets []netip.Addr) {
 		IntervalSec: int((interval + time.Second - 1) / time.Second),
 	}
 	status.Online, status.Offline = presenceCounts(hosts)
+	r.guardStatus(&status)
 	r.publishLive(&status, interval, false)
+	r.guard.lastEnd = r.d.Wall()
 
 	cpEvery := r.d.CheckpointInterval
 	if cpEvery <= 0 {
@@ -72,14 +74,17 @@ func (r *runner) live(ctx context.Context, targets []netip.Addr) {
 			return
 		case <-timer.C:
 		}
+		r.guardStart(interval)
 		found, unseen := r.liveCycle(ctx, targets)
 		if ctx.Err() != nil {
 			return
 		}
+		r.guardEnd()
 		status.Cycle++
 		status.NewHosts += found
 		status.Unseen = unseen
 		status.Online, status.Offline = presenceCounts(r.st.snapshot())
+		r.guardStatus(&status)
 		r.publishLive(&status, interval, true)
 		if time.Since(lastCP) >= cpEvery {
 			r.checkpoint()
@@ -246,6 +251,7 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 		}
 	}
 	r.st.observeMACs(seen)
+	r.guardNetwork(gatewayMAC(entries, r.gateway))
 	for _, e := range entries {
 		if !r.inRange[e.IP] {
 			continue
@@ -340,8 +346,9 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 // fallback if it has open ports), else a TCP connect to its lowest open port
 // that is not remote access (see presencePort), else an ARP table match on IP and MAC. Results are applied by the state
 // goroutine; nothing is applied if ctx is cancelled (a cancelled check is not
-// a miss).
+// a miss), and no miss is applied while the storm guard holds (guard.go).
 func (r *runner) checkPresence(ctx context.Context, hosts []model.Host, skip map[string]bool, arpMAC map[string]string) {
+	started := r.d.Wall()
 	var mu sync.Mutex
 	ok := map[string]bool{}
 	var checked []string
@@ -414,8 +421,12 @@ func (r *runner) checkPresence(ctx context.Context, hosts []model.Host, skip map
 		return
 	}
 
+	count := r.guardPresence(hosts, checked, ok, started)
 	now := r.d.Now().UTC().Format(time.RFC3339)
 	for _, ip := range checked {
+		if !ok[ip] && !count {
+			continue // MissedChecks stays as it was
+		}
 		r.st.mutate(ip, presenceUpdate(ok[ip], now))
 	}
 }

@@ -359,9 +359,18 @@ func (r *runner) applySettings(set model.Settings) bool {
 	return r.st.applySettings(set)
 }
 
-// checkpoint saves the current live snapshot to history asynchronously; a
-// failure becomes a warning.
+// checkpoint saves the current live snapshot to history and notes the
+// network in network-profile.json, asynchronously; a failure becomes a
+// warning.
 func (r *runner) checkpoint() {
+	if r.d.Profiles != nil {
+		fp := r.fp
+		r.cpWG.Add(1)
+		go func() {
+			defer r.cpWG.Done()
+			r.saveProfile(fp)
+		}()
+	}
 	if r.d.Store == nil {
 		return
 	}
