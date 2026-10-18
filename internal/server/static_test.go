@@ -243,7 +243,8 @@ func TestAdviceUI(t *testing.T) {
 		"This network has no internet</label>", `x-model="noInternetHere" :disabled="!healthNetwork()"`,
 		`id="health-fine"`, `<span x-text="healthFineText()"></span>`,
 		`<strong x-text="conflictWord(c)"></strong>`, `:href="linkAction(a) ? a.target : null"`,
-		`rel="noopener noreferrer"`,
+		`rel="noopener noreferrer"`, `<span class="badge cnote" x-show="conflictNote(h)">`, `x-show="hasConflict(h) && !conflictNote(h)"`,
+		`<use href="icons.svg#i-globe"></use></svg>Use this address`,
 	} {
 		if !strings.Contains(string(html), want) {
 			t.Errorf("index.html missing %q", want)
@@ -256,6 +257,8 @@ func TestAdviceUI(t *testing.T) {
 		"noInternet: 'set-nointernet'", "vendors[mac] ||", "this.health && this.health.network",
 		"this.problems && this.problems.everythingFine && !this.gone() ? 'Everything looks fine' : 'All health checks look fine'",
 		"conflictLevel(c) { return c.kind === 'mac_multi_ip' ? 'note'", "seen: 'Conflict', possible: 'Possible conflict', note: 'Note'",
+		"cs.every(c => c.kind === 'mac_multi_ip')", `/ If that is the right page, set it as "Web server URL" in Settings\.$/`,
+		`s.replace(/^Otherwise, (\w)/`,
 	} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("app.js missing %q", want)

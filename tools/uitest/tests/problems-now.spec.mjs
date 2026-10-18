@@ -116,7 +116,8 @@ for (const theme of THEMES) {
     await expect(items(page)).toHaveCount(5);
     await expect(card(page).locator('#pn-fine')).toBeHidden();
     const words = await card(page).locator('.psev').allTextContents();
-    expect(words).toEqual(['Urgent', 'Warning', 'Warning', 'Warning', 'Warning']);
+    // One device on several addresses (the fixture's extender) is a note (v0.6-D51).
+    expect(words).toEqual(['Urgent', 'Warning', 'Warning', 'Warning', 'Note']);
     const icons = await card(page).locator('.psev use').evaluateAll((els) => els.map((e) => e.getAttribute('href')));
     expect(icons[0]).toBe('icons.svg#i-circle-x');
     expect(icons[1]).toBe('icons.svg#i-triangle-alert');
@@ -130,7 +131,7 @@ for (const theme of THEMES) {
     await expect(all).toHaveAttribute('aria-expanded', 'false');
     await all.click();
     await expect(items(page)).toHaveCount(6);
-    await expect(card(page).locator('#pn-notes .psev')).toHaveText('Note');
+    await expect(card(page).locator('#pn-notes .psev')).toHaveText(['Note', 'Note']);
     await expect(all).toHaveText('Show fewer');
     await expect(all).toHaveAttribute('aria-expanded', 'true');
     await expect(all).toBeFocused();
@@ -380,13 +381,17 @@ test('ignoring a MAC makes the card read again', async ({ page }) => {
   const rec = await installMocks(page, { problems: 'some' });
   await page.goto(HOME);
   await scanToFinish(page);
-  await expect(items(page).filter({ hasText: 'Possible conflict' })).toHaveCount(1);
+  await expect(items(page).filter({ hasText: 'One device uses several addresses' })).toHaveCount(1);
+  // One device on several addresses is a note, as its drawer box says (v0.6-D51).
+  const note = card(page).locator('#pn-notes .pitem').filter({ hasText: 'One device uses several addresses' });
+  await expect(note.locator('.psev')).toHaveText('Note');
+  await expect(note.locator('.psev use')).toHaveAttribute('href', 'icons.svg#i-info');
   rec.problems = fx.problemsView({ open: fx.problemItems().filter((p) => p.kind !== 'ipConflict') });
   page.once('dialog', (d) => d.accept());
   const before = rec.problemsCalls;
   await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).ignoreMac('00:1B:A9:AA:00:30'));
   await expect.poll(() => rec.problemsCalls).toBeGreaterThan(before);
-  await expect(items(page).filter({ hasText: 'Possible conflict' })).toHaveCount(0);
+  await expect(items(page).filter({ hasText: 'One device uses several addresses' })).toHaveCount(0);
   expect(rec.unmatched).toEqual([]);
 });
 

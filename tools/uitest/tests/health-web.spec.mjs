@@ -157,8 +157,9 @@ test('the trust button is only offered for the web server address in Settings', 
   await expect(card).toContainText('the certificate is not trusted');
   await expect(card.getByRole('button', { name: 'Trust this certificate' })).toHaveCount(0);
   await expect(page.locator('.trustbtn:visible')).toHaveCount(0);
-  // Nor does the card name a button it does not show.
-  await expect(card.locator('.advice ol.steps li')).toHaveText(['Otherwise, ask whoever looks after it.']);
+  // Nor does the card name a button it does not show, or say "Otherwise"
+  // after a step it left out.
+  await expect(card.locator('.advice ol.steps li')).toHaveText(['Ask whoever looks after it.']);
   expect(rec.unmatched, 'unmatched requests').toEqual([]);
 });
 

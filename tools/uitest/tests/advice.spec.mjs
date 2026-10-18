@@ -244,6 +244,10 @@ for (const [alt, heading] of [[0, 'Possible conflict'], [1, 'Possible conflict']
     await page.goto(HOME);
     await scanToFinish(page);
     const btn = page.locator(`#hosts button.rowbtn[data-ip="${fx.FLAP_IP}"]`);
+    // Two devices at one address: the row says CONFLICT, never NOTE.
+    const row = page.locator('#hosts tr.host').filter({ has: page.locator(`button.rowbtn[data-ip="${fx.FLAP_IP}"]`) });
+    await expect(row.locator('.badge.conflict')).toHaveText(/^CONFLICT/);
+    await expect(row.locator('.badge.cnote')).toBeHidden();
     await btn.click();
     const box = page.locator('#drawer .cbox');
     await expect(box).toHaveCount(1);
@@ -266,7 +270,7 @@ for (const [alt, heading] of [[0, 'Possible conflict'], [1, 'Possible conflict']
     await expect(box.locator('.advice ol.steps li')).toHaveText(alt >= 2
       ? ['Compare the two devices (Device A and Device B).', 'Restart one of them so it gets a new address.',
         'If it keeps happening, ask whoever looks after the router to reserve an address for one of them.']
-      : ['If you just replaced a device, this is expected.', 'If it happens again, netdiag will mark it as a conflict.']);
+      : ['If you just replaced a device, this is expected.', 'If it happens again, netdiag will tell you.']);
     // The addresses and MACs wait under Technical details, in its small
     // monospace, below the size of the advice.
     const tech = box.locator('details.tech');
@@ -325,6 +329,15 @@ test('mac_multi_ip with an alternating history reads "Note"', async ({ page }) =
   await expect(box.locator('.chead svg')).toHaveClass(/s-info/);
   await expect(box).toHaveClass(/note/);
   await expect(box.locator('.advice')).toContainText('This is normal for Wi-Fi extenders');
+  // The row and the drawer's Status say it the same way: NOTE, the info shape.
+  const status = page.locator('#drawer dl > div').filter({ has: page.locator('dt', { hasText: /^Status$/ }) }).locator('dd');
+  await expect(status.locator('.badge.cnote')).toHaveText('NOTE');
+  await expect(status.locator('.badge.cnote use')).toHaveAttribute('href', 'icons.svg#i-info');
+  await expect(status.locator('.badge.conflict')).toBeHidden();
+  const row = page.locator('#hosts tr.host').filter({ has: page.locator('button.rowbtn[data-ip="192.168.2.30"]') });
+  await expect(row.locator('.badge.cnote')).toHaveText(/^NOTE/);
+  await expect(row.locator('.badge.cnote use')).toHaveAttribute('href', 'icons.svg#i-info');
+  await expect(row.locator('.badge.conflict')).toBeHidden();
   expect(rec.unmatched).toEqual([]);
 });
 
@@ -419,6 +432,23 @@ test('a conflict banner leads with plain words and offers Show device', async ({
   expect(rec.unmatched).toEqual([]);
 });
 
+// A mac_flap no swap was seen for: the banner (and team chat) still title
+// it a Network conflict, so its steps promise nothing the title already
+// says.
+test('a conflict banner without a seen swap promises only to tell you', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { frames: framesWith(fx.flapHosts(1), [fx.flapConflict(1)], [fx.flapNotice(1)]) });
+  await page.goto(HOME);
+  await scanToFinish(page);
+  const banner = page.locator('#alerts div.banner:not(.more)').filter({ hasText: 'Network conflict' });
+  await expect(banner.locator('.btext')).toContainText('Critical: Network conflict Two devices may be using 192.168.2.44.');
+  await banner.locator('details.btry summary').click();
+  await expect(banner.locator('ol.steps li')).toHaveText(['If you just replaced a device, this is expected.', 'If it happens again, netdiag will tell you.']);
+  await expect(banner).not.toContainText('mark it as a conflict');
+  await expect(banner.getByRole('button', { name: /^Show device/ })).toBeVisible();
+  expect(rec.unmatched).toEqual([]);
+});
+
 // A health check that keeps failing: the banner has its own way to the
 // Health view, where the check's card says what to try.
 test('a health check banner offers Open Health', async ({ page }) => {
@@ -436,8 +466,25 @@ test('a health check banner offers Open Health', async ({ page }) => {
   expect(rec.unmatched).toEqual([]);
 });
 
-// On a phone the banners scroll away with the page: three of them, with
-// What to try open, would otherwise cover most of the screen.
+// On a phone, and on any short screen (a phone on its side, a small laptop
+// window), the banners scroll away with the page: three of them, with What
+// to try open, would otherwise cover most of the screen.
+for (const [w, h] of [[844, 390], [1366, 650]]) {
+  test(`banners scroll away on a short screen (${w}x${h})`, async ({ page }) => {
+    await initStorage(page, { theme: 'dark', live: false });
+    await installMocks(page, { frames: framesWith(fx.flapHosts(2), [fx.flapConflict(2)], [fx.notice(1), fx.flapNotice(2), fx.healthNotice()]) });
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto(HOME);
+    await scanToFinish(page);
+    await expect(page.locator('#alerts div.banner:not(.more)')).toHaveCount(3);
+    for (const s of await page.locator('#alerts details.btry summary').all()) await s.click();
+    expect(await page.locator('#alerts').evaluate((e) => getComputedStyle(e).position)).toBe('static');
+    await page.evaluate(() => window.scrollTo(0, 2000));
+    const box = await page.locator('#alerts').boundingBox();
+    expect(box.y + box.height, 'the banners scrolled off the top').toBeLessThanOrEqual(0);
+  });
+}
+
 test('banners stay on top when wide and scroll away on a phone', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { frames: framesWith(fx.flapHosts(2), [fx.flapConflict(2)], [fx.notice(1), fx.flapNotice(2), fx.healthNotice()]) });
@@ -567,19 +614,26 @@ test('Check again has one label and comes first', async ({ page }) => {
   }
 });
 
-// A redirect, or another address with its own certificate: the step names
-// the address, and Use this address puts it in "Web server URL", where
-// nothing is saved until Save.
-for (const [web, addr] of [['redirect', 'https://portal.example.com/login'], ['tls-other', 'https://intranet.local:8443/']]) {
+// A redirect, or another address with its own certificate: the card's step
+// names the address and the Use this address button, which has its own
+// icon and puts the address in "Web server URL", where nothing is saved
+// until Save. A sign-in page's one-time ticket stays out of the server's
+// step (banner, chat), but the card still names the address.
+for (const [web, addr, first] of [
+  ['redirect', 'https://portal.example.com/login', 'It sends you to https://portal.example.com/login.'],
+  ['redirect-query', 'https://portal.example.com/login?ticket=ST-1234', 'It sends you to https://portal.example.com/login?ticket=ST-1234.'],
+  ['tls-other', 'https://intranet.local:8443/', 'The server sends you to https://intranet.local:8443/, which uses a different certificate.']]) {
   test(`the ${web} advice names the address and Use this address fills Settings`, async ({ page }) => {
     await initStorage(page, { theme: 'dark', live: false });
     const rec = await installMocks(page, { web });
     await page.goto(HOME);
     await page.locator('#tab-health').click();
     const wc = card(page, 'Web server');
-    await expect(wc.locator('.advice ol.steps li').first()).toContainText(`sends you to ${addr}`);
-    await expect(wc.locator('.advice ol.steps li').first()).toContainText('If that is the right page, set it as "Web server URL" in Settings.');
+    await expect(wc.locator('.advice ol.steps li').first()).toHaveText(first + ' If that is the right page, press Use this address below.');
     const use = wc.getByRole('button', { name: 'Use this address' });
+    // Its own icon, not the settings gear of Open Settings next to it.
+    await expect(use.locator('use')).toHaveAttribute('href', 'icons.svg#i-globe');
+    await expect(wc.getByRole('button', { name: /^Open Settings/ }).locator('use')).toHaveAttribute('href', 'icons.svg#i-settings');
     await use.click();
     const dialog = page.locator('#settings-dialog');
     await expect(dialog).toHaveJSProperty('open', true);
@@ -590,6 +644,26 @@ for (const [web, addr] of [['redirect', 'https://portal.example.com/login'], ['t
     await expect(dialog).toHaveJSProperty('open', false);
     await expect(use).toBeFocused();
     expect(settingsPuts(rec)).toHaveLength(0);
+    expect(rec.unmatched).toEqual([]);
+  });
+}
+
+// A redirect loop, or another redirect than the one expected, is a status
+// answer (the web check): the card offers no address to move to, though
+// Technical details say where the server pointed.
+for (const web of ['loop', 'redirect-expected']) {
+  test(`a ${web} offers no address to use`, async ({ page }) => {
+    await initStorage(page, { theme: 'dark', live: false });
+    const rec = await installMocks(page, { web });
+    await page.goto(HOME);
+    await page.locator('#tab-health').click();
+    const wc = card(page, 'Web server');
+    await expect(wc.locator('.advice .meaning')).toContainText("The web server isn't answering as expected");
+    await expect(wc.locator('.advice ol.steps li')).toHaveText(['Check that the server is switched on.', 'Ask whoever looks after it.']);
+    await expect(wc.getByRole('button', { name: 'Use this address' })).toBeHidden();
+    await expect(wc.locator('.aacts button:visible')).toHaveText([/^Check again/, /^Open Settings/]);
+    await wc.locator('details.tech summary').click();
+    await expect(wc.locator('details.tech .hdetail')).toContainText('https://intranet.local/');
     expect(rec.unmatched).toEqual([]);
   });
 }

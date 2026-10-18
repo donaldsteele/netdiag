@@ -412,16 +412,34 @@ document.addEventListener('alpine:init', () => {
       if (a.kind === 'showDevice') return this.showDevice(a.target);
       if (a.kind === 'osSettings') return this.openOSPage(a.target, from);
     },
-    // The steps as the Web server card says them: the card has the Trust
-    // this certificate button, so its step points at the button there, and
-    // says nothing of it when the button is not shown (the certificate is
-    // for another address than the one in Settings now). Elsewhere (the
-    // banner, chat, Claude) the server's words, which send people here.
+    // The steps as the Web server card says them. The card has the Trust
+    // this certificate and Use this address buttons, so its steps point at
+    // the buttons there. A trust step goes when its button is not shown
+    // (the certificate is for another address than the one in Settings
+    // now), and the step after it loses its "Otherwise, "; the address step
+    // (it ends 'set it as "Web server URL" in Settings.') names the address
+    // and Use this address. Elsewhere (the banner, chat, Claude) the
+    // server's words, which send people here.
     cardSteps(c) {
       const steps = (c && c.advice && c.advice.steps) || [];
-      if (c.id !== 'webserver') return steps;
-      return steps.flatMap(s => /press Trust this certificate on the Web server card/.test(s)
-        ? (this.canTrust(c) ? ['If this is your own server, press Trust this certificate below.'] : []) : [s]);
+      if (!c || c.id !== 'webserver') return steps;
+      const use = this.webNewURL(c), out = [];
+      let dropped = false;
+      for (const s of steps) {
+        if (/press Trust this certificate on the Web server card/.test(s)) {
+          if (this.canTrust(c)) out.push('If this is your own server, press Trust this certificate below.');
+          else dropped = true;
+          continue;
+        }
+        if (use && / If that is the right page, set it as "Web server URL" in Settings\.$/.test(s)) {
+          out.push((c.data.reason === 'redirect' ? 'It sends you to ' + use + '.' : 'The server sends you to ' + use + ', which uses a different certificate.') +
+            ' If that is the right page, press Use this address below.');
+        } else {
+          out.push(dropped ? s.replace(/^Otherwise, (\w)/, (m, ch) => ch.toUpperCase()) : s);
+        }
+        dropped = false;
+      }
+      return out;
     },
     // The steps as the drawer says them: it shows Device A and Device B
     // itself, so the swap's first step (advice.StepCompareDevices) drops
@@ -1300,6 +1318,10 @@ document.addEventListener('alpine:init', () => {
       return this.conflicts.filter(c => (ids.includes(c.id) || (c.ips || []).includes(h.ip)) && !(c.macs || []).some(m => ign.includes(mac(m))));
     },
     hasConflict(h) { return this.conflictsFor(h).length > 0; },
+    // A device whose only conflicts are one device on several addresses
+    // (often an extender) gets the NOTE badge with the info shape, as its
+    // drawer box says Note (conflictLevel); any other gets CONFLICT.
+    conflictNote(h) { const cs = this.conflictsFor(h); return cs.length > 0 && cs.every(c => c.kind === 'mac_multi_ip'); },
     // How often the MAC answering at an address changed: A, B, A is 2
     // (mirrors advice.Alternations).
     alternations(hist) {

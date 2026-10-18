@@ -28,7 +28,7 @@ async function expectIcons(loc, min = 1) {
 test('status, badge, tile, health pill and nav elements carry sprite icons', async ({ page }) => {
   await setup(page);
   await expectIcons(page.locator('#hosts tbody tr.host').first().locator('th'));
-  await expectIcons(page.locator('.badge.conflict:visible'));
+  await expectIcons(page.locator('.badge.conflict:visible, .badge.cnote:visible'));
   await expectIcons(page.locator('.badge.printer:visible'));
   await expectIcons(page.locator('.tile'), 6);
   await expectIcons(page.locator('.hpill'), 6);

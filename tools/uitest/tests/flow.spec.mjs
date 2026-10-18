@@ -93,7 +93,10 @@ test('live flow: new device, offline transition, conflict and notice', async ({ 
   await expect(page.locator('#hosts tr.host').filter({ hasText: '192.168.2.200' }).locator('.badge.offline')).toBeVisible();
   await expect(page.locator('div.sr[role="status"]')).toHaveText('Device went offline: 192.168.2.200 VMware, Inc.');
 
-  await expect(page.locator('#hosts tr.host').filter({ hasText: '192.168.2.30' }).locator('.badge.conflict')).toBeVisible();
+  // One device on several addresses (the fixture's extender) is a NOTE, not a CONFLICT (v0.6-D51).
+  const ext = page.locator('#hosts tr.host').filter({ hasText: '192.168.2.30' });
+  await expect(ext.locator('.badge.cnote')).toHaveText(/^NOTE/);
+  await expect(ext.locator('.badge.conflict')).toBeHidden();
   await expect(page.locator('#alerts div.banner:not(.more)')).toContainText('Device offline');
 
   // The live stream never sends done, so the scan stays in live state.
