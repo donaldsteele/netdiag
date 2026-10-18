@@ -569,3 +569,40 @@ func TestWriteAtomicReaderNeverCloses(t *testing.T) {
 		}
 	}
 }
+
+// failRename makes the next rename calls fail with errs, one each, then
+// rename as usual; it returns how many calls there were. Tests that use it
+// run alone (not in parallel): rename is the package's.
+func failRename(t *testing.T, errs ...error) *int {
+	t.Helper()
+	renameWait = time.Millisecond
+	calls := 0
+	rename = func(from, to string) error {
+		calls++
+		if calls <= len(errs) {
+			return &os.LinkError{Op: "rename", Old: from, New: to, Err: errs[calls-1]}
+		}
+		return os.Rename(from, to)
+	}
+	t.Cleanup(func() { rename, renameWait = os.Rename, 10*time.Millisecond })
+	return &calls
+}
+
+// A rename that fails for any reason but a file held open fails the save
+// at once, and no temp file is left behind.
+func TestReplaceFileOtherErrorsAreImmediate(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileOpenProblems)
+	disk := errors.New("the disk is full")
+	calls := failRename(t, disk, disk)
+	if err := writeAtomic(path, []byte("new")); !errors.Is(err, disk) {
+		t.Fatalf("save = %v, want the disk error", err)
+	}
+	if *calls != 1 {
+		t.Fatalf("renamed %d times, want 1", *calls)
+	}
+	ents, _ := os.ReadDir(dir)
+	if len(ents) != 0 {
+		t.Fatalf("left %v", ents)
+	}
+}
