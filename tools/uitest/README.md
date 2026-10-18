@@ -28,19 +28,24 @@ Outputs (all under `out/`, git-ignored):
 - `out/shots/{empty,health,history,settings}-<theme>.png`: state screenshots.
 - `out/shots/vision-<type>-<theme>-{devices,health}.png` and `out/axe/vision-<type>-<theme>.json`: colour-vision screenshots from `vision.spec.mjs`.
 - `out/axe/<config>.json`: axe violations per screenshot config (also attached to the test report).
-- `out/docs/devices-dark.png` and `out/docs/drawer-light.png`: the two README screenshots.
+- `out/docs/*.png`: the README screenshots, also copied into `docs/img/` (see below).
 - `out/test-results/`: Playwright artifacts.
 
-## Refreshing the README screenshots
+## Refreshing the screenshots
 
-1. Run `npx playwright test tests/docs-shots.spec.mjs`. The spec renders a 1280x800 viewport
-   at CSS scale 1 with reduced motion emulated, so the PNGs stay under 250 KB each.
-2. Check the sizes with `ls -l out/docs/`.
-3. Copy the two files into the repo: `cp out/docs/devices-dark.png out/docs/drawer-light.png ../../docs/img/`.
-4. Check that `README.md` still references `docs/img/devices-dark.png` and `docs/img/drawer-light.png`.
+Both screenshot specs run with the full suite, so every `npx playwright test` refreshes them.
 
-Do not add the copies to the harness output folder by hand; `docs/img/` is the committed location.
-The copy into `docs/img/` is manual: the spec writes only to `out/docs/`, and nothing copies the files for you.
+1. README (`docs/img/`): `npx playwright test tests/docs-shots.spec.mjs`. It renders a 1280x800 viewport
+   at CSS scale 1 with reduced motion emulated, so the PNGs stay under 250 KB each, writes them to
+   `out/docs/` and copies them into `docs/img/`: `devices-dark.png` (with the Problems right now card),
+   `drawer-light.png` (the conflict view), `settings-mcp.png`, `settings-chat.png` and `chat-wizard.png`.
+2. Site (`docs/assets/shots/`): `npx playwright test tests/site-shots.spec.mjs`, at 2x, written straight
+   to `docs/assets/shots/`.
+3. Look at a few of them (both themes) before committing, and check `git status` lists only the shots you expected.
+
+The real Zebra shots (`real-zebra-*.png`) and the bubbles resolved-card shot (`bubbles-resolved.png`)
+need the printer and a bubbles server; `docs/field-checklist.md` section 6.1 says how to take them.
+`go test ./tools/docscheck` checks that every screenshot the README and the site show exists.
 
 ## How it works
 
@@ -75,7 +80,7 @@ The copy into `docs/img/` is manual: the spec writes only to `out/docs/`, and no
   the drawer, tiles and health strip, activity log and navigation.
 - `tests/responsive.spec.mjs`, `motion.spec.mjs`: width and reduced-motion checks.
 - `tests/shots.spec.mjs`: screenshots and axe for the four configs.
-- `tests/docs-shots.spec.mjs`: the two README screenshots.
+- `tests/docs-shots.spec.mjs`: the README screenshots; `tests/site-shots.spec.mjs`: the site screenshots.
 - `tests/icons.spec.mjs`: icon presence in the sprite, the icon for each device type, and the device type in the drawer.
 - `tests/vision.spec.mjs`: colour-vision check. Uses CDP `Emulation.setEmulatedVisionDeficiency` for deuteranopia, protanopia and tritanopia, in both themes, and writes the `out/shots/vision-*` files above.
 

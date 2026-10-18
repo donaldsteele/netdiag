@@ -26,6 +26,7 @@
     <nav aria-label="Sections">
       <a href="#features">Features</a>
       <a href="#live">Live</a>
+      <a href="#chat">Team chat</a>
       <a href="#tour">Tour</a>
       <a href="#claude">Claude</a>
       <a href="#download" class="persist">Download</a>
@@ -54,8 +55,8 @@
       <div class="window">
         <div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">127.0.0.1 · netdiag · Devices</span></div>
         <button type="button" class="zoom" aria-label="Enlarge screenshot: Devices view">
-          <img class="t-dark" src="assets/shots/devices-dark.png" width="2560" height="1600" alt="netdiag Devices view: 65 devices alive, 2 printers, 32 web pages, 2 conflicts, health pills and the device table">
-          <img class="t-light" src="assets/shots/devices-light.png" width="2560" height="1600" alt="netdiag Devices view in the light theme" loading="lazy">
+          <img class="t-dark" src="assets/shots/devices-dark.png" width="2560" height="1600" alt="netdiag Devices view: the Problems right now card lists a printer alert, two low supplies and a possible conflict, each with a warning shape and word, then the tiles: 65 devices alive, 2 printers, 32 web pages, 2 conflicts">
+          <img class="t-light" src="assets/shots/devices-light.png" width="2560" height="1600" alt="netdiag Devices view in the light theme, with the Problems right now card" loading="lazy">
         </button>
       </div>
     </figure>
@@ -81,7 +82,7 @@
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-globe"></use></svg><h3>Web pages and remote desktop</h3><p>Ports 80, 443, 8080 and 8443 probed for status, title, server and certificate, with a link to open each one. Computers with Remote Desktop or screen sharing open in one click.</p></article>
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-heart-pulse"></use></svg><h3>Network health</h3><p>Gateway, DHCP lease, DNS, a web server you rely on, internet reachability and Wi-Fi signal, each with a plain-word status.</p></article>
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-shield-alert"></use></svg><h3>IP conflicts</h3><p>Two devices fighting over one address, one MAC on many IPs, or duplicate names. Mesh nodes and extenders can be ignored in one click.</p></article>
-        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-bell-ring"></use></svg><h3>Live alerts</h3><p>Leave it running: banners, a beep and optional desktop notifications when a printer jams, a supply runs low or a device drops off. <a href="#live">How it works</a></p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-bell-ring"></use></svg><h3>Live alerts</h3><p>Leave it running: a <b>Problems right now</b> card, banners and a beep when a printer jams, a supply runs low or a device drops off, and a quiet <b>Fixed</b> when it is sorted. Each one says what to try. <a href="#live">How it works</a></p></article>
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-type-computer"></use></svg><h3>Device types</h3><p>Printer, TV, NAS, phone, camera, network gear, smart home and more, from real signals. Unknown stays unknown: no guessing.</p></article>
         <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-git-compare"></use></svg><h3>History &amp; compare</h3><p>Every scan is saved. Compare any two to see what was added, removed or changed, and export it as JSON or CSV.</p></article>
       </div>
@@ -100,7 +101,7 @@
         <li class="tick hot"><span class="t">12:36:20</span><b>Two critical alerts</b><span>Door or cover open, and printer offline or paused. Red banners, a beep, a desktop notification.</span></li>
         <li class="tick ok"><span class="t">12:36:45</span><b>Printer OK again</b><span>Cover closed: netdiag says what cleared, so you know it is safe to print.</span></li>
       </ol>
-      <p class="realnote"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-camera"></use></svg>Real hardware, not a mock-up: these screenshots were captured from netdiag watching a Zebra ZD621 label printer while someone opened and closed its cover.</p>
+      <p class="realnote"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-camera"></use></svg>Real hardware, not a mock-up: these screenshots were captured from netdiag 0.5 watching a Zebra ZD621 label printer while someone opened and closed its cover. Since 0.6 the open cover is one alert, "Door or cover open", and its banner turns into <b>Fixed</b> when the cover closes.</p>
 
       <figure class="shot live-shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Live · Zebra ZD621 · cover open</span></div>
         <button type="button" class="zoom" aria-label="Enlarge screenshot: live mode with printer alerts"><img src="assets/shots/real-zebra-fault.png" width="2560" height="1600" loading="lazy" alt="Live mode on a real network: two critical banners for a Zebra ZD621, door or cover open and printer offline or paused. The printer row has a red status icon and names both alerts."></button></div></figure>
@@ -147,6 +148,36 @@
     </div>
   </section>
 
+  <section class="band" id="chat">
+    <div class="wrap">
+      <p class="eyebrow">New in 0.6</p>
+      <h2>Chat alerts that close themselves.</h2>
+      <p class="sub">Connect netdiag to your team chat (bubbles) and the whole team sees it when something on the local network breaks: once, in plain words, with what to try. When the problem is fixed, netdiag closes the same chat card itself: “Fixed at 10:42 (was down 12 min)”.</p>
+
+      <div class="feature slim">
+        <div class="copy">
+          <p class="reading-label">Connect in a few clicks</p>
+          <h3>Find the server, compare four groups, ask for approval.</h3>
+          <p>netdiag finds your chat server on the local network. You compare the first four groups of its fingerprint with what your chat admin reads in bubbles, so nothing can pretend to be it, and your chat admin approves netdiag and picks the channel. A test alert checks it works. No typing, and no administrator rights on this computer.</p>
+          <ul class="readings"><li class="r-ok">It matches</li><li>admin approves</li><li class="r-ok">test alert sent</li></ul>
+        </div>
+        <figure class="shot dialog-shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Connect to team chat</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: connect to team chat"><img src="assets/shots/chat-connect.png" width="1120" height="616" loading="lazy" alt="Connect to team chat: Is this the right server? The first four groups of the fingerprint, 3F2A 9C10 77B4 E0D1, in large letters, with It matches and It doesn't buttons"></button></div></figure>
+      </div>
+
+      <div class="feature flip slim">
+        <div class="copy">
+          <p class="reading-label">Alerts you can trust</p>
+          <h3>Once, while it matters, then closed.</h3>
+          <p>A health check must fail twice, and a device miss two checks, before it reaches chat, so one bad check never pings the team, and only warnings and urgent problems go by default. If this computer loses the network or goes to sleep, netdiag pauses its checks instead of flooding the channel. Alerts that wait for the chat server keep their real time, and one fixed in the meantime is never sent. Chat alerts go out while netdiag is open and watching.</p>
+          <ul class="readings"><li class="r-warn">warning</li><li class="r-ok">Fixed at 10:42</li><li>no storms</li></ul>
+        </div>
+        <figure class="shot dialog-shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Settings · Team chat</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: team chat settings"><img src="assets/shots/settings-chat.png" width="1180" height="576" loading="lazy" alt="Settings, Team chat (bubbles): status Connected, sending to #netdiag-alerts on Office, the Send alerts to team chat switch, Send problems and warnings, and the Send test alert, Change channel and Disconnect buttons"></button></div></figure>
+      </div>
+    </div>
+  </section>
+
   <section class="band" id="tour">
     <div class="wrap">
       <p class="eyebrow">A tour</p>
@@ -168,22 +199,22 @@
         <div class="copy">
           <p class="reading-label">Health</p>
           <h3>Is it the network, or the device?</h3>
-          <p>One card per check with a status word, the detail and the response time. A health problem never stops a scan, and the internet check is information only, because plenty of local networks have no internet at all.</p>
-          <ul class="readings"><li class="r-ok">gateway 1.4 ms</li><li class="r-ok">DNS 18.2 ms</li><li class="r-warn">Wi-Fi 48%</li></ul>
+          <p>One card per check with a status word and the response time. A card that is not fine says what it means in plain words and lists up to three things to try, with the raw detail under Technical details. The internet check is information only, because plenty of local networks have no internet at all, and one switch tells netdiag a network has none on purpose.</p>
+          <ul class="readings"><li class="r-ok">gateway 1.4 ms</li><li class="r-ok">DNS 18.2 ms</li><li class="r-warn">Wi-Fi 48%: what to try</li></ul>
         </div>
         <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Health</span></div>
-          <button type="button" class="zoom" aria-label="Enlarge screenshot: health view"><img src="assets/shots/health.png" width="2560" height="1600" loading="lazy" alt="Health view with cards for gateway, DHCP, DNS, web server, internet and Wi-Fi"></button></div></figure>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: health view"><img src="assets/shots/health.png" width="2560" height="1600" loading="lazy" alt="Health view with cards for gateway, DHCP, DNS, web server, internet and Wi-Fi; the weak Wi-Fi card says what it means and what to try"></button></div></figure>
       </div>
 
       <div class="feature">
         <div class="copy">
           <p class="reading-label">Activity</p>
           <h3>A running log of what changed.</h3>
-          <p>Scan stages, new and offline devices, conflicts, health changes and printer notices, each with the time. Filter by kind with the chips and copy the visible lines to send to someone.</p>
-          <ul class="readings"><li>500 lines kept</li><li class="r-warn">conflict</li><li class="r-info">notice</li></ul>
+          <p>Scan stages, new and offline devices, conflicts, health changes and printer notices, each with the time, and a Fixed line when a problem goes away. Filter by kind with the chips and copy the visible lines to send to someone.</p>
+          <ul class="readings"><li>500 lines kept</li><li class="r-warn">conflict</li><li class="r-ok">Fixed</li></ul>
         </div>
         <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Activity</span></div>
-          <button type="button" class="zoom" aria-label="Enlarge screenshot: activity log"><img src="assets/shots/activity.png" width="2560" height="1600" loading="lazy" alt="Activity log showing scan stages, an IP conflict and a toner-low notice"></button></div></figure>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: activity log"><img src="assets/shots/activity.png" width="2560" height="1600" loading="lazy" alt="Activity log showing scan stages, an IP conflict, a toner-low notice and the Fixed line when the toner was replaced"></button></div></figure>
       </div>
 
       <div class="feature flip">
@@ -202,7 +233,7 @@
 
   <section class="band claude" id="claude">
     <div class="wrap">
-      <p class="eyebrow">New in 0.5</p>
+      <p class="eyebrow">Claude over MCP</p>
       <h2>Ask Claude what is wrong with the network.</h2>
       <p class="sub">netdiag speaks MCP (Model Context Protocol), so Claude or another AI agent on this computer can read scan results and run diagnostics, and explain them in plain words.</p>
 
@@ -215,9 +246,14 @@
             <div class="out"><code>netdiag: … mcp - <span class="ok">✔ Connected</span></code></div>
             <div class="out ask"><code><span class="you">&gt;</span> Use netdiag to scan the network and tell me why the Brother printer is offline.</code></div>
           </div>
-          <p class="note">On a Mac use <code>/path/to/netdiag mcp</code>. Claude Desktop and sharing the open window over HTTP are covered in the <a href="https://github.com/donaldsteele/netdiag#connect-claude-ai-agent-access-via-mcp">README</a>.</p>
-          <h3 class="minor">Built-in playbooks</h3>
+          <p class="note">On a Mac use <code>/path/to/netdiag mcp</code>. Claude Desktop, sharing the open window (<code>netdiag mcp --attach</code> or HTTP) and the full runbook list are covered in the <a href="https://github.com/donaldsteele/netdiag#connect-claude-ai-agent-access-via-mcp">README</a>.</p>
+          <h3 class="minor">Built-in runbooks</h3>
           <ul class="plays">
+            <li><code>explain_problems</code> What is wrong right now?</li>
+            <li><code>internet_not_working</code> Where does the connection break?</li>
+            <li><code>device_offline</code> Why did this device stop answering?</li>
+            <li><code>check_chat_alerts</code> Are the team chat alerts still right?</li>
+            <li><code>first_look</code> What is on this network?</li>
             <li><code>triage_network</code> What needs attention first?</li>
             <li><code>diagnose_printer</code> Why is this printer not printing?</li>
             <li><code>explain_conflict</code> Who is fighting over this IP?</li>
@@ -229,7 +265,7 @@
           <figure class="shot dialog-shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Settings · Agent access</span></div>
             <button type="button" class="zoom" aria-label="Enlarge screenshot: agent access settings"><img src="assets/shots/settings-mcp.png" width="1180" height="482" loading="lazy" alt="Settings dialog with the Agent access (MCP) switch turned on and the endpoint address with a copy button"></button></div></figure>
           <ul class="safety">
-            <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-circle-check"></use></svg>Read and diagnose only: agents cannot change settings, delete history or quit.</li>
+            <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-circle-check"></use></svg>Read and diagnose only: agents cannot change settings, delete history, quit, stop the watching you started or post to team chat.</li>
             <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-circle-check"></use></svg>The SNMP community string is never shown to the agent.</li>
             <li><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-circle-check"></use></svg>This computer only (127.0.0.1). HTTP access is off until you switch it on.</li>
           </ul>
