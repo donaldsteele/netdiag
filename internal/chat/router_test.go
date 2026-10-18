@@ -110,13 +110,16 @@ func connected(t *testing.T, f *bubblestest.Server, st DataFiles, l Ledger, edit
 	return m
 }
 
-// ledgerOn opens the ledger on st with a clock at t0.
+// ledgerOn opens the ledger on st with a clock at t0. On the real one, the
+// fixes the tests make at t0 are pruned once they are more than
+// problems.FixedFor old, and their chat state goes with them.
 func ledgerOn(t *testing.T, st *store.Store) *problems.Ledger {
 	t.Helper()
 	l, err := problems.OpenLedger(st)
 	if err != nil {
 		t.Fatal(err)
 	}
+	l.SetClock(func() time.Time { return t0 })
 	return l
 }
 
