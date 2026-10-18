@@ -318,6 +318,7 @@ type Scan struct {
 	apply     func(model.Settings) bool // set while the pipeline runs
 	liveSince string                    // when the scan went live (RFC 3339); "" before
 	network   string                    // the fingerprint id, set at the end of the first pass
+	adopted   []string                  // the ledger's keys the first pass kept unchecked (Adopted)
 
 	reconciled     chan struct{} // closed once the first pass is reconciled
 	reconciledOnce sync.Once
@@ -372,8 +373,28 @@ func (s *Scan) LiveStatus() (model.LiveStatus, bool) { return s.bus.Live() }
 // then.
 func (s *Scan) Reconciled() <-chan struct{} { return s.reconciled }
 
-// markReconciled closes Reconciled, once.
-func (s *Scan) markReconciled() { s.reconciledOnce.Do(func() { close(s.reconciled) }) }
+// markReconciled records the keys the first pass adopted unchecked and
+// closes Reconciled, once.
+func (s *Scan) markReconciled(adopted []string) {
+	s.reconciledOnce.Do(func() {
+		s.mu.Lock()
+		s.adopted = adopted
+		s.mu.Unlock()
+		close(s.reconciled)
+	})
+}
+
+// Adopted lists the keys of the ledger's open problems of the scan's
+// network that its first pass kept open without checking them
+// (notify.Engine.Adopt): a device outside the target, or a conflict when
+// the target is not this computer's whole network, and that the pass did
+// not find itself. The scan does not watch them, so the team chat burst
+// leaves them out (v0.6-D41). nil until Reconciled is closed.
+func (s *Scan) Adopted() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.adopted)
+}
 
 // ApplySettings applies changed settings (alert triggers, threshold,
 // cooldown, health config, ignored conflict MACs) to a running scan and
@@ -897,7 +918,7 @@ func (r *runner) finishFirstPass(complete bool) {
 			}
 		}
 	}
-	done := func() {} // a cancelled pass checked nothing: Reconciled stays open
+	done := func([]string) {} // a cancelled pass checked nothing: Reconciled stays open
 	if complete {
 		done = r.s.markReconciled
 	}

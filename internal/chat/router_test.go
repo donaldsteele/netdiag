@@ -27,6 +27,8 @@ type fakeScan struct {
 	reconciled chan struct{}
 	done       chan struct{}
 	once       sync.Once
+	// adopted is what the first pass kept open unchecked (Adopted).
+	adopted []string
 }
 
 func newFakeScan(network string, live bool) *fakeScan {
@@ -40,6 +42,7 @@ func (f *fakeScan) Request() model.ScanRequest              { return model.ScanR
 func (f *fakeScan) Reconciled() <-chan struct{}             { return f.reconciled }
 func (f *fakeScan) Done() <-chan struct{}                   { return f.done }
 func (f *fakeScan) reconcile()                              { f.once.Do(func() { close(f.reconciled) }) }
+func (f *fakeScan) Adopted() []string                       { return f.adopted }
 
 // notice records n in the ledger first, as the scan's addNotices does, then
 // publishes it.
@@ -977,62 +980,54 @@ func TestStatusSendAlerts(t *testing.T) {
 	}
 }
 
-// The burst posts the Problems card's alerted items (View.Alerted), not the
-// ledger's: a problem the first pass adopted without checking it (here a
-// printer outside the address range it watches, which the scan does not
-// show) stays out of chat, and so does one whose card the view does not
-// speak for.
-func TestBurstPostsOnlyWhatTheScanShows(t *testing.T) {
+// The burst posts the ledger's open problems of the network, except those
+// the scan's first pass adopted without checking them (Watched.Adopted: here
+// a printer outside the address range it watches). One the pass checked
+// and kept open goes even though the scan does not show it: the printer is
+// still off, so the pass did not find it at all. Sending starts again: the
+// adopted problem is still left out.
+func TestBurstLeavesOutWhatThePassAdopted(t *testing.T) {
 	f := bubblestest.New(t)
 	st, _ := newStore(t)
 	l := ledgerOn(t, st)
-	shown, adopted := fault(0, "warn"), fault(1, "warn")
-	l.Apply(testNet, []model.Notice{shown, adopted})
-	// The scan shows the first printer offline; the second one is not in it.
-	r := model.ScanResult{State: model.StateRunning, Hosts: []model.Host{
-		{IP: shown.IP, Alive: true, Online: false, IsPrinter: true, OfflineSince: shown.At}}}
-	var vmu sync.Mutex
-	speaks := true
-	view := func(network string) ([]problems.Problem, bool) {
-		vmu.Lock()
-		defer vmu.Unlock()
-		if !speaks || network != testNet {
-			return nil, false
-		}
-		open, fixed := l.Snapshot()
-		v := problems.NewView(problems.Input{Source: problems.SourceLive, Watching: true, Result: &r,
-			Settings: store.DefaultSettings(), Network: testNet, Open: open, Fixed: fixed, Now: t0})
-		return v.Alerted(), true
-	}
+	kept, adopted := fault(0, "warn"), fault(1, "warn")
+	l.Apply(testNet, []model.Notice{kept, adopted})
 	m := connected(t, f, st, l)
-	m.SetProblems(view)
 	sc := newFakeScan(testNet, true)
+	sc.adopted = []string{adopted.Key}
 	m.Attach(sc)
 	sc.reconcile()
-	waitFor(t, "the burst", func() bool { return len(f.Posted()) == 1 })
+	waitFor(t, "the burst", func() bool { return len(f.Posted()) >= 1 })
 	time.Sleep(burstQuiet + 100*time.Millisecond)
 	p := f.Posted()
-	if len(p) != 1 || p[0].DedupeKey != shown.Key {
-		t.Fatalf("posted %+v, want only %s", p, shown.Key)
+	if len(p) != 1 || p[0].DedupeKey != kept.Key {
+		t.Fatalf("posted %+v, want only %s", p, kept.Key)
 	}
 	if c := l.Chat(testNet, adopted.Key); c != "" {
 		t.Fatalf("the adopted problem's chat state is %q", c)
 	}
 
-	// Sending starts again while the card speaks for another scan: nothing
-	// goes, rather than the ledger's problems.
-	l.Apply(testNet, []model.Notice{fault(2, "warn")})
-	vmu.Lock()
-	speaks = false
-	vmu.Unlock()
+	// A problem found after the first pass is the scan's own.
+	later := fault(2, "warn")
+	l.Apply(testNet, []model.Notice{later})
 	m.ApplySettings(model.SettingsChat{Enabled: false, MinSeverity: model.ChatSeverityWarning})
 	m.ApplySettings(model.SettingsChat{Enabled: true, MinSeverity: model.ChatSeverityWarning})
-	waitFor(t, "the connected message", func() bool { return len(f.Messages()) == 2 })
-	time.Sleep(100 * time.Millisecond)
-	for _, in := range f.Posted()[1:] {
-		if in.DedupeKey != shown.Key {
-			t.Fatalf("posted %s while the card spoke for another scan", in.DedupeKey)
+	waitFor(t, "the burst when sending starts", func() bool {
+		for _, in := range f.Posted()[1:] {
+			if in.DedupeKey == later.Key {
+				return true
+			}
 		}
+		return false
+	})
+	time.Sleep(100 * time.Millisecond)
+	for _, in := range f.Posted() {
+		if in.DedupeKey == adopted.Key {
+			t.Fatalf("posted the adopted problem %s", in.DedupeKey)
+		}
+	}
+	if c := l.Chat(testNet, adopted.Key); c != "" {
+		t.Fatalf("the adopted problem's chat state is %q", c)
 	}
 }
 

@@ -18,24 +18,6 @@ import (
 // (Check again) of the same network stands in for the scan's health report
 // (standsIn).
 func (s *Service) Problems() problems.View {
-	v, _ := s.problemsView()
-	return v
-}
-
-// alertedOn is what the team chat burst may post for network
-// (chat.Problems): the Problems view's Alerted items while it speaks for
-// a live scan of network, so a problem the first pass adopted without
-// checking it (its device outside the address range) is not posted.
-func (s *Service) alertedOn(network string) ([]problems.Problem, bool) {
-	v, on := s.problemsView()
-	if v.Source != problems.SourceLive || !v.Watching || on != network {
-		return nil, false
-	}
-	return v.Alerted(), true
-}
-
-// problemsView is Problems and the network it speaks for.
-func (s *Service) problemsView() (problems.View, string) {
 	now := time.Now().UTC()
 	in := problems.Input{Now: now, Settings: store.DefaultSettings()}
 	if s.cfg.Store != nil {
@@ -80,7 +62,7 @@ func (s *Service) problemsView() (problems.View, string) {
 	}
 	if in.Source == "" {
 		in.Source = problems.SourceNone
-		return problems.NewView(in), ""
+		return problems.NewView(in)
 	}
 	if in.Network == "" && r.Health != nil {
 		in.Network = r.Health.Network
@@ -110,7 +92,7 @@ func (s *Service) problemsView() (problems.View, string) {
 		// unreadable file leaves out only the starts and the fixed list.
 		in.Open, in.Fixed, _ = problems.ReadLedger(s.cfg.Store)
 	}
-	return problems.NewView(in), in.Network
+	return problems.NewView(in)
 }
 
 // standsIn reports whether run, the report of the last Check again, may

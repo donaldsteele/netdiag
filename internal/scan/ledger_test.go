@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -127,7 +128,8 @@ func (l *recLedger) OpenFor(network string) []notify.OpenFault {
 // The reconcile runs once, right after the first pass's analysis, for live
 // and one-shot scans, and the ledger is handed every notice of the scan. A
 // conflict is checked only when the target covers this computer's whole
-// network: otherwise the analysis may have left one of its devices out.
+// network: otherwise the analysis may have left one of its devices out, and
+// the scan lists it as adopted unchecked (Scan.Adopted).
 func TestReconcileOnceAndApplyEvery(t *testing.T) {
 	conflict := notify.OpenFault{Key: "ipConflict|mac_flap|10.0.0.99", Trigger: model.TriggerIPConflict, IP: "10.0.0.99"}
 	for _, tc := range []struct {
@@ -173,6 +175,14 @@ func TestReconcileOnceAndApplyEvery(t *testing.T) {
 		rl.mu.Unlock()
 		if got := len(notices(res, model.TriggerIPConflict)) == 1; got != tc.ok {
 			t.Fatalf("%+v: conflict notices %v", tc, notices(res, model.TriggerIPConflict))
+		}
+		// A conflict the pass did not check is the one problem it adopted.
+		var adopted []string
+		if !tc.ok {
+			adopted = []string{conflict.Key}
+		}
+		if got := s.Adopted(); !slices.Equal(got, adopted) {
+			t.Fatalf("%+v: adopted %v", tc, got)
 		}
 	}
 }

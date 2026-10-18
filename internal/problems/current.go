@@ -181,8 +181,8 @@ func activeConflicts(cs []model.Conflict, set model.Settings) []model.Conflict {
 // Current is what is wrong, not what netdiag alerted on: it also lists what
 // the alert engine never opens (a check that could not run, a supply the
 // printer calls low above the threshold, a one-shot scan's failed check,
-// which has no streak of two). Team chat posts only View.Alerted, whose
-// cards an OK closes.
+// which has no streak of two). Team chat posts only the ledger's open
+// problems (View.Alerted's source too), whose cards an OK closes.
 func Current(r model.ScanResult, set model.Settings) []Problem {
 	tr := set.Alerts.Triggers
 	thr := supplyThreshold(set)
@@ -437,7 +437,9 @@ type View struct {
 // Alerted lists the open items the ledger holds open, under the ledger's
 // key, most urgent first: the problems netdiag alerted on, which their OK
 // notice closes. The team chat first-connect burst (v0.6 §4.9, M11) posts
-// these, never Current's items, so every card it posts is closed by an OK.
+// from the ledger too, never Current's items, so every card it posts is
+// closed by an OK; it also posts an open problem the scan does not show (a
+// printer still off after a restart is not found at all, v0.6-D41).
 func (v View) Alerted() []Problem {
 	var out []Problem
 	for _, p := range v.Open {

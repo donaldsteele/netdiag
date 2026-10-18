@@ -41,6 +41,7 @@ func (w *watchScan) Network() string                         { return quitNet }
 func (w *watchScan) Request() model.ScanRequest              { return model.ScanRequest{Live: true} }
 func (w *watchScan) Reconciled() <-chan struct{}             { return w.reconciled }
 func (w *watchScan) Done() <-chan struct{}                   { return w.done }
+func (w *watchScan) Adopted() []string                       { return nil }
 
 const (
 	quitNet = "n-0123456789ab"

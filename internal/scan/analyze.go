@@ -174,11 +174,13 @@ func (s *state) setAway(on bool) {
 // health report) and keeps those in keep open unchecked. A cancelled pass
 // (complete false) checks nothing. The notices the first pass held back go
 // out then, and from here on every notice goes into the ledger under
-// network. done runs last, once the ledger has heard them (finishFirstPass
+// network. done runs last, once the ledger has heard them, with the keys
+// the engine adopted unchecked (notify.Engine.Adopted; finishFirstPass
 // passes Scan.markReconciled only for a complete pass).
-func (s *state) reconcile(network string, check, keep []notify.OpenFault, complete bool, done func()) {
+func (s *state) reconcile(network string, check, keep []notify.OpenFault, complete bool, done func(adopted []string)) {
 	s.ops <- func(hosts map[string]*model.Host) {
-		defer done()
+		var adopted []string
+		defer func() { done(adopted) }()
 		s.network = network
 		s.reconciled = true
 		if s.notify == nil {
@@ -186,6 +188,7 @@ func (s *state) reconcile(network string, check, keep []notify.OpenFault, comple
 		}
 		s.notify.Seed(check)
 		s.notify.Adopt(keep)
+		adopted = s.notify.Adopted()
 		var ns []model.Notice
 		if complete {
 			ns = s.notify.Reconcile(hostList(hosts), s.conflicts, s.health)

@@ -152,38 +152,3 @@ func TestProblemsSavedScanSkipsUnreadable(t *testing.T) {
 		t.Errorf("saved behind an unreadable file: %+v", v)
 	}
 }
-
-// The team chat burst takes the card's alerted items only while the card
-// speaks for a live scan of the network the burst is for: never a saved
-// scan's, nor a scan of another network.
-func TestAlertedOnSpeaksForTheWatchingScan(t *testing.T) {
-	s, st := newSvc(t, true, nil)
-	if err := st.SaveScan(savedDNSFail()); err != nil {
-		t.Fatal(err)
-	}
-	l, err := problems.OpenLedger(st)
-	if err != nil {
-		t.Fatal(err)
-	}
-	l.Apply(testNet, []model.Notice{{Trigger: model.TriggerHealthFailed, Key: "healthFailed||dns", Severity: "warn",
-		Title: "Health check failed", At: "2026-10-17T09:50:00Z"}})
-	s.cfg.Ledger = l
-	if a, ok := s.alertedOn(testNet); ok || a != nil {
-		t.Fatalf("a saved scan: %+v %v", a, ok)
-	}
-	s.cfg.Registry = scan.NewRegistry(scan.New(scan.Deps{Pinger: blockPinger{}, ARP: fakeARP{}, Ports: fakePorts{}, Web: fakeWeb{},
-		SNMP: fakeSNMP{}, DNS: fakeDNS{}, Vendors: fakeVendors{}, Env: fakeEnv{}}))
-	sc, err := s.Start(model.ScanRequest{CIDR: "10.0.0.0/30", Live: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { sc.Cancel(); <-sc.Done() }()
-	// The running scan could not tell its network (no router in its ARP
-	// table): it speaks for network "" only.
-	if _, ok := s.alertedOn(testNet); ok {
-		t.Error("spoke for another network's scan")
-	}
-	if a, ok := s.alertedOn(""); !ok || len(a) != 0 {
-		t.Errorf("the watching scan: %+v %v", a, ok)
-	}
-}
