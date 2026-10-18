@@ -1,8 +1,11 @@
 package server
 
 import (
+	"crypto/subtle"
 	"mime"
 	"net/http"
+	"path"
+	"strings"
 )
 
 // guard rejects requests whose Host header is not the loopback address the
@@ -23,6 +26,48 @@ func (s *Server) guard(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// SessionHeader carries this launch's session token (roadmap 8.3).
+const SessionHeader = "X-Netdiag-Session"
+
+// sessionMessage is the 401 answer's error. The page shows its own banner.
+const sessionMessage = "Open netdiag again to use this button."
+
+// sessionGuard requires the launch token in X-Netdiag-Session on every
+// request under /api/ that is not a GET or HEAD, whatever its route (so a
+// route added later is covered by itself), and on the reads that return a
+// secret: GET /api/settings has the SNMP community in clear (v0.6-D14).
+// Other programs and other OS users on this computer can reach 127.0.0.1,
+// but cannot read this user's data folder, where instance.json keeps the
+// token. /mcp is not under /api/: the Agent access switch and the Origin
+// check stay its consent.
+func (s *Server) sessionGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if needsSession(r) && subtle.ConstantTimeCompare([]byte(r.Header.Get(SessionHeader)), []byte(s.token)) != 1 {
+			w.Header().Set("Cache-Control", "no-store")
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": sessionMessage, "session": false})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// sessionReads are the GET routes that need the session token (v0.6-D14).
+// M10's GET /api/bubbles and GET /api/bubbles/pair/status join them.
+var sessionReads = map[string]bool{"/api/settings": true}
+
+// needsSession reports whether r must carry the session token. The path is
+// cleaned first, so another spelling of a gated path is gated too.
+func needsSession(r *http.Request) bool {
+	p := path.Clean("/" + r.URL.Path)
+	if p != "/api" && !strings.HasPrefix(p, "/api/") {
+		return false
+	}
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return sessionReads[p]
+	}
+	return true
 }
 
 func (s *Server) hostAllowed(host string) bool {

@@ -61,10 +61,11 @@ func startRemote(t *testing.T, op remote.Opener) string {
 		SNMP: fakeSNMP{}, DNS: fakeDNS{}, Vendors: fakeVendors{}, Env: fakeEnv{},
 	}))
 	s := New(Config{
-		Registry:   reg,
-		Interfaces: func() ([]netinfo.Iface, error) { return []netinfo.Iface{{Name: "eth0", IP: "10.0.0.30"}}, nil },
-		Static:     fstest.MapFS{"index.html": {Data: []byte("<html>hi</html>")}},
-		Remote:     op,
+		Registry:     reg,
+		Interfaces:   func() ([]netinfo.Iface, error) { return []netinfo.Iface{{Name: "eth0", IP: "10.0.0.30"}}, nil },
+		Static:       fstest.MapFS{"index.html": {Data: []byte("<html>hi</html>")}},
+		SessionToken: testToken,
+		Remote:       op,
 	})
 	if err := s.Listen(0); err != nil {
 		t.Fatal(err)
@@ -140,5 +141,31 @@ func TestRemoteOpen(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 415 {
 		t.Fatalf("text/plain: %d", resp.StatusCode)
+	}
+}
+
+// POST /api/scans/{id}/remote (v0.5.7) is under the method-based session
+// guard: without X-Netdiag-Session it gets 401 and starts nothing. The
+// capabilities and the .rdp download stay token-free GETs.
+func TestRemoteOpenNeedsToken(t *testing.T) {
+	op := &fakeOpener{}
+	u := startRemote(t, op)
+	_, b := do(t, "POST", u+"/api/scans", `{"cidr":"10.0.0.0/27"}`, "")
+	id := idOf(t, b)
+	waitState(t, u, id, "done")
+	base := u + "/api/scans/" + id
+	r, b := raw(t, "POST", base+"/remote", `{"ip":"10.0.0.10","kind":"rdp"}`, "")
+	sessionRefused(t, "remote without the header", r, b)
+	if len(op.calls) != 0 {
+		t.Fatalf("opened without the token: %v", op.calls)
+	}
+	if r, b := raw(t, "GET", u+"/api/remote", "", ""); r.StatusCode != 200 {
+		t.Fatalf("caps without the token: %d %s", r.StatusCode, b)
+	}
+	if r, b := raw(t, "GET", base+"/remote.rdp?ip=10.0.0.10", "", ""); r.StatusCode != 200 {
+		t.Fatalf(".rdp without the token: %d %s", r.StatusCode, b)
+	}
+	if r, b := raw(t, "POST", base+"/remote", `{"ip":"10.0.0.10","kind":"rdp"}`, testToken); r.StatusCode != 204 || len(op.calls) != 1 {
+		t.Fatalf("with the token: %d %s, calls %v", r.StatusCode, b, op.calls)
 	}
 }

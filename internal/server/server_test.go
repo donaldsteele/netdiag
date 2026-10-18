@@ -74,9 +74,10 @@ func start(t *testing.T, block chan struct{}) (*Server, string, chan error) {
 		SNMP: fakeSNMP{}, DNS: fakeDNS{}, Vendors: fakeVendors{}, Env: fakeEnv{},
 	}))
 	s := New(Config{
-		Registry:   reg,
-		Interfaces: func() ([]netinfo.Iface, error) { return []netinfo.Iface{{Name: "eth0", IP: "10.0.0.30"}}, nil },
-		Static:     fstest.MapFS{"index.html": {Data: []byte("<html>hi</html>")}},
+		Registry:     reg,
+		Interfaces:   func() ([]netinfo.Iface, error) { return []netinfo.Iface{{Name: "eth0", IP: "10.0.0.30"}}, nil },
+		Static:       fstest.MapFS{"index.html": {Data: []byte("<html>hi</html>")}},
+		SessionToken: testToken,
 	})
 	s.keepalive = 50 * time.Millisecond
 	if err := s.Listen(0); err != nil {
@@ -97,12 +98,17 @@ func start(t *testing.T, block chan struct{}) (*Server, string, chan error) {
 	return s, s.URL(), done
 }
 
+// testToken is the session token the test servers are started with; do and
+// doj send it, as the page does.
+const testToken = "test-session-token"
+
 func do(t *testing.T, method, url, body, host string) (*http.Response, string) {
 	t.Helper()
 	req, _ := http.NewRequest(method, url, strings.NewReader(body))
-	if method == http.MethodPost {
+	if method == http.MethodPost || method == http.MethodPut {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	req.Header.Set(SessionHeader, testToken)
 	if host != "" {
 		req.Host = host
 	}

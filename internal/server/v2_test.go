@@ -36,11 +36,12 @@ func startStore(t *testing.T) (*Server, string, *store.Store) {
 		Store: st, Settings: st,
 	}))
 	s := New(Config{
-		Registry:   reg,
-		Store:      st,
-		Health:     fakeHealth{},
-		Gateway:    func() (string, error) { return "10.0.0.1", nil },
-		Interfaces: func() ([]netinfo.Iface, error) { return []netinfo.Iface{{Name: "eth0", IP: "10.0.0.30"}}, nil },
+		Registry:     reg,
+		Store:        st,
+		Health:       fakeHealth{},
+		Gateway:      func() (string, error) { return "10.0.0.1", nil },
+		Interfaces:   func() ([]netinfo.Iface, error) { return []netinfo.Iface{{Name: "eth0", IP: "10.0.0.30"}}, nil },
+		SessionToken: testToken,
 	})
 	if err := s.Listen(0); err != nil {
 		t.Fatal(err)
@@ -58,6 +59,7 @@ func doj(t *testing.T, method, url, body, ctype string) (*http.Response, string)
 	if ctype != "" {
 		req.Header.Set("Content-Type", ctype)
 	}
+	req.Header.Set(SessionHeader, testToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -370,7 +372,7 @@ func TestQuitWaitsForLiveSave(t *testing.T) {
 		SNMP: fakeSNMP{}, DNS: fakeDNS{}, Vendors: fakeVendors{}, Env: fakeEnv{},
 		Store: st, Settings: st,
 	}))
-	s := New(Config{Registry: reg, Store: st, Health: fakeHealth{},
+	s := New(Config{Registry: reg, Store: st, Health: fakeHealth{}, SessionToken: testToken,
 		Gateway: func() (string, error) { return "10.0.0.1", nil }})
 	if err := s.Listen(0); err != nil {
 		t.Fatal(err)

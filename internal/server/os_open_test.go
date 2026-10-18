@@ -30,9 +30,10 @@ func (f *fakeOSPages) open(page string) error {
 func startOSPages(t *testing.T, f *fakeOSPages) string {
 	t.Helper()
 	s := New(Config{
-		Registry:   scan.NewRegistry(scan.New(scan.Deps{})),
-		Static:     fstest.MapFS{"index.html": {Data: []byte("<html>hi</html>")}},
-		OpenOSPage: f.open,
+		Registry:     scan.NewRegistry(scan.New(scan.Deps{})),
+		Static:       fstest.MapFS{"index.html": {Data: []byte("<html>hi</html>")}},
+		SessionToken: testToken,
+		OpenOSPage:   f.open,
 	})
 	if err := s.Listen(0); err != nil {
 		t.Fatal(err)
@@ -88,5 +89,22 @@ func TestOSOpenWhitelist(t *testing.T) {
 	}
 	if r, _ := do(t, "GET", u, "", ""); r.StatusCode < 400 || len(f.pages) != 2 {
 		t.Fatalf("GET: %d, pages %v", r.StatusCode, f.pages)
+	}
+}
+
+// POST /api/os/open is an action route: without X-Netdiag-Session it gets
+// 401 and opens nothing; with the launch token it opens the page (204).
+func TestOSOpenNeedsToken(t *testing.T) {
+	f := &fakeOSPages{}
+	u := startOSPages(t, f) + "/api/os/open"
+	r, b := raw(t, "POST", u, `{"page":"location"}`, "")
+	sessionRefused(t, "os/open without the header", r, b)
+	r, b = raw(t, "POST", u, `{"page":"location"}`, "not-the-token")
+	sessionRefused(t, "os/open with another token", r, b)
+	if len(f.pages) != 0 {
+		t.Fatalf("opened without the token: %v", f.pages)
+	}
+	if r, b := raw(t, "POST", u, `{"page":"location"}`, testToken); r.StatusCode != 204 || len(f.pages) != 1 {
+		t.Fatalf("with the token: %d %s, pages %v", r.StatusCode, b, f.pages)
 	}
 }

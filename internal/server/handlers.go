@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"netdiag/internal/instance"
 	"netdiag/internal/model"
 	"netdiag/internal/report"
 	"netdiag/internal/scan"
@@ -72,18 +73,13 @@ func (s *Server) handleRunning(w http.ResponseWriter, r *http.Request) {
 
 // identity is the GET /api/identity answer. The page polls it as a
 // heartbeat: no answer means netdiag has stopped, another instanceId that
-// it was restarted.
-type identity struct {
-	App        string `json:"app"`
-	Version    string `json:"version"`
-	PID        int    `json:"pid"`
-	InstanceID string `json:"instanceId"`
-	StartedAt  string `json:"startedAt"`
-}
+// it was restarted. A second launch asks it too: the same instanceId as in
+// instance.json means this netdiag still serves the data folder.
+type identity = instance.Identity
 
 func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, identity{App: "netdiag", Version: s.version(), PID: os.Getpid(),
+	writeJSON(w, http.StatusOK, identity{App: instance.App, Version: s.version(), PID: os.Getpid(),
 		InstanceID: s.instanceID, StartedAt: s.startedAt})
 }
 

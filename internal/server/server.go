@@ -3,8 +3,6 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -17,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"netdiag/internal/instance"
 	"netdiag/internal/mcpserver"
 	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
@@ -44,6 +43,11 @@ type Config struct {
 	// can tell a restarted netdiag from the one it was opened by. A random
 	// id is made when it is empty.
 	InstanceID string
+	// SessionToken is this launch's token (instance.json): every POST, PUT
+	// and DELETE under /api/, and GET /api/settings, must carry it in
+	// X-Netdiag-Session (v0.6 4.1). A random token nobody knows is made
+	// when it is empty, so a server is never left open by mistake.
+	SessionToken string
 }
 
 // Server is the HTTP server. Create with New, then Listen and Serve.
@@ -68,6 +72,7 @@ type Server struct {
 
 	instanceID string // GET /api/identity
 	startedAt  string // RFC 3339
+	token      string // X-Netdiag-Session
 }
 
 // New returns a server for cfg.
@@ -85,10 +90,13 @@ func New(cfg Config) *Server {
 		cfg.OpenOSPage = remote.OpenOSPage
 	}
 	if cfg.InstanceID == "" {
-		cfg.InstanceID = newInstanceID()
+		cfg.InstanceID = instance.NewID()
+	}
+	if cfg.SessionToken == "" {
+		cfg.SessionToken = instance.NewToken()
 	}
 	s := &Server{cfg: cfg, svc: svc, keepalive: 15 * time.Second, baseCtx: ctx, cancel: cancel, quit: make(chan struct{}),
-		instanceID: cfg.InstanceID, startedAt: time.Now().UTC().Format(time.RFC3339)}
+		instanceID: cfg.InstanceID, startedAt: time.Now().UTC().Format(time.RFC3339), token: cfg.SessionToken}
 	s.mcpSrv = mcpserver.New(svc, mcpserver.Options{Transport: "http", Version: cfg.Version})
 	s.mcpHandler = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.mcpSrv },
 		&mcp.StreamableHTTPOptions{MaxRequestBodyBytes: 1 << 20})
@@ -101,12 +109,12 @@ func New(cfg Config) *Server {
 	return s
 }
 
-// newInstanceID returns a random id for one run of netdiag.
-func newInstanceID() string {
-	var b [16]byte
-	_, _ = rand.Read(b[:])
-	return "i-" + hex.EncodeToString(b[:])
-}
+// InstanceID is the id GET /api/identity reports for this run.
+func (s *Server) InstanceID() string { return s.instanceID }
+
+// StartedAt is when this server was made (RFC 3339, UTC), as GET
+// /api/identity reports it.
+func (s *Server) StartedAt() string { return s.startedAt }
 
 // version is the netdiag version reported to clients ("dev" when unset).
 func (s *Server) version() string {
@@ -156,6 +164,14 @@ func (s *Server) Listen(port int) error {
 	return nil
 }
 
+// Port returns the port Listen bound; 0 before Listen.
+func (s *Server) Port() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, _ := strconv.Atoi(s.port)
+	return p
+}
+
 // URL returns the base URL; valid after Listen.
 func (s *Server) URL() string {
 	s.mu.Lock()
@@ -163,39 +179,59 @@ func (s *Server) URL() string {
 	return "http://127.0.0.1:" + s.port
 }
 
-// Handler returns the guarded routes.
-func (s *Server) Handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/interfaces", s.handleInterfaces)
-	mux.HandleFunc("GET /api/identity", s.handleIdentity)
-	mux.HandleFunc("POST /api/scans", s.handleStart)
-	mux.HandleFunc("GET /api/scans/running", s.handleRunning)
-	mux.HandleFunc("GET /api/scans/{id}", s.handleGet)
-	mux.HandleFunc("GET /api/scans/{id}/events", s.handleEvents)
-	mux.HandleFunc("POST /api/scans/{id}/cancel", s.handleCancel)
-	mux.HandleFunc("GET /api/scans/{id}/export", s.handleExport)
-	mux.HandleFunc("POST /api/quit", s.handleQuit)
-	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
-	mux.HandleFunc("PUT /api/settings", s.handlePutSettings)
-	mux.HandleFunc("GET /api/health", s.handleHealth)
-	mux.HandleFunc("POST /api/health/run", s.handleHealthRun)
-	mux.HandleFunc("GET /api/history", s.handleHistory)
-	mux.HandleFunc("GET /api/history/{id}", s.handleHistoryGet)
-	mux.HandleFunc("DELETE /api/history/{id}", s.handleHistoryDelete)
-	mux.HandleFunc("GET /api/compare", s.handleCompare)
-	mux.HandleFunc("GET /api/compare/export", s.handleCompareExport)
-	mux.HandleFunc("POST /api/conflicts/ignore", s.handleIgnore)
-	mux.HandleFunc("GET /api/remote", s.handleRemoteCaps)
-	mux.HandleFunc("POST /api/scans/{id}/remote", s.handleRemoteOpen)
-	mux.HandleFunc("GET /api/scans/{id}/remote.rdp", s.handleRemoteRDPFile)
-	mux.HandleFunc("POST /api/os/open", s.handleOSOpen)
+// route is one entry of the route table: a ServeMux pattern and its
+// handler.
+type route struct {
+	pattern string
+	h       http.Handler
+}
+
+// routes is the whole route table. Handler serves exactly these, so the
+// session guard test can walk every mutating /api route.
+func (s *Server) routes() []route {
+	f := func(p string, h http.HandlerFunc) route { return route{p, h} }
+	rs := []route{
+		f("GET /api/interfaces", s.handleInterfaces),
+		f("GET /api/identity", s.handleIdentity),
+		f("POST /api/scans", s.handleStart),
+		f("GET /api/scans/running", s.handleRunning),
+		f("GET /api/scans/{id}", s.handleGet),
+		f("GET /api/scans/{id}/events", s.handleEvents),
+		f("POST /api/scans/{id}/cancel", s.handleCancel),
+		f("GET /api/scans/{id}/export", s.handleExport),
+		f("POST /api/quit", s.handleQuit),
+		f("GET /api/settings", s.handleGetSettings),
+		f("PUT /api/settings", s.handlePutSettings),
+		f("GET /api/health", s.handleHealth),
+		f("POST /api/health/run", s.handleHealthRun),
+		f("GET /api/history", s.handleHistory),
+		f("GET /api/history/{id}", s.handleHistoryGet),
+		f("DELETE /api/history/{id}", s.handleHistoryDelete),
+		f("GET /api/compare", s.handleCompare),
+		f("GET /api/compare/export", s.handleCompareExport),
+		f("POST /api/conflicts/ignore", s.handleIgnore),
+		f("GET /api/remote", s.handleRemoteCaps),
+		f("POST /api/scans/{id}/remote", s.handleRemoteOpen),
+		f("GET /api/scans/{id}/remote.rdp", s.handleRemoteRDPFile),
+		f("POST /api/os/open", s.handleOSOpen),
+	}
 	for _, m := range []string{"GET", "POST", "DELETE"} {
-		mux.Handle(m+" /mcp", s.mcpGate(s.mcpHandler))
+		rs = append(rs, route{m + " /mcp", s.mcpGate(s.mcpHandler)})
 	}
 	if s.cfg.Static != nil {
-		mux.Handle("GET /", http.FileServerFS(s.cfg.Static))
+		rs = append(rs, route{"GET /", http.FileServerFS(s.cfg.Static)})
 	}
-	return s.guard(mux)
+	return rs
+}
+
+// Handler returns the guarded routes: the Host and content-type guard, then
+// the session guard (guard.go), then the route table.
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	for _, r := range s.routes() {
+		mux.Handle(r.pattern, r.h)
+	}
+	return s.guard(s.sessionGuard(mux))
 }
 
 // waitScans waits up to limit for cancelled scans to finish, so a live scan's
