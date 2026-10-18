@@ -213,7 +213,7 @@ func TestFixedBanners(t *testing.T) {
 		}
 	}
 	i := strings.Index(src, "onFixed(n, bid) {")
-	j := strings.Index(src, "fixedText(n) {")
+	j := strings.Index(src, "fixedText(n, when) {")
 	if i < 0 || j < i || strings.Contains(src[i:j], "beep(") {
 		t.Errorf("onFixed must not beep")
 	}
@@ -294,9 +294,39 @@ func TestProblemsCardUI(t *testing.T) {
 			t.Errorf("app.js missing %q", want)
 		}
 	}
-	for _, gone := range []string{"everythingFine() {", "this.everythingFine()"} {
+	for _, gone := range []string{"everythingFine() {", "this.everythingFine()", "'Fixed today'"} {
 		if strings.Contains(string(js), gone) {
 			t.Errorf("app.js still has %q", gone)
+		}
+	}
+	// Each event that can change what is wrong re-reads the card: a notice
+	// (a printer's cover closing gives nothing else), presence, health, a
+	// conflict, the end of the first pass (snapshot) and each live cycle
+	// (which says whether the storm guard holds).
+	src := string(js)
+	for _, ev := range []string{"notice", "presence", "health", "conflict", "snapshot", "live"} {
+		i := strings.Index(src, "on('"+ev+"', ")
+		if i < 0 {
+			t.Errorf("app.js has no %s handler", ev)
+			continue
+		}
+		body := src[i+len("on('"+ev+"', "):]
+		if j := strings.Index(body, "\n      on('"); j >= 0 {
+			body = body[:j]
+		}
+		if !strings.Contains(body, "this.problemsSoon();") {
+			t.Errorf("the %s handler does not re-read the card", ev)
+		}
+	}
+	for _, want := range []string{`id="pn-held"`, `x-text="pnHeldText()"`, `id="pn-notrun"`, "the health checks did not run for this scan"} {
+		if !strings.Contains(string(html), want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	for _, want := range []string{"if (p.held) return 'held';", "return p.source === 'live' ? 'quiet' : 'notrun';", "'Fixed in the last day'",
+		"pnTime() { return this.pnClock(", "this.conflicts = this.conflicts.filter(c => !(c.macs || []).includes(mac));\n        this.loadProblems();"} {
+		if !strings.Contains(src, want) {
+			t.Errorf("app.js missing %q", want)
 		}
 	}
 }

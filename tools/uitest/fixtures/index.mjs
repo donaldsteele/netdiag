@@ -431,11 +431,23 @@ export function fixedItems() {
 }
 const RANK = { critical: 0, warning: 1, info: 2 };
 // problemsView(): the GET /api/problems answer for these items, most urgent
-// first; everything is fine when there is a health report and nothing is
-// a warning or worse.
-export function problemsView({ open = [], fixed = [], source = 'latest', watching = false, checkedAt = T1, hasHealth = true } = {}) {
+// first; everything is fine when there is a health report, the storm guard
+// does not hold and nothing is a warning or worse. checkedAt is now unless
+// given, so the card's time has no day.
+export function problemsView({ open = [], fixed = [], source = 'latest', watching = false, checkedAt, hasHealth = true,
+  held = false, heldReason = '', heldSince = '' } = {}) {
   const sorted = [...open].sort((a, b) => RANK[a.severity] - RANK[b.severity]);
-  return { checkedAt, source, watching, everythingFine: hasHealth && sorted.every((p) => p.severity === 'info'), open: sorted, fixed };
+  const v = { checkedAt: checkedAt || new Date().toISOString(), source, watching,
+    everythingFine: hasHealth && !held && sorted.every((p) => p.severity === 'info'), open: sorted, fixed };
+  if (held) Object.assign(v, { held, heldReason, heldSince });
+  return v;
+}
+// someProblemsView(): six items in three severities (a dead router, the four
+// warnings of the fixture scan, a weak Wi-Fi note), as GET /api/problems
+// sends them.
+export function someProblemsView(extra = {}) {
+  const all = healthAll().checks;
+  return problemsView({ open: [...problemItems(), ...healthProblems({ checks: [all[5], all[0]] })], ...extra });
 }
 
 // The storm guard (v0.6 F9c): a live status while it holds, and its local

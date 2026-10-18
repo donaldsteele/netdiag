@@ -127,7 +127,12 @@
     <section id="problems-now" class="problems-now" aria-labelledby="pn-h" x-show="view === 'devices'">
       <h2 id="pn-h" tabindex="-1">Problems right now</h2>
       <p class="pnfine" id="pn-fine" role="status" x-show="pnState() === 'fine'"><svg class="ico s-ok" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg> <strong>OK</strong> <span x-text="'Everything looks fine (checked ' + pnTime() + ')'"></span></p>
-      <p class="pnnote" id="pn-quiet" role="status" x-show="pnState() === 'quiet'"><svg class="ico s-info" aria-hidden="true" focusable="false"><use href="icons.svg#i-info"></use></svg> <strong>Checking</strong> <span>No problems found so far. The health checks have not finished yet.</span></p>
+      <p class="pnnote" id="pn-held" role="status" x-show="pnState() === 'held'"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> <strong x-text="pnHeldWord()"></strong> <span x-text="pnHeldText()"></span></p>
+      <p class="pnnote" id="pn-quiet" role="status" x-show="pnState() === 'quiet'"><svg class="ico s-info" aria-hidden="true" focusable="false"><use href="icons.svg#i-info"></use></svg> <strong>Checking</strong> <span>No problems found so far. netdiag has not finished checking yet.</span></p>
+      <div id="pn-notrun" x-show="pnState() === 'notrun'">
+        <p class="pnnote" role="status"><svg class="ico s-unknown" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-help"></use></svg> <strong>Not checked</strong> <span>No problems found, but the health checks did not run for this scan.</span></p>
+        <p class="pacts"><button type="button" @click="openHealth()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-heart-pulse"></use></svg>Open Health<span class="sr"> to run the health checks</span></button></p>
+      </div>
       <p class="pnnote" id="pn-none" x-show="pnState() === 'none'"><svg class="ico s-unknown" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-help"></use></svg> <strong>Not checked</strong> <span>netdiag has not looked at the local network yet. Press <strong>Scan</strong> to check it.</span></p>
       <template x-for="g in pnGroups()" :key="g.id">
         <div class="pgroup" :id="'pn-' + g.id">

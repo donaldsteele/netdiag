@@ -54,6 +54,7 @@ for (const [vpName, vp] of Object.entries(VIEWPORTS)) for (const theme of ['dark
     const all = [];
     all.push(...await measure(page, 'empty'));
     await scanToFinish(page);
+    await expect(page.locator('#problems-now .pitem button:visible', { hasText: 'Show device' }).first()).toBeVisible();
     all.push(...await measure(page, 'devices'));
     await page.locator('#hosts tbody tr.host button.rowbtn').first().click();
     await expect(page.locator('#drawer')).toBeVisible();
@@ -83,6 +84,40 @@ for (const [vpName, vp] of Object.entries(VIEWPORTS)) for (const theme of ['dark
     all.push(...await measure(page, 'settings'));
     await fs.mkdir(path.join(OUT_DIR, 'probe'), { recursive: true });
     await fs.writeFile(path.join(OUT_DIR, 'probe', `${vpName}-${theme}.json`), JSON.stringify(all, null, 1));
+    expect(all).toEqual([]);
+  });
+}
+
+// The Problems right now card (v0.6 #1): Show device, Open Health, What to
+// try (open), Dismiss on fixed items and Show all, then the held and the
+// "did not run" lines with their Open Health, at both sizes and themes.
+for (const [vpName, vp] of Object.entries(VIEWPORTS)) for (const theme of ['dark', 'light']) {
+  test(`alignment problems card ${vpName} ${theme}`, async ({ page }) => {
+    await initStorage(page, { theme, live: false });
+    const rec = await installMocks(page, { problems: fx.someProblemsView({ fixed: fx.fixedItems() }) });
+    await page.setViewportSize(vp);
+    await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
+    await page.goto(HOME);
+    await scanToFinish(page);
+    const card = page.locator('#problems-now');
+    await card.locator('#pn-all').click();
+    await expect(card.locator('.pitem')).toHaveCount(8);
+    await expect(card.locator('.pitem button:visible', { hasText: 'Show device' }).first()).toBeVisible();
+    await expect(card.locator('.pitem button:visible', { hasText: 'Open Health' }).first()).toBeVisible();
+    await expect(card.locator('.pitem button:visible', { hasText: 'Dismiss' })).toHaveCount(2);
+    for (const d of await card.locator('details.ptry').all()) {
+      if (await d.isVisible()) await d.locator('summary').click();
+    }
+    const all = [...await measure(page, 'problems-card')];
+    rec.problems = fx.problemsView({ source: 'live', watching: true, held: true, heldReason: 'link', heldSince: new Date().toISOString(),
+      open: fx.problemItems() });
+    await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).loadProblems());
+    await expect(card.locator('#pn-held')).toBeVisible();
+    all.push(...await measure(page, 'problems-held'));
+    rec.problems = fx.problemsView({ source: 'latest', hasHealth: false });
+    await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).loadProblems());
+    await expect(card.locator('#pn-notrun button')).toBeVisible();
+    all.push(...await measure(page, 'problems-notrun'));
     expect(all).toEqual([]);
   });
 }

@@ -33,10 +33,10 @@ test('the page and problems.HostIssues agree on every golden case', async ({ pag
   await page.goto(HOME);
   await expect(card(page).locator('#pn-fine')).toBeVisible();
   for (const c of GOLDEN.cases) {
-    const got = await page.evaluate(({ hosts, conflicts, pct }) => {
+    const got = await page.evaluate(({ hosts, conflicts, pct, ignored }) => {
       const a = window.Alpine.$data(document.querySelector('.shell'));
       a.conflicts = conflicts;
-      a.settings = { ...a.settings, alerts: { ...a.settings.alerts, supplyThresholdPct: pct } };
+      a.settings = { ...a.settings, ignoredConflictMACs: ignored, alerts: { ...a.settings.alerts, supplyThresholdPct: pct } };
       const out = {};
       for (const h of hosts) {
         const is = a.hostIssues(h).map((x) => x.kind);
@@ -44,7 +44,7 @@ test('the page and problems.HostIssues agree on every golden case', async ({ pag
         if (a.isProblem(h) !== is.length > 0) out[h.ip + ' isProblem'] = a.isProblem(h);
       }
       return out;
-    }, { hosts: GOLDEN.hosts.map(wire), conflicts: GOLDEN.conflicts, pct: c.supplyThresholdPct });
+    }, { hosts: GOLDEN.hosts.map(wire), conflicts: GOLDEN.conflicts, pct: c.supplyThresholdPct, ignored: c.ignoredConflictMACs || [] });
     expect(got, c.name).toEqual(c.issues);
   }
 });
@@ -102,12 +102,7 @@ test('with "This network has no internet" on, the no-internet network is fine on
   await expect(items(page)).toHaveCount(0);
 });
 
-// Six items in three severities (a dead router, four warnings from the
-// fixture scan, a note), as GET /api/problems sends them.
-function someView(extra = {}) {
-  const all = fx.healthAll().checks;
-  return fx.problemsView({ open: [...fx.problemItems(), ...fx.healthProblems({ checks: [all[5], all[0]] })], ...extra });
-}
+const someView = fx.someProblemsView;
 
 for (const theme of THEMES) {
   test(`items in severity order with a shape and a word; Show all expands inline (${theme})`, async ({ page }, testInfo) => {
@@ -167,6 +162,28 @@ test('Show device opens the device in the drawer', async ({ page }) => {
   expect(rec.unmatched).toEqual([]);
 });
 
+test('an OK notice alone makes the card read again 2 s later, once', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: true });
+  const rec = await installMocks(page, { scenario: 'live', problems: 'fine' });
+  // A printer's cover closing gives only the status loop's OK notice: no
+  // presence, health or conflict event comes with it.
+  rec.frames = [{ type: 'notice', data: fx.fixedNotice(2) }];
+  await page.goto(HOME);
+  await expect(card(page).locator('#pn-fine')).toBeVisible();
+  await expect.poll(() => rec.problemsCalls).toBeGreaterThan(0);
+  const before = rec.problemsCalls;
+  rec.problems = fx.problemsView({ fixed: fx.fixedItems(), source: 'live', watching: true });
+  await page.getByRole('button', { name: 'Scan', exact: true }).click();
+  await expect.poll(() => rec.sseAt.length).toBe(1);
+  await expect(card(page).locator('#pn-fixed .pitem')).toHaveCount(2, { timeout: 10_000 });
+  const reads = rec.problemsAt.slice(before);
+  expect(reads).toHaveLength(1);
+  expect(reads[0] - rec.sseAt[0]).toBeGreaterThanOrEqual(1500);
+  await page.waitForTimeout(2500);
+  expect(rec.problemsCalls - before).toBe(1);
+  expect(rec.unmatched).toEqual([]);
+});
+
 test('an OK notice brings a Fixed item; Dismiss removes it', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: true });
   const rec = await installMocks(page, { scenario: 'live', problems: 'fine' });
@@ -180,12 +197,13 @@ test('an OK notice brings a Fixed item; Dismiss removes it', async ({ page }) =>
   await page.getByRole('button', { name: 'Scan', exact: true }).click();
   await expect(page.locator('#alerts .banner.sev-ok')).toHaveCount(1);
   const fixed = card(page).locator('#pn-fixed');
-  await expect(fixed.getByRole('heading', { name: 'Fixed today' })).toBeVisible();
+  await expect(fixed.getByRole('heading', { name: 'Fixed in the last day' })).toBeVisible();
   await expect(fixed.locator('.pitem')).toHaveCount(2);
   const first = fixed.locator('.pitem').first();
   await expect(first.locator('.psev')).toHaveText('Fixed');
   await expect(first.locator('.psev use')).toHaveAttribute('href', 'icons.svg#i-circle-check');
-  await expect(first).toContainText(/Fixed\s+at \d\d:\d\d \(was down 12 min\): Device back online/);
+  // A minute ago: today, or yesterday just after midnight.
+  await expect(first).toContainText(/Fixed\s+at (?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) )?\d\d:\d\d \(was down 12 min\): Device back online/);
   await expect(first).toContainText('192.168.2.200');
   // netdiag is watching: no "isn't watching" line.
   await expect(card(page).locator('#pn-watch')).toBeHidden();
@@ -214,8 +232,101 @@ test('the health checks have not answered yet', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { problems: fx.problemsView({ hasHealth: false, source: 'live', watching: true }) });
   await page.goto(HOME);
-  await expect(card(page).locator('#pn-quiet')).toContainText('No problems found so far.');
+  await expect(card(page).locator('#pn-quiet')).toContainText('No problems found so far. netdiag has not finished checking yet.');
   await expect(card(page).locator('#pn-fine')).toBeHidden();
+  await expect(card(page).locator('#pn-notrun')).toBeHidden();
+});
+
+// A finished scan without a health report (cancelled before its checks, or
+// a saved scan without them): the checks will not finish, so the card says
+// they did not run and offers the Health panel.
+for (const source of ['latest', 'saved']) {
+  test(`a ${source} scan whose health checks did not run`, async ({ page }) => {
+    await initStorage(page, { theme: 'dark', live: false });
+    const rec = await installMocks(page, { problems: fx.problemsView({ hasHealth: false, source }) });
+    await page.goto(HOME);
+    const nr = card(page).locator('#pn-notrun');
+    await expect(nr).toContainText('Not checked No problems found, but the health checks did not run for this scan.');
+    await expect(nr.locator('.pnnote use')).toHaveAttribute('href', 'icons.svg#i-circle-help');
+    await expect(card(page).locator('#pn-quiet')).toBeHidden();
+    await expect(card(page).locator('#pn-watch')).toBeVisible();
+    await nr.getByRole('button', { name: 'Open Health to run the health checks' }).click();
+    await expect(page.locator('#tab-health')).toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('#health')).toBeFocused();
+    expect(rec.unmatched).toEqual([]);
+  });
+}
+
+// The storm guard holds (v0.6-D36): the card never says everything is fine
+// then, says why with a shape and a word, and gives the time of the last
+// check, as the live pill does.
+for (const theme of THEMES) {
+  test(`while the storm guard holds the card says why (${theme})`, async ({ page }, testInfo) => {
+    await initStorage(page, { theme, live: false });
+    const lastCheck = new Date(Date.now() - 5 * 60000).toISOString();
+    const rec = await installMocks(page, { problems: fx.problemsView({ source: 'live', watching: true, checkedAt: lastCheck,
+      held: true, heldReason: 'link', heldSince: new Date(Date.now() - 4 * 60000).toISOString() }) });
+    await page.goto(HOME);
+    const held = card(page).locator('#pn-held');
+    // Minutes ago: today, or yesterday just after midnight.
+    const ago = String.raw`(?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) )?\d\d:\d\d`;
+    await expect(held).toHaveText(new RegExp(String.raw`^\s*Paused This computer lost the local network \(since ${ago}\), so netdiag paused its checks\. This is from the last check at ${ago}\.$`));
+    await expect(held.locator('use')).toHaveAttribute('href', 'icons.svg#i-triangle-alert');
+    await expect(card(page).locator('#pn-fine')).toBeHidden();
+    await expect(card(page).locator('#pn-watch')).toBeHidden();
+    await runAxe(page, `problems-held-${theme}`, testInfo);
+
+    rec.problems = fx.problemsView({ source: 'live', watching: true, checkedAt: lastCheck, held: true, heldReason: 'network_changed',
+      heldSince: lastCheck, open: fx.problemItems() });
+    await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).loadProblems());
+    await expect(held).toHaveText(new RegExp(String.raw`^\s*Stopped This computer is on a different network now, so netdiag stopped its alerts\. This is from the last check of the network it was watching, at ${ago}\.$`));
+    // What it found before stays listed.
+    await expect(items(page)).toHaveCount(4);
+    // The Health panel's line agrees: it does not say everything is fine.
+    expect(await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).healthFineText())).toMatch(/^All health checks look fine/);
+    expect(rec.unmatched).toEqual([]);
+  });
+}
+
+// The card can speak for a saved scan of days ago: its times then name the
+// day; a fix from yesterday is in the last day, not "today".
+test('times of an earlier day name the day', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const day = 86400000;
+  const old = new Date(Date.now() - 10 * day).toISOString();
+  const yesterday = new Date(Date.now() - day).toISOString();
+  const fixed = [{ ...fx.fixedItems()[0], openedAt: new Date(Date.parse(yesterday) - 12 * 60000).toISOString(), fixedAt: yesterday }];
+  const open = [{ ...fx.problemItems()[0], since: yesterday }];
+  await installMocks(page, { problems: fx.problemsView({ source: 'saved', checkedAt: old, open, fixed }) });
+  await page.goto(HOME);
+  const want = await page.evaluate(({ old, yesterday }) => {
+    const t = (x) => new Date(x).toTimeString().slice(0, 5);
+    const o = new Date(old), y = new Date(yesterday);
+    return { old: o.getDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][o.getMonth()] + ' ' + t(old),
+      yesterday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][y.getDay()] + ' ' + t(yesterday) };
+  }, { old, yesterday });
+  await expect(card(page).locator('#pn-watch')).toContainText("netdiag isn't watching right now. This is from the last check at " + want.old + '.');
+  await expect(items(page).first()).toContainText('since ' + want.yesterday);
+  const fixedGroup = card(page).locator('#pn-fixed');
+  await expect(fixedGroup.getByRole('heading', { name: 'Fixed in the last day' })).toBeVisible();
+  await expect(fixedGroup.locator('.pitem')).toContainText('Fixed at ' + want.yesterday + ' (was down 12 min): Device back online');
+});
+
+// Ignore this MAC: the card reads again, so a conflict the person ignored
+// leaves it (netdiag drops it for a finished scan too, problems.Current).
+test('ignoring a MAC makes the card read again', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { problems: 'some' });
+  await page.goto(HOME);
+  await scanToFinish(page);
+  await expect(items(page).filter({ hasText: 'Possible conflict' })).toHaveCount(1);
+  rec.problems = fx.problemsView({ open: fx.problemItems().filter((p) => p.kind !== 'ipConflict') });
+  page.once('dialog', (d) => d.accept());
+  const before = rec.problemsCalls;
+  await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).ignoreMac('00:1B:A9:AA:00:30'));
+  await expect.poll(() => rec.problemsCalls).toBeGreaterThan(before);
+  await expect(items(page).filter({ hasText: 'Possible conflict' })).toHaveCount(0);
+  expect(rec.unmatched).toEqual([]);
 });
 
 for (const width of [360, 390, 768, 1100, 1440]) {

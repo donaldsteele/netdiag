@@ -211,17 +211,32 @@ document.addEventListener('alpine:init', () => {
     problemsSoon() {
       if (!pnTimer) pnTimer = setTimeout(() => this.loadProblems(), 2000);
     },
-    // fine: nothing is a warning or worse; quiet: nothing is, but the health
-    // checks have not answered yet; none: netdiag has looked at nothing.
+    // none: netdiag has looked at nothing; held: the storm guard paused the
+    // checks or stopped the alerts, so the list is from before; fine:
+    // nothing is a warning or worse; problems: something is; quiet: nothing
+    // is so far, but the running scan has not finished checking; notrun:
+    // nothing is, but the health checks did not run for this finished scan.
     pnState() {
       const p = this.problems;
       if (!p) return '';
       if (p.source === 'none') return 'none';
+      if (p.held) return 'held';
       if (p.everythingFine) return 'fine';
-      return (p.open || []).some(x => x.severity !== 'info') ? 'problems' : 'quiet';
+      if ((p.open || []).some(x => x.severity !== 'info')) return 'problems';
+      return p.source === 'live' ? 'quiet' : 'notrun';
+    },
+    // The storm guard's words, as the live pill says them (liveText).
+    pnHeldWord() { return this.problems && this.problems.heldReason === 'network_changed' ? 'Stopped' : 'Paused'; },
+    pnHeldText() {
+      const p = this.problems || {}, since = this.pnClock(p.heldSince) ? ' (since ' + this.pnClock(p.heldSince) + ')' : '';
+      if (p.heldReason === 'network_changed') {
+        return 'This computer is on a different network now, so netdiag stopped its alerts. This is from the last check of the network it was watching, at ' + this.pnTime() + '.';
+      }
+      const why = p.heldReason === 'gateway' ? 'The router stopped answering' : 'This computer lost the local network';
+      return why + since + ', so netdiag paused its checks. This is from the last check at ' + this.pnTime() + '.';
     },
     // Problems first (most urgent first, as the server sends them), then the
-    // notes, then what was fixed today and not dismissed here.
+    // notes, then what was fixed in the last day and not dismissed here.
     pnList() {
       const p = this.problems || {}, open = p.open || [];
       return [...open.filter(x => x.severity !== 'info'), ...open.filter(x => x.severity === 'info'),
@@ -234,7 +249,7 @@ document.addEventListener('alpine:init', () => {
       return [
         {id: 'open', heading: '', label: 'Problems', items: shown.filter(x => !x.fixedAt && x.severity !== 'info')},
         {id: 'notes', heading: 'Also worth knowing', label: 'Also worth knowing', items: shown.filter(x => !x.fixedAt && x.severity === 'info')},
-        {id: 'fixed', heading: 'Fixed today', label: 'Fixed today', items: shown.filter(x => x.fixedAt)},
+        {id: 'fixed', heading: 'Fixed in the last day', label: 'Fixed in the last day', items: shown.filter(x => x.fixedAt)},
       ].filter(g => g.items.length);
     },
     // Every item is a shape plus a word: Problem (critical), Warning, Note, Fixed.
@@ -242,20 +257,35 @@ document.addEventListener('alpine:init', () => {
     pnIcon(p) { return {critical: 'circle-x', warning: 'triangle-alert', info: 'info', ok: 'circle-check'}[this.pnSev(p)]; },
     pnClass(p) { return {critical: 's-bad', warning: 's-warn', info: 's-info', ok: 's-ok'}[this.pnSev(p)]; },
     pnWord(p) { return {critical: 'Problem', warning: 'Warning', info: 'Note', ok: 'Fixed'}[this.pnSev(p)]; },
-    // A fixed item reads "Fixed at 10:42 (was down 12 min): Printer back online".
-    pnTitle(p) { return p.fixedAt ? this.fixedText({at: p.fixedAt, openedAt: p.openedAt}).replace(/\.$/, '') + ': ' + p.title : p.title; },
+    // A fixed item reads "Fixed at 10:42 (was down 12 min): Printer back online"
+    // ("at Fri 15:00" for a fix of an earlier day).
+    pnTitle(p) {
+      return p.fixedAt ? this.fixedText({at: p.fixedAt, openedAt: p.openedAt}, this.pnClock(p.fixedAt)).replace(/\.$/, '') + ': ' + p.title : p.title;
+    },
     // Which one, the device and since when: "Black Toner at 15% · Front Desk (192.168.1.50) · since 10:12".
     pnWhere(p) {
       const d = p.device || {};
       const dev = d.ip ? (d.name ? d.name + ' (' + d.ip + ')' : d.ip) : '';
-      const since = !p.fixedAt && this.clock(p.since) ? 'since ' + this.clock(p.since) : '';
+      const since = !p.fixedAt && this.pnClock(p.since) ? 'since ' + this.pnClock(p.since) : '';
       const detail = p.fixedAt ? '' : p.detail || '';
       // A conflict's addresses already name its device.
       return [detail, d.ip && detail.split(', ').includes(d.ip) ? '' : dev, since].filter(Boolean).join(' · ');
     },
     // Show device for an item about a device this page lists.
     pnDevice(p) { return !p.fixedAt && !!p.device && !!p.device.ip && this.hosts.some(h => h.ip === p.device.ip); },
-    pnTime() { return this.clock(this.problems && this.problems.checkedAt) || 'just now'; },
+    pnTime() { return this.pnClock(this.problems && this.problems.checkedAt) || 'just now'; },
+    // "10:42" today, "Fri 10:42" earlier this week, "10 Oct 10:42" before
+    // (local time), or '': the card can speak for a saved scan of days ago.
+    pnClock(at) {
+      const d = new Date(at || '');
+      if (isNaN(d)) return '';
+      const t = this.clock(at), now = new Date(this.nowMs || Date.now());
+      const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+      const ago = Math.round((day(now) - day(d)) / 86400000);
+      if (ago === 0) return t;
+      if (ago > 0 && ago < 7) return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + t;
+      return d.getDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()] + ' ' + t;
+    },
     pnNotWatching() { return !!this.problems && this.problems.source !== 'none' && !this.problems.watching; },
     pnWatchText() { return "netdiag isn't watching right now. This is from the last check at " + this.pnTime() + '.'; },
     pnFixedID(f) { return f.key + '@' + f.fixedAt; },
@@ -883,11 +913,12 @@ document.addEventListener('alpine:init', () => {
       if (!b.ok) return b.message;
       return this.fixedText(b) + (b.message ? ' ' + b.message : '');
     },
-    // "at 10:42 (was down 12 min)." for an OK notice (local time).
-    fixedText(n) {
+    // "at 10:42 (was down 12 min)." for an OK notice (local time; when
+    // names the time another way, such as "Fri 10:42").
+    fixedText(n, when) {
       const at = new Date(n.at), from = new Date(n.openedAt);
       const end = isNaN(at) ? new Date() : at;
-      let s = 'at ' + end.toTimeString().slice(0, 5);
+      let s = 'at ' + (when || end.toTimeString().slice(0, 5));
       if (!isNaN(from) && end >= from) {
         const m = Math.floor((end - from) / 60000);
         s += ' (was down ' + (m < 1 ? 'less than a minute' : m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min') + ')';
@@ -929,9 +960,14 @@ document.addEventListener('alpine:init', () => {
     },
 
     // ---- conflicts ----
+    // A device's conflicts: one whose id it lists or that names its address,
+    // unless it involves a MAC the person ignored (a saved scan keeps the
+    // conflicts it found). Mirrors problems.HostIssues.
     conflictsFor(h) {
       const ids = h.conflicts || [];
-      return this.conflicts.filter(c => ids.includes(c.id) || (c.ips || []).includes(h.ip));
+      const mac = m => String(m).trim().toUpperCase().replace(/-/g, ':');
+      const ign = ((this.settings && this.settings.ignoredConflictMACs) || []).map(mac);
+      return this.conflicts.filter(c => (ids.includes(c.id) || (c.ips || []).includes(h.ip)) && !(c.macs || []).some(m => ign.includes(mac(m))));
     },
     hasConflict(h) { return this.conflictsFor(h).length > 0; },
     // How often the MAC answering at an address changed: A, B, A is 2
@@ -1016,6 +1052,7 @@ document.addEventListener('alpine:init', () => {
         this.announce = 'Ignoring conflicts for ' + mac + '. To undo, remove it in Settings.';
         this.loadSettings();
         this.conflicts = this.conflicts.filter(c => !(c.macs || []).includes(mac));
+        this.loadProblems();
       } catch (e) { this.error = 'Could not ignore MAC: ' + e.message; }
     },
 
@@ -1382,11 +1419,14 @@ document.addEventListener('alpine:init', () => {
       on('notice', n => { this.onNotice(n, id); this.problemsSoon(); });
       on('progress', p => { this.stage = p.stage; this.done = p.done; this.total = p.total; });
       on('stage', s => { this.stage = s.stage; this.done = 0; this.total = 0; this.logPush('scan', 'Stage: ' + s.stage); });
+      // The first pass ended (snapshot) or a live cycle ended (live, which
+      // also says whether the storm guard holds): the card reads again.
       on('snapshot', r => {
         this.gateway = r.gateway || ''; this.warnings = r.warnings || []; this.state = r.state;
         if (r.health) this.health = r.health;
         if (r.conflicts) this.conflicts = r.conflicts;
         (r.hosts || []).forEach(h => { if (!this.hosts.some(x => x.ip === h.ip)) this.hosts.push(h); });
+        this.problemsSoon();
       });
       on('live', st => {
         this.liveStatus = st; this.state = 'live'; this.stage = 'live'; this.running = true;
@@ -1398,6 +1438,7 @@ document.addEventListener('alpine:init', () => {
         }
         if (!this.liveSynced && !resumed) this.logPush('scan', 'Live monitoring started');
         this.liveSynced = true;
+        this.problemsSoon();
       });
       // Presence events are live-only (never replayed), so a reconnect does
       // not re-announce old transitions.

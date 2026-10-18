@@ -79,12 +79,14 @@ const matchId = (re, p) => {
 // running, what the fixture scan has wrong (fx.problemItems); 'fine' leaves
 // the scan's items out, 'some' always has them, 'fixed' adds fx.fixedItems.
 // An object (or a function returning one) is served as it is. Specs may
-// change rec.problems while the page runs; rec.problemsCalls counts reads.
+// change rec.problems while the page runs; rec.problemsCalls counts reads
+// and rec.problemsAt holds when each came (Date.now()), as rec.sseAt does
+// for each event stream served.
 export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired, health: healthState = 'default', osOpen = 204, running = false, identity = 'ok', session = SESSION, stale = false,
   chat = 'off', chatExtra = {}, found = {}, pairStates = ['pending', 'approved'], channels = [fx.CHAT_CHANNEL], pairError = '', testResult = null, problems } = {}) {
   const rec = { requests: [], unmatched: [], unauthorized: [], external: [], sse: [], running, identity, frames: null, identityCalls: 0, runningCalls: 0, scanId: fx.SCAN_ID, session,
     chat: fx.bubblesStatus(chat, chatExtra), pairError, channels: [...channels], pairStates: [...pairStates], pairPolls: -1, testResult, chatCalls: [], chatReads: 0,
-    problems, problemsCalls: 0, scanned: false };
+    problems, problemsCalls: 0, problemsAt: [], sseAt: [], scanned: false };
   const origin = new URL(BASE_URL).origin;
   const MCP_URL = 'http://127.0.0.1:8787/mcp';
   let settings = { ...(initialSettings || fx.settings()), mcpUrl: MCP_URL };
@@ -109,7 +111,7 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     const h = health();
     const open = ((settings.alerts || {}).triggers || {}).healthFailed === false ? [] : fx.healthProblems(h);
     if (p === 'some' || (p !== 'fine' && (rec.scanned || rec.running))) open.push(...fx.problemItems());
-    return fx.problemsView({ open, fixed: p === 'fixed' ? fx.fixedItems() : [], checkedAt: h.checkedAt,
+    return fx.problemsView({ open, fixed: p === 'fixed' ? fx.fixedItems() : [],
       source: rec.running ? 'live' : 'latest', watching: !!rec.running, hasHealth: (h.checks || []).length > 0 });
   };
 
@@ -149,7 +151,7 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     }
     if (method === 'GET' && p === '/api/health') return json(route, 200, health());
     if (method === 'POST' && p === '/api/health/run') return json(route, 200, health());
-    if (method === 'GET' && p === '/api/problems') { rec.problemsCalls++; return json(route, 200, problemsNow()); }
+    if (method === 'GET' && p === '/api/problems') { rec.problemsCalls++; rec.problemsAt.push(Date.now()); return json(route, 200, problemsNow()); }
     if (method === 'GET' && p === '/api/history') return json(route, 200, history);
     if (method === 'GET' && p === '/api/compare') {
       const base = url.searchParams.get('base') || fx.BASE_ID;
@@ -200,7 +202,7 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
 
     const scanId = matchId(/^\/api\/scans\/([^/]+)\/events$/, p);
     if (method === 'GET' && scanId) {
-      rec.sse.push(scanId);
+      rec.sse.push(scanId); rec.sseAt.push(Date.now());
       const set = typeof rec.frames === 'function' ? rec.frames(scanId) : rec.frames;
       const frames = set || customFrames || (scenario === 'live' ? fx.liveFrames() : fx.scanFrames());
       return route.fulfill({

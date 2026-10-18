@@ -1,9 +1,10 @@
 package problems
 
 // This file is what is wrong right now (v0.6 #1, §4.11): the Problems right
-// now card (GET /api/problems), MCP list_problems and the team chat
-// first-connect burst use Current; the Problems tab and MCP
-// filter=problems use the broader per-device HostIssues.
+// now card (GET /api/problems) and MCP list_problems read NewView (Current
+// with the ledger), and the team chat first-connect burst posts its
+// Alerted items; the Problems tab and MCP filter=problems use the broader
+// per-device HostIssues.
 
 import (
 	"fmt"
