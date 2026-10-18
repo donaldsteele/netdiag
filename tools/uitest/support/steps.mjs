@@ -8,3 +8,15 @@ export async function scanToFinish(page) {
   await expect(page.locator('section.progress .stage')).toHaveText('Finished');
   await expect(page.locator('#hosts tbody tr.host')).toHaveCount(TOTAL_HOSTS);
 }
+
+// A time as the page's pnClock writes it (local time): "10:42" today,
+// "Fri 10:42" earlier this week, "10 Oct 10:42" before.
+export function cardClock(at) {
+  const d = new Date(at), now = new Date();
+  const t = d.toTimeString().slice(0, 5);
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const ago = Math.round((day(now) - day(d)) / 86400000);
+  if (ago === 0) return t;
+  if (ago > 0 && ago < 7) return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + t;
+  return d.getDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()] + ' ' + t;
+}

@@ -8,6 +8,7 @@ import { installMocks, initStorage, HOME } from '../support/mock.mjs';
 import * as fx from '../fixtures/index.mjs';
 import { runAxe } from '../support/axe.mjs';
 import { THEMES } from '../support/config.mjs';
+import { cardClock } from '../support/steps.mjs';
 
 // Counts the oscillators beep() starts; reset on every page load.
 async function spyBeeps(page) {
@@ -133,8 +134,9 @@ test('a stale tab cannot stop the watching: Scan asks, Keep watching attaches', 
   await page.getByRole('button', { name: 'Scan', exact: true }).click();
   const dlg = restartDialog(page);
   await expect(dlg).toHaveJSProperty('open', true);
-  const since = await page.evaluate((t) => new Date(t).toTimeString().slice(0, 5), fx.LIVE_SINCE);
-  await expect(dlg.locator('#restart-q')).toHaveText(`netdiag is watching this network (since ${since}). Restart with these settings?`);
+  // It names the range being watched, and the day it began when not today.
+  const since = cardClock(fx.LIVE_SINCE);
+  await expect(dlg.locator('#restart-q')).toHaveText(`netdiag is watching ${fx.CIDR} (since ${since}). Restart with these settings?`);
   await expect(dlg.locator('#restart-keep')).toBeFocused();
   expect(posts(rec)).toHaveLength(1);
   expect(JSON.parse(posts(rec)[0].body).replaceLive).toBeUndefined();
@@ -220,7 +222,7 @@ test('the stopped banner appears within 30 s when netdiag stops, and goes when i
   const t0 = Date.now();
   await expect(stopped).toBeVisible({ timeout: 30_000 });
   expect(Date.now() - t0, 'ms until the stopped banner').toBeLessThan(30_000);
-  await expect(stopped).toHaveText('netdiag has stopped. Open netdiag again to keep watching.');
+  await expect(stopped).toHaveText('netdiag has stopped. Double-click netdiag to start it again, then press Scan with Live mode ticked to watch again.');
   await expect(stopped).toHaveAttribute('role', 'status');
 
   rec.identity = 'ok';
@@ -272,6 +274,88 @@ test('quitting stops the heartbeat and shows only the quit message', async ({ pa
   await app(page, (a) => a.hbTick());
   await app(page, (a) => a.hbTick());
   await expect(page.locator('#backend-stopped')).toBeHidden();
+});
+
+// After netdiag stops (or was restarted) nothing here is watched, and the
+// page says so: no green Live pill, no "Everything looks fine", no Stop live
+// or Restart watching, only the banner and a Not watching card.
+for (const backend of ['stopped', 'restarted']) {
+  test(`while live, a ${backend} netdiag leaves no sign that the page still watches`, async ({ page }) => {
+    await initStorage(page, { theme: 'dark', live: true });
+    const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames(), problems: 'fine' });
+    rec.problems = fx.problemsView({ source: 'live', watching: true });
+    await page.goto(HOME);
+    await expect(page.locator('.livepill')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('#pn-fine')).toBeVisible();
+    // The heartbeat must not find netdiag again while the spec looks.
+    if (backend === 'stopped') rec.identity = 'down';
+    await app(page, (a, b) => { a.backend = b; }, backend);
+    await expect(page.locator(backend === 'stopped' ? '#backend-stopped' : '#backend-restarted')).toBeVisible();
+    await expect(page.locator('.livepill')).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Stop live', exact: true })).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Restart watching', exact: true })).toBeHidden();
+    await expect(page.locator('#pn-fine')).toBeHidden();
+    const gone = page.locator('#pn-gone');
+    await expect(gone).toContainText('Not watching');
+    await expect(gone).toContainText(backend === 'stopped' ? 'netdiag has stopped, so nothing is being checked.' : 'Reload the page');
+    await expect(gone.locator('use')).toHaveAttribute('href', 'icons.svg#i-circle-help');
+    await expect(page.locator('section.progress .stage')).toHaveText(/^Not watching: /);
+    await expect(page.locator('#pn-watch')).toBeHidden();
+    // Nor does the banner for another network offer Restart watching.
+    expect(await app(page, (a) => a.bannerRestart({ trigger: 'netdiagLink', code: 'network_changed' }))).toBe(false);
+    // netdiag answers again (the same one): the page watches again.
+    if (backend === 'stopped') {
+      rec.identity = 'ok';
+      await app(page, (a) => { a.backend = 'ok'; });
+      await expect(page.locator('.livepill')).toBeVisible();
+      await expect(page.locator('#pn-fine')).toBeVisible();
+    }
+  });
+}
+
+// Quit while live: the scan controls go off with the watching, so Scan,
+// Stop live and Restart watching never show together, and the pill goes.
+test('Quit while live turns the scan controls off and leaves no Live pill', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: true });
+  const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
+  await page.goto(HOME);
+  await expect(page.locator('.livepill')).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Quit', exact: true }).click();
+  await expect(page.locator('#quitted')).toHaveText('netdiag has stopped. You can close this tab.');
+  await expect(page.locator('.livepill')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Stop live', exact: true })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Restart watching', exact: true })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Scan', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Quit', exact: true })).toBeDisabled();
+  await expect(page.locator('#pn-gone')).toContainText('netdiag has stopped');
+  // Enter in the target field does not try to start a scan either.
+  await page.getByLabel('Target (CIDR or range)').press('Enter');
+  await page.waitForTimeout(200);
+  expect(posts(rec), 'no scan after Quit').toHaveLength(0);
+  await expect(page.locator('main > .alert.error')).toBeHidden();
+});
+
+// A stale tab with Live mode unticked: Restart would end the watching and
+// run one scan, and the dialog says so in its heading, text and button.
+test('a stale tab without Live mode says Restart stops watching and runs one scan', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { scenario: 'scan' });
+  await page.goto(HOME);
+  await expect(page.getByRole('button', { name: 'Scan', exact: true })).toBeVisible();
+  await expect.poll(() => rec.runningCalls).toBeGreaterThanOrEqual(2);
+  await page.waitForTimeout(200);
+  rec.running = true;
+  rec.frames = fx.replayFrames();
+  await page.getByRole('button', { name: 'Scan', exact: true }).click();
+  const dlg = restartDialog(page);
+  await expect(dlg).toHaveJSProperty('open', true);
+  await expect(dlg.locator('#restart-h')).toHaveText('Stop watching?');
+  await expect(dlg.locator('#restart-q')).toHaveText(`netdiag is watching ${fx.CIDR} (since ${cardClock(fx.LIVE_SINCE)}). Stop watching and run one scan instead?`);
+  await expect(dlg.locator('#restart-settings')).toHaveText(`Restart stops watching and runs one scan of ${fx.CIDR}, without live mode.`);
+  await expect(dlg.getByRole('button', { name: 'Stop watching and scan', exact: true })).toBeVisible();
+  await expect(dlg.locator('#restart-keep')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dlg).toHaveJSProperty('open', false);
 });
 
 // Alpine calls init() itself. Calling it again from x-init opened a second

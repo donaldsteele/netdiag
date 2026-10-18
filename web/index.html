@@ -46,10 +46,10 @@
       </label>
       <label class="check"><input type="checkbox" id="live-mode" x-model="live" @change="saveLive()" :disabled="running">
         Live mode</label>
-      <button type="submit" class="primary" x-show="!running" :disabled="!cidr.trim()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-radar"></use></svg>Scan</button>
-      <button type="button" x-show="running && state !== 'live'" @click="cancel()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-square"></use></svg>Cancel</button>
-      <button type="button" x-show="state === 'live'" @click="cancel()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-square"></use></svg>Stop live</button>
-      <button type="button" id="restart-btn" x-show="state === 'live'" aria-haspopup="dialog" @click="askRestart()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart watching</button>
+      <button type="submit" class="primary" x-show="!running" :disabled="!cidr.trim() || gone()" :aria-disabled="sessionOff ? 'true' : null"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-radar"></use></svg>Scan</button>
+      <button type="button" x-show="running && state !== 'live' && !gone()" :aria-disabled="sessionOff ? 'true' : null" @click="cancel()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-square"></use></svg>Cancel</button>
+      <button type="button" x-show="state === 'live' && !gone()" :aria-disabled="sessionOff ? 'true' : null" @click="cancel()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-square"></use></svg>Stop live</button>
+      <button type="button" id="restart-btn" x-show="state === 'live' && !gone()" :aria-disabled="sessionOff ? 'true' : null" aria-haspopup="dialog" @click="restartTop()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart watching</button>
       <details class="menu" @keydown.escape="$el.open = false">
         <summary><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-download"></use></svg>Export</summary>
         <div class="menupop">
@@ -57,10 +57,10 @@
           <button type="button" @click="exportAs('csv'); $el.closest('details').open = false" :disabled="!scanId">Export CSV</button>
         </div>
       </details>
-      <button type="button" class="danger" @click="quit()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-power"></use></svg>Quit</button>
+      <button type="button" class="danger" :disabled="quitted" :aria-disabled="sessionOff ? 'true' : null" @click="quit()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-power"></use></svg>Quit</button>
     </form>
     <div class="hdrtools">
-      <span class="livepill" :class="{held: liveStatus && liveStatus.held}" x-show="state === 'live'" :title="liveText()"><template x-if="liveStatus && liveStatus.held"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg></template><span x-text="liveText()"></span></span>
+      <span class="livepill" :class="{held: liveStatus && liveStatus.held}" x-show="state === 'live' && !gone()" :title="liveText()"><template x-if="liveStatus && liveStatus.held"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg></template><span x-text="liveText()"></span></span>
       <button type="button" class="chipbtn" :class="'h-' + (healthSummary().includes('fail') ? 'fail' : healthSummary().includes('warn') ? 'warn' : 'ok')"
               @click="showView('health'); $nextTick(() => $refs.healthPanel && $refs.healthPanel.focus())" ><svg class="ico" :class="healthSummary().includes('fail') ? 's-bad' : healthSummary().includes('warn') ? 's-warn' : 's-ok'" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + (healthSummary().includes('fail') ? 'circle-x' : healthSummary().includes('warn') ? 'triangle-alert' : 'circle-check')"></use></svg><span x-text="healthSummary()"></span></button>
       <button type="button" class="iconbtn tool chattool" id="chat-tool" x-show="chatShown()" :class="chatToolClass()" @click="openSettings('chat')" :title="chatTitle()">
@@ -106,10 +106,10 @@
 
   <main id="main" tabindex="-1">
     <div class="alert error" role="alert" x-show="error" x-text="error"></div>
-    <div class="alert warn" x-show="quitted" role="status">netdiag has stopped. You can close this tab.</div>
-    <div class="alert warn" id="session-off" x-show="sessionOff && !quitted" role="status"><strong>Buttons on this page are turned off for safety.</strong> Double-click netdiag to open a fresh page.</div>
-    <div class="alert warn" id="backend-stopped" x-show="backend === 'stopped' && !quitted" role="status"><strong>netdiag has stopped.</strong> Open netdiag again to keep watching.</div>
-    <div class="alert warn backendmsg" id="backend-restarted" x-show="backend === 'restarted' && !quitted" role="status"><span><strong>netdiag was restarted.</strong> This page is out of date.</span>
+    <div class="alert warn iconalert" id="quitted" x-show="quitted" role="status"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> netdiag has stopped. You can close this tab.</div>
+    <div class="alert warn iconalert" id="session-off" x-show="sessionOff && !quitted" role="status"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> <strong>Buttons on this page are turned off for safety.</strong> Double-click netdiag to open a fresh page.</div>
+    <div class="alert warn iconalert" id="backend-stopped" x-show="backend === 'stopped' && !quitted" role="status"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> <strong>netdiag has stopped.</strong> Double-click netdiag to start it again, then press <strong>Scan</strong> with <strong>Live mode</strong> ticked to watch again.</div>
+    <div class="alert warn backendmsg iconalert" id="backend-restarted" x-show="backend === 'restarted' && !quitted" role="status"><span><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> <strong>netdiag was restarted.</strong> This page is out of date.</span>
       <button type="button" @click="reloadPage()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Reload page</button></div>
 
     <section class="progress" aria-label="Scan progress" x-show="view === 'devices'">
@@ -127,12 +127,17 @@
     <section id="problems-now" class="problems-now" aria-labelledby="pn-h" x-show="view === 'devices'">
       <h2 id="pn-h" tabindex="-1">Problems right now</h2>
       <p class="pnfine" id="pn-fine" role="status" x-show="pnState() === 'fine'"><svg class="ico s-ok" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg> <strong>OK</strong> <span x-text="'Everything looks fine (checked ' + pnTime() + ')'"></span></p>
-      <p class="pnnote" id="pn-held" role="status" x-show="pnState() === 'held'"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> <strong x-text="pnHeldWord()"></strong> <span x-text="pnHeldText()"></span></p>
+      <p class="pnnote" id="pn-gone" role="status" x-show="pnState() === 'gone'"><svg class="ico s-unknown" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-help"></use></svg> <strong>Not watching</strong> <span x-text="pnGoneText()"></span></p>
+      <div id="pn-held" x-show="pnState() === 'held'">
+        <p class="pnnote" role="status"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> <strong x-text="pnHeldWord()"></strong> <span x-text="pnHeldText()"></span></p>
+        <template x-if="pnRestart()"><p class="pacts"><button type="button" id="pn-restart" aria-haspopup="dialog" :aria-disabled="sessionOff ? 'true' : null" @click="restartHere()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart watching</button></p></template>
+      </div>
       <p class="pnnote" id="pn-quiet" role="status" x-show="pnState() === 'quiet'"><svg class="ico s-info" aria-hidden="true" focusable="false"><use href="icons.svg#i-info"></use></svg> <strong>Checking</strong> <span>No problems found so far. netdiag has not finished checking yet.</span></p>
       <div id="pn-notrun" x-show="pnState() === 'notrun'">
         <p class="pnnote" role="status"><svg class="ico s-unknown" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-help"></use></svg> <strong>Not checked</strong> <span>No problems found, but the health checks did not run for this scan.</span></p>
         <p class="pacts"><button type="button" @click="openHealth()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-heart-pulse"></use></svg>Open Health<span class="sr"> to run the health checks</span></button></p>
       </div>
+      <p class="pnnote" id="pn-health" role="status" x-show="pnState() === 'health'"><svg class="ico s-unknown" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-help"></use></svg> <strong>Not checked</strong> <span x-text="'The health checks ran (checked ' + pnTime() + '), but netdiag has not looked at the devices yet.'"></span> Press <strong>Scan</strong> to check them too.</p>
       <p class="pnnote" id="pn-none" x-show="pnState() === 'none'"><svg class="ico s-unknown" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-help"></use></svg> <strong>Not checked</strong> <span>netdiag has not looked at the local network yet. Press <strong>Scan</strong> to check it.</span></p>
       <template x-for="g in pnGroups()" :key="g.id">
         <div class="pgroup" :id="'pn-' + g.id">
@@ -164,7 +169,7 @@
         </div>
       </template>
       <p class="pmore" x-show="pnTotal() > pnLimit"><button type="button" id="pn-all" :aria-expanded="pnAll" @click="pnAll = !pnAll" x-text="pnAll ? 'Show fewer' : 'Show all ' + pnTotal()"></button></p>
-      <p class="sub pnwatch" id="pn-watch" x-show="pnNotWatching()"><span x-text="pnWatchText()"></span> Tick <strong>Live mode</strong> and press <strong>Scan</strong> to keep watching.</p>
+      <p class="sub pnwatch" id="pn-watch" x-show="pnNotWatching()"><span x-text="pnWatchText()"></span> <template x-if="pnWatchHow() === 'tick'"><span>Tick <strong>Live mode</strong> and press <strong>Scan</strong> to start watching.</span></template><template x-if="pnWatchHow() === 'press'"><span>Press <strong>Scan</strong> to start watching.</span></template><template x-if="pnWatchHow() === 'running'"><span>When this scan ends, tick <strong>Live mode</strong> and press <strong>Scan</strong> to start watching.</span></template></p>
     </section>
 
     <section class="dash" aria-label="Network summary" x-show="view === 'devices'">
@@ -570,8 +575,8 @@
   <form @submit.prevent="saveSettings()" x-show="draft" class="sform">
     <h2 id="settings-h">Settings</h2>
     <div class="alert error" role="alert" x-show="settingsError" x-text="settingsError"></div>
-    <div class="alert warn" id="settings-repaired" role="status" x-show="repairedNote" x-text="repairedNote"></div>
-    <template x-if="draft">
+    <div class="alert warn iconalert" id="settings-repaired" role="status" x-show="repairedNote"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg> <span x-text="repairedNote"></span></div>
+    <template x-if="draft && settings">
       <div>
         <fieldset><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-radar"></use></svg>Scanning</legend>
           <label>SNMP community <input type="text" x-model="draft.community" spellcheck="false" autocomplete="off"></label>
@@ -616,7 +621,7 @@
             <template x-if="draft.chat">
               <div>
                 <label class="check"><input type="checkbox" role="switch" id="chat-enabled" x-model="draft.chat.enabled" aria-describedby="chat-watching"> Send alerts to team chat</label>
-                <label>Send <select id="chat-level" x-model="draft.chat.minSeverity">
+                <label>Team chat alert level <select id="chat-level" x-model="draft.chat.minSeverity">
                   <option value="warning">Problems and warnings</option>
                   <option value="critical">Only urgent problems</option>
                   <option value="info">Everything, including notes</option>
@@ -655,19 +660,19 @@
       </div>
     </template>
     <p class="actions">
-      <button type="submit" class="primary" :disabled="!settings">Save</button>
-      <button type="button" @click="closeSettings()">Cancel</button>
+      <button type="submit" class="primary" x-show="settings" :disabled="!settings">Save</button>
+      <button type="button" @click="closeSettings()" x-text="settings ? 'Cancel' : 'Close'"></button>
     </p>
   </form>
 </dialog>
 <dialog id="restart-dialog" x-ref="restartDlg" aria-labelledby="restart-h" aria-describedby="restart-q" @cancel.prevent="keepWatching()">
   <div class="sform">
-    <h2 id="restart-h">Restart watching?</h2>
-    <p id="restart-q"><strong>netdiag is watching this network</strong><span x-text="restartSince()"></span>. Restart with these settings?</p>
-    <p class="sub" id="restart-settings">These settings: <span class="mono" x-text="cidr.trim()"></span><span x-text="live ? ', live mode' : ', one scan without live mode'"></span>.</p>
+    <h2 id="restart-h" x-text="live ? 'Restart watching?' : 'Stop watching?'"></h2>
+    <p id="restart-q"><strong x-text="'netdiag is watching ' + watchedRange()"></strong><span x-text="restartSince()"></span>. <span x-text="live ? 'Restart with these settings?' : 'Stop watching and run one scan instead?'"></span></p>
+    <p class="sub" id="restart-settings" x-text="restartSettings()"></p>
     <p class="actions">
       <button type="button" id="restart-keep" class="primary" @click="keepWatching()">Keep watching</button>
-      <button type="button" id="restart-go" @click="restartWatching()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart</button>
+      <button type="button" id="restart-go" @click="restartWatching()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg><span x-text="live ? 'Restart' : 'Stop watching and scan'"></span></button>
     </p>
   </div>
 </dialog>

@@ -86,8 +86,9 @@ for (const theme of THEMES) {
     await expect(notes.locator('.pitem')).toHaveCount(1);
     await expect(notes.locator('.psev')).toHaveText('Note');
     await expect(notes.locator('.psev use')).toHaveAttribute('href', 'icons.svg#i-info');
+    // The OK line gives the time already, and Live mode is not ticked.
     await expect(card(page).locator('#pn-watch')).toHaveText(
-      /^netdiag isn't watching right now\. This is from the last check at \d\d:\d\d\. Tick Live mode and press Scan to keep watching\.$/);
+      /^netdiag isn't watching right now\. Tick Live mode and press Scan to start watching\.$/);
     await runAxe(page, `problems-fine-${theme}`, testInfo);
     expect(rec.problemsCalls).toBeGreaterThan(0);
     expect(rec.unmatched).toEqual([]);
@@ -117,7 +118,9 @@ for (const theme of THEMES) {
     expect(icons[0]).toBe('icons.svg#i-circle-x');
     expect(icons[1]).toBe('icons.svg#i-triangle-alert');
     await expect(items(page).first()).toContainText('Health check failed');
-    await expect(items(page).first()).toContainText('Gateway reachable');
+    // The check's short name, as the health strip says it: "Gateway
+    // reachable" next to "Health check failed" reads as if it answered.
+    await expect(items(page).first().locator('.pline .sub')).toHaveText('Gateway');
     await expect(items(page).nth(2)).toContainText('Black Toner at 15% · BRW001BA9123456 (192.168.2.10)');
     const all = card(page).locator('#pn-all');
     await expect(all).toHaveText('Show all 6');
@@ -205,6 +208,10 @@ test('an OK notice brings a Fixed item; Dismiss removes it', async ({ page }) =>
   // A minute ago: today, or yesterday just after midnight.
   await expect(first).toContainText(/Fixed\s+at (?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) )?\d\d:\d\d \(was down 12 min\): Device back online/);
   await expect(first).toContainText('192.168.2.200');
+  // A fixed check says which one it was.
+  const dns = fixed.locator('.pitem').nth(1);
+  await expect(dns.locator('.ptitle')).toHaveText(/: Health check OK again$/);
+  await expect(dns.locator('.pline .sub')).toHaveText('DNS');
   // netdiag is watching: no "isn't watching" line.
   await expect(card(page).locator('#pn-watch')).toBeHidden();
   await page.waitForTimeout(2500);
@@ -226,6 +233,41 @@ test('netdiag has looked at nothing yet', async ({ page }) => {
   await expect(card(page).locator('#pn-none')).toContainText('Not checked');
   await expect(card(page).locator('#pn-fine')).toBeHidden();
   await expect(card(page).locator('#pn-watch')).toBeHidden();
+});
+
+// No scan yet, but Check again ran: the card speaks for the health checks
+// (their problems) and says the devices are not checked yet, never that
+// netdiag looked at nothing.
+for (const theme of THEMES) {
+  test(`only the health checks ran (${theme})`, async ({ page }, testInfo) => {
+    await initStorage(page, { theme, live: false });
+    const gw = fx.healthProblems({ checks: [fx.healthAll().checks[0]] });
+    const rec = await installMocks(page, { problems: fx.problemsView({ source: 'health', open: gw }) });
+    await page.goto(HOME);
+    const h = card(page).locator('#pn-health');
+    await expect(h).toHaveText(/^\s*Not checked The health checks ran \(checked \d\d:\d\d\), but netdiag has not looked at the devices yet\. Press Scan to check them too\.$/);
+    await expect(h.locator('use')).toHaveAttribute('href', 'icons.svg#i-circle-help');
+    await expect(card(page).locator('#pn-none')).toBeHidden();
+    await expect(card(page).locator('#pn-fine')).toBeHidden();
+    await expect(card(page).locator('#pn-watch')).toBeHidden();
+    await expect(items(page)).toHaveCount(1);
+    await expect(items(page).first().locator('.psev')).toHaveText('Problem');
+    await expect(items(page).first().locator('.pline .sub')).toHaveText('Gateway');
+    await runAxe(page, `problems-health-${theme}`, testInfo);
+    expect(rec.unmatched).toEqual([]);
+  });
+}
+
+// The not-watching line says what to do: with Live mode ticked only press
+// Scan, and it never repeats the time the line above gives.
+test('the not-watching line with Live mode ticked says Press Scan', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: true });
+  await installMocks(page);
+  await page.goto(HOME);
+  await expect(card(page).locator('#pn-fine')).toBeVisible();
+  await expect(card(page).locator('#pn-watch')).toHaveText("netdiag isn't watching right now. Press Scan to start watching.");
+  await page.locator('#live-mode').uncheck();
+  await expect(card(page).locator('#pn-watch')).toHaveText("netdiag isn't watching right now. Tick Live mode and press Scan to start watching.");
 });
 
 test('the health checks have not answered yet', async ({ page }) => {
@@ -270,7 +312,7 @@ for (const theme of THEMES) {
     const held = card(page).locator('#pn-held');
     // Minutes ago: today, or yesterday just after midnight.
     const ago = String.raw`(?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) )?\d\d:\d\d`;
-    await expect(held).toHaveText(new RegExp(String.raw`^\s*Paused This computer lost the local network \(since ${ago}\), so netdiag paused its checks\. This is from the last check at ${ago}\.$`));
+    await expect(held).toHaveText(new RegExp(String.raw`^\s*Paused This computer lost the local network \(since ${ago}\), so netdiag paused its checks\. This is from the last check at ${ago}\.\s*$`));
     await expect(held.locator('use')).toHaveAttribute('href', 'icons.svg#i-triangle-alert');
     await expect(card(page).locator('#pn-fine')).toBeHidden();
     await expect(card(page).locator('#pn-watch')).toBeHidden();
@@ -279,7 +321,7 @@ for (const theme of THEMES) {
     rec.problems = fx.problemsView({ source: 'live', watching: true, checkedAt: lastCheck, held: true, heldReason: 'network_changed',
       heldSince: lastCheck, open: fx.problemItems() });
     await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).loadProblems());
-    await expect(held).toHaveText(new RegExp(String.raw`^\s*Stopped This computer is on a different network now, so netdiag stopped its alerts\. This is from the last check of the network it was watching, at ${ago}\.$`));
+    await expect(held).toHaveText(new RegExp(String.raw`^\s*Stopped This computer is on a different network now, so netdiag stopped its alerts\. This is from the last check of the network it was watching, at ${ago}\.\s*$`));
     // What it found before stays listed.
     await expect(items(page)).toHaveCount(4);
     // The Health panel's line agrees: it does not say everything is fine.

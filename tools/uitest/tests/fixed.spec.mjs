@@ -98,10 +98,10 @@ test('an OK for a dismissed or unseen banner adds a compact Fixed banner', async
   const fixed = banners(page).filter({ hasText: 'Fixed: Supply OK again' });
   await expect(fixed).toHaveCount(1);
   await expect(fixed).toContainText('(was down 12 min).');
-  await expect(banners(page).filter({ hasText: 'Notice: Device offline' })).toHaveCount(1);
+  await expect(banners(page).filter({ hasText: 'Note: Device offline' })).toHaveCount(1);
 
   // Dismiss the fault, then its OK arrives: a new Fixed banner, still no beep.
-  await banners(page).filter({ hasText: 'Notice: Device offline' }).getByRole('button', { name: /Dismiss/ }).click();
+  await banners(page).filter({ hasText: 'Note: Device offline' }).getByRole('button', { name: /Dismiss/ }).click();
   await expect(banners(page)).toHaveCount(1);
   const tones = await page.evaluate(() => window.__tones);
   await page.evaluate((n) => {
@@ -129,6 +129,39 @@ test('Fixed banners for several health checks say which check was fixed', async 
   }
   const bodies = (await page.evaluate(() => window.__notes)).filter(n => n.silent).map(n => n.body.split(' Fixed at ')[0]);
   expect(bodies.sort()).toEqual(checks.map(([, label]) => `${label} check is OK again.`).sort());
+});
+
+// A long outage reads in days, in the banner, the desktop notification and
+// the card's fixed items alike, not "(was down 193 h 52 min)".
+test('a long outage says days', async ({ page }) => {
+  const at = Date.now();
+  const long = { ...fx.fixedNotice(2), openedAt: new Date(at - (193 * 60 + 52) * 60000).toISOString(), at: new Date(at).toISOString() };
+  await liveWith(page, [...fx.liveFrames(), { type: 'notice', data: long }]);
+  const fixed = banners(page).filter({ hasText: 'Fixed:' });
+  await expect(fixed).toContainText('(was down 8 days 1 h).');
+  const notes = await page.evaluate(() => window.__notes);
+  expect(notes.at(-1).body).toMatch(/\(was down 8 days 1 h\)\.$/);
+  const words = await page.evaluate(() => {
+    const a = window.Alpine.$data(document.querySelector('.shell'));
+    return [30, 59, 60, 125, 1439, 1440, 1499, 1500, 2880, 11632].map((m) => a.downFor(m));
+  });
+  expect(words).toEqual(['30 min', '59 min', '1 h 0 min', '2 h 5 min', '23 h 59 min', '1 day', '1 day', '1 day 1 h', '2 days', '8 days 1 h']);
+});
+
+// One set of words for the severities on one screen: the banners say
+// Problem, Warning and Note, as the Problems right now card does.
+test('banners name the severities as the card does', async ({ page }) => {
+  await liveWith(page, fx.liveFrames());
+  const lead = await page.evaluate(() => {
+    const a = window.Alpine.$data(document.querySelector('.shell'));
+    return ['critical', 'warn', 'info'].map((severity) => a.bannerLead({ severity, title: 'X' }));
+  });
+  expect(lead).toEqual(['Problem: X', 'Warning: X', 'Note: X']);
+  const card = await page.evaluate(() => {
+    const a = window.Alpine.$data(document.querySelector('.shell'));
+    return ['critical', 'warning', 'info'].map((severity) => a.pnWord({ severity }));
+  });
+  expect(card).toEqual(['Problem', 'Warning', 'Note']);
 });
 
 for (const theme of ['dark', 'light']) {

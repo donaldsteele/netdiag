@@ -402,6 +402,8 @@ export function problemItems() {
       detail: `${ip(30)}, ${ip(31)}`, device: { ip: ip(30), mac: '00:1B:A9:AA:00:30' }, advice: conflict().advice },
   ];
 }
+// The card names a check by its short name (problems.CheckNames).
+const CHECK_NAMES = { gateway: 'Gateway', dhcp: 'DHCP', dns: 'DNS', internet: 'Internet', wifi: 'Wi-Fi', webserver: 'Web server' };
 export function healthProblems(report) {
   const out = [];
   for (const c of (report && report.checks) || []) {
@@ -412,7 +414,7 @@ export function healthProblems(report) {
     else if (c.status === 'warn') { severity = 'info'; title = 'Health check warning'; }
     else if (c.status === 'unavailable') { severity = 'info'; title = 'Health check could not run'; }
     else continue;
-    const p = { key: 'healthFailed||' + c.id, kind: 'healthFailed', severity, title, detail: c.label || c.id, check: c.id };
+    const p = { key: 'healthFailed||' + c.id, kind: 'healthFailed', severity, title, detail: CHECK_NAMES[c.id] || c.label || c.id, check: c.id };
     if (c.advice) p.advice = c.advice;
     out.push(p);
   }
@@ -425,7 +427,7 @@ export function fixedItems() {
   return [
     { key: 'deviceOffline|00:50:56:AB:CD:EF|', kind: 'deviceOffline', title: 'Device back online', device: { ip: ip(200) },
       openedAt: new Date(at - 12 * 60000).toISOString(), fixedAt: new Date(at).toISOString(), downForSec: 720 },
-    { key: 'healthFailed||dns', kind: 'healthFailed', title: 'Health check OK again',
+    { key: 'healthFailed||dns', kind: 'healthFailed', title: 'Health check OK again', detail: 'DNS',
       openedAt: new Date(at - 47 * 60000).toISOString(), fixedAt: new Date(at - 40 * 60000).toISOString(), downForSec: 420 },
   ];
 }
@@ -469,6 +471,13 @@ export function linkNotice(reason = 'link') {
       message, at: HELD_SINCE, key, code: reason,
       advice: advice("This computer is on a different network now, so netdiag stopped the alerts for the network it was watching.",
         ["If this computer moved on purpose, press Restart watching to watch the network it is on now."], [], message) };
+  }
+  if (reason === 'gateway') {
+    const message = 'The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline.';
+    return { id: 'n-33', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'The router stopped answering',
+      message, at: HELD_SINCE, key, code: reason,
+      advice: advice("The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline.",
+        ["Check that the router is switched on and its lights look normal.", "Check this computer's network cable or Wi-Fi."], [], message) };
   }
   const message = 'This computer lost the local network, so netdiag paused its checks. They start again by themselves when the network is back.';
   return { id: 'n-30', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'netdiag lost the network',

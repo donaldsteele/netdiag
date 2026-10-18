@@ -276,7 +276,7 @@ func TestUITestFixtureHeld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, reason := range []string{model.HeldLink, model.HeldNetworkChanged} {
+	for _, reason := range []string{model.HeldLink, model.HeldGateway, model.HeldNetworkChanged} {
 		title, msg := heldNotice(reason)
 		for _, want := range []string{"title: '" + title + "'", "const message = '" + msg + "'"} {
 			if !strings.Contains(string(src), want) {

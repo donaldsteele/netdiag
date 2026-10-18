@@ -27,7 +27,7 @@ document.addEventListener('alpine:init', () => {
     chat: null, chatMsg: '', chatMsgKind: '', chatMsgState: '', chatBusy: false, chatNoteSeen: 0, chatNoteRun: '', wiz: {step: 'closed', mode: 'connect', wait: '', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
       code: '', expiresAt: '', adminUrl: '', channels: [], channelId: '', channel: null, testMsg: '', testKind: '', title: 'Connect to team chat', fresh: false, stopped: '', retry: ''},
     problems: null, pnAll: false, pnLimit: 5, pnDismissed: {},
-    watching: null, restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: null, focusAt: 0, starting: false,
+    watching: null, watchedCidr: '', restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: null, focusAt: 0, starting: false,
     log: [], logSeq: 0, logHidden: {}, logStick: true, logSeen: {},
     logKinds: [{id: 'scan', label: 'Scan'}, {id: 'host', label: 'New host'}, {id: 'offline', label: 'Offline'}, {id: 'online', label: 'Online'},
                {id: 'conflict', label: 'Conflict'}, {id: 'health', label: 'Health'}, {id: 'notice', label: 'Notice'}, {id: 'error', label: 'Error'}],
@@ -163,7 +163,7 @@ document.addEventListener('alpine:init', () => {
       try {
         const r = await this.api('POST', '/api/health/run', {interface: this.ifaceName});
         if (r.ok) { this.health = await r.json(); this.healthMsg = 'Checks updated.'; this.loadProblems(); }
-        else { this.healthMsg = 'Health check failed (HTTP ' + r.status + ').'; }
+        else { this.healthMsg = r.status === 401 ? '' : 'Health check failed (HTTP ' + r.status + ').'; }
       } catch (e) { this.healthMsg = 'Health check failed: ' + e.message; }
       this.healthBusy = false;
     },
@@ -194,7 +194,7 @@ document.addEventListener('alpine:init', () => {
     // speaks for the health checks alone, so the page never shows two
     // verdicts that disagree.
     healthFineText() {
-      return (this.problems && this.problems.everythingFine ? 'Everything looks fine' : 'All health checks look fine') + ' (checked ' + this.healthTime() + ')';
+      return (this.problems && this.problems.everythingFine && !this.gone() ? 'Everything looks fine' : 'All health checks look fine') + ' (checked ' + this.healthTime() + ')';
     },
 
     // ---- Problems right now (v0.6 #1) ----
@@ -211,22 +211,39 @@ document.addEventListener('alpine:init', () => {
     problemsSoon() {
       if (!pnTimer) pnTimer = setTimeout(() => this.loadProblems(), 2000);
     },
-    // none: netdiag has looked at nothing; held: the storm guard paused the
-    // checks or stopped the alerts, so the list is from before; fine:
+    // gone: netdiag has stopped (or this page quit it), or it was restarted
+    // and this page is out of date, so nothing here is being watched; none:
+    // netdiag has looked at nothing; health: only the health checks ran
+    // (Check again), no device was looked at; held: the storm guard paused
+    // the checks or stopped the alerts, so the list is from before; fine:
     // nothing is a warning or worse; problems: something is; quiet: nothing
     // is so far, but the running scan has not finished checking; notrun:
     // nothing is, but the health checks did not run for this finished scan.
     pnState() {
       const p = this.problems;
       if (!p) return '';
+      if (this.gone()) return 'gone';
       if (p.source === 'none') return 'none';
+      if (p.source === 'health') return 'health';
       if (p.held) return 'held';
       if (p.everythingFine) return 'fine';
       if ((p.open || []).some(x => x.severity !== 'info')) return 'problems';
       return p.source === 'live' ? 'quiet' : 'notrun';
     },
+    // netdiag is not there to watch: it stopped, this page quit it, or it
+    // was restarted and this page is out of date. The page then says
+    // nothing is watched: no live pill, no "Everything looks fine", and no
+    // Stop live or Restart watching.
+    gone() { return this.quitted || this.backend !== 'ok'; },
+    pnGoneText() {
+      if (this.backend === 'restarted' && !this.quitted) return 'netdiag was restarted, so this page is out of date. Reload the page to see what netdiag checks now.';
+      return 'netdiag has stopped, so nothing is being checked. This is from the last check at ' + this.pnTime() + '.';
+    },
     // The storm guard's words, as the live pill says them (liveText).
     pnHeldWord() { return this.problems && this.problems.heldReason === 'network_changed' ? 'Stopped' : 'Paused'; },
+    // The card's Restart watching while this computer is on another network,
+    // so a dismissed banner does not leave the person without one.
+    pnRestart() { return this.pnState() === 'held' && this.problems.heldReason === 'network_changed' && this.state === 'live'; },
     pnHeldText() {
       const p = this.problems || {}, since = this.pnClock(p.heldSince) ? ' (since ' + this.pnClock(p.heldSince) + ')' : '';
       if (p.heldReason === 'network_changed') {
@@ -267,7 +284,8 @@ document.addEventListener('alpine:init', () => {
       const d = p.device || {};
       const dev = d.ip ? (d.name ? d.name + ' (' + d.ip + ')' : d.ip) : '';
       const since = !p.fixedAt && this.pnClock(p.since) ? 'since ' + this.pnClock(p.since) : '';
-      const detail = p.fixedAt ? '' : p.detail || '';
+      // A fixed item names what was fixed too: "Health check OK again · DNS".
+      const detail = p.detail || '';
       // A conflict's addresses already name its device.
       return [detail, d.ip && detail.split(', ').includes(d.ip) ? '' : dev, since].filter(Boolean).join(' · ');
     },
@@ -286,8 +304,18 @@ document.addEventListener('alpine:init', () => {
       if (ago > 0 && ago < 7) return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + t;
       return d.getDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()] + ' ' + t;
     },
-    pnNotWatching() { return !!this.problems && this.problems.source !== 'none' && !this.problems.watching; },
-    pnWatchText() { return "netdiag isn't watching right now. This is from the last check at " + this.pnTime() + '.'; },
+    // The card's own lines say netdiag looked at nothing, only ran the health
+    // checks, or is gone, so this line is for the other states.
+    pnNotWatching() { return !!this.problems && !['', 'none', 'health', 'gone'].includes(this.pnState()) && !this.problems.watching; },
+    // The line above already gives the time of the last check when all is
+    // fine or held: it is not said twice.
+    pnWatchText() {
+      const t = this.pnState() === 'fine' || this.pnState() === 'held' ? '' : ' This is from the last check at ' + this.pnTime() + '.';
+      return "netdiag isn't watching right now." + t;
+    },
+    // What to do to watch: tick Live mode only when it is not ticked, and
+    // wait for a scan that runs once.
+    pnWatchHow() { return this.running ? 'running' : this.live ? 'press' : 'tick'; },
     pnFixedID(f) { return f.key + '@' + f.fixedAt; },
     // Dismiss hides a fixed item in this browser; focus goes to the card's heading.
     pnDismiss(f) {
@@ -330,7 +358,7 @@ document.addEventListener('alpine:init', () => {
         const r = await this.api('POST', '/api/os/open', {page: page});
         this.healthMsg = r.ok ? 'Windows Settings is opening. If no window appears, look for it on the taskbar.'
           : r.status === 501 ? "netdiag can't open that page on this computer."
-          : 'Could not open it (HTTP ' + r.status + ').';
+          : r.status === 401 ? '' : 'Could not open it (HTTP ' + r.status + ').';
       } catch (e) { this.healthMsg = 'Could not open it: ' + e.message; }
     },
     // Show device: the device's details in the Devices view.
@@ -443,11 +471,14 @@ document.addEventListener('alpine:init', () => {
       mcp: 'Agent access', 'mcp.enabled': 'Allow AI agents to connect',
       chat: 'Team chat', 'chat.enabled': 'Send alerts to team chat', 'chat.minSeverity': 'Team chat alert level',
     },
-    // Reset fields that have no control in Settings, so the notice names
-    // them without sending people to look for them: team chat until it is
-    // set up (its switch and Send level show only then), and a trusted
-    // certificate, which shows only while one is set.
+    // Reset fields that have no control in Settings, so the notice does not
+    // send people to look for them: team chat until it is set up (its switch
+    // and Team chat alert level show only then), and a trusted certificate,
+    // which shows only while one is set.
     repairedOffPage: ['chat', 'chat.enabled', 'chat.minSeverity', 'webServer.trustedCert'],
+    // "Some settings were not valid and were reset to their defaults: X, Y.
+    // Check them below.", naming each field once, plus a short clause for
+    // team chat while its controls are not shown.
     repairedText() {
       const rep = this.repairedPending;
       if (!rep.length) return '';
@@ -457,10 +488,9 @@ document.addEventListener('alpine:init', () => {
       const names = [...new Set(rep.map(label))];
       // Team chat has controls in Settings only once it is set up.
       const off = p => this.repairedOffPage.includes(p) && !(p.startsWith('chat') && this.chatState() !== 'off');
-      const here = [...new Set(rep.filter(p => !off(p)).map(label))];
-      let t = 'Some settings were not valid and were reset: ' + names.join(', ') + '.';
-      if (here.length === names.length) t += ' Check them below.';
-      else if (here.length) t += ' Check ' + here.join(', ') + ' below.';
+      let t = 'Some settings were not valid and were reset to their defaults: ' + names.join(', ') + '.';
+      if (rep.some(p => !off(p))) t += ' Check them below.';
+      if (rep.some(p => off(p) && p.startsWith('chat'))) t += ' Team chat settings show here once team chat is set up.';
       return t;
     },
     closeSettings() { const d = this.$refs.dlg; if (d && d.open) d.close(); },
@@ -1055,14 +1085,21 @@ document.addEventListener('alpine:init', () => {
       const at = new Date(n.at), from = new Date(n.openedAt);
       const end = isNaN(at) ? new Date() : at;
       let s = 'at ' + (when || end.toTimeString().slice(0, 5));
-      if (!isNaN(from) && end >= from) {
-        const m = Math.floor((end - from) / 60000);
-        s += ' (was down ' + (m < 1 ? 'less than a minute' : m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min') + ')';
-      }
+      if (!isNaN(from) && end >= from) s += ' (was down ' + this.downFor(Math.floor((end - from) / 60000)) + ')';
       return s + '.';
     },
+    // m minutes as team chat says them (chat.downFor): "12 min", "2 h 5
+    // min", and from a day on "1 day", "8 days 2 h".
+    downFor(m) {
+      if (m < 1) return 'less than a minute';
+      if (m < 60) return m + ' min';
+      if (m < 1440) return Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
+      const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
+      return (d === 1 ? '1 day' : d + ' days') + (h ? ' ' + h + ' h' : '');
+    },
+    // The card's words for the severities (pnWord): Problem, Warning, Note.
     bannerLead(b) {
-      return (b.ok ? 'Fixed: ' : b.severity === 'critical' ? 'Critical: ' : b.severity === 'warn' ? 'Warning: ' : 'Notice: ') + b.title;
+      return (b.ok ? 'Fixed: ' : b.severity === 'critical' ? 'Problem: ' : b.severity === 'warn' ? 'Warning: ' : 'Note: ') + b.title;
     },
     // Show device next to Dismiss: for a fault whose advice points at a
     // device this page lists.
@@ -1073,7 +1110,7 @@ document.addEventListener('alpine:init', () => {
     // The storm guard's banner for another network offers Restart watching
     // while this tab still watches the old one.
     bannerRestart(b) {
-      return !b.ok && b.trigger === 'netdiagLink' && b.code === 'network_changed' && this.state === 'live';
+      return !b.ok && b.trigger === 'netdiagLink' && b.code === 'network_changed' && this.state === 'live' && !this.gone();
     },
     shownBanners() { return this.banners.slice(0, 3); },
     moreBanners() { return Math.max(0, this.banners.length - 3); },
@@ -1184,6 +1221,7 @@ document.addEventListener('alpine:init', () => {
       try {
         const r = await this.api('POST', '/api/conflicts/ignore', {mac: mac});
         if (r.status === 503) { this.error = 'The data store is unavailable, so the MAC cannot be ignored.'; return; }
+        if (r.status === 401) return;
         if (!r.ok) { this.error = 'Could not ignore MAC (HTTP ' + r.status + ')'; return; }
         this.announce = 'Ignoring conflicts for ' + mac + '. To undo, remove it in Settings.';
         this.loadSettings();
@@ -1215,6 +1253,7 @@ document.addEventListener('alpine:init', () => {
     async deleteHistory(id) {
       if (!window.confirm('Delete this saved scan?')) return;
       const r = await this.api('DELETE', '/api/history/' + encodeURIComponent(id));
+      if (r.status === 401) return;
       if (!r.ok && r.status !== 404) { this.historyError = 'Could not delete (HTTP ' + r.status + ')'; return; }
       if (this.currentId === id) this.currentId = '';
       if (this.baseId === id) this.baseId = '';
@@ -1309,6 +1348,8 @@ document.addEventListener('alpine:init', () => {
     // replace is set only by Restart watching: without it the server never
     // stops a scan that is watching the network and answers 409 instead.
     async start(replace) {
+      // netdiag has stopped (Scan is off): a click there could only fail.
+      if (this.gone()) return;
       this.error = '';
       const cidr = this.cidr.trim();
       this.focusAt = Date.now(); // the person is using this tab
@@ -1319,9 +1360,11 @@ document.addEventListener('alpine:init', () => {
         const r = await this.api('POST', '/api/scans', body);
         const j = await r.json();
         if (r.status === 409 && j.watching) { this.askRestart(j.watching, true); return; }
+        // An out-of-date token: the session banner already says what to do.
+        if (r.status === 401) return;
         if (!r.ok) { this.error = j.error || ('Scan failed (HTTP ' + r.status + ')'); return; }
         this.resetScan();
-        this.scanId = j.id; this.running = true; this.state = 'running';
+        this.scanId = j.id; this.running = true; this.state = 'running'; this.watchedCidr = cidr;
         this.logPush('scan', (replace === true ? 'Watching restarted: ' : 'Scan started: ') + cidr + (this.live ? ' (live)' : ''));
         this.listen(j.id);
         // The other tabs follow the new scan.
@@ -1349,7 +1392,7 @@ document.addEventListener('alpine:init', () => {
       if (q.cidr) this.cidr = q.cidr;
       if (q.interface) this.ifaceName = this.ifaces.some(i => i.name === q.interface) ? q.interface : '';
       this.live = !!q.live;
-      this.scanId = sc.id; this.running = true; this.state = sc.state || 'running';
+      this.scanId = sc.id; this.running = true; this.state = sc.state || 'running'; this.watchedCidr = q.cidr || '';
       this.logPush('scan', 'Reconnected to the running scan: ' + (q.cidr || '') + (q.live ? ' (live)' : ''));
       this.listen(sc.id, true);
       return true;
@@ -1381,7 +1424,9 @@ document.addEventListener('alpine:init', () => {
           if (sc) w = {id: sc.id, cidr: (sc.request || {}).cidr, since: sc.liveSince};
         } catch (e) {}
       }
-      this.watching = w || {id: this.scanId}; this.restartStale = !!stale;
+      // The range this tab's scan watches when netdiag does not say (the
+      // address fields may hold another range by now).
+      this.watching = w || {id: this.scanId, cidr: this.watchedCidr}; this.restartStale = !!stale;
       restartOpener = opener;
       this.$nextTick(() => {
         const d = this.$refs.restartDlg;
@@ -1390,9 +1435,14 @@ document.addEventListener('alpine:init', () => {
         if (k) k.focus();
       });
     },
-    // Restart watching from the banner for another network: the interfaces
-    // are read again first, so the restart watches the network this
-    // computer is on now (its new address range), not the one it left.
+    // Restart watching in the top bar. While this computer is on another
+    // network it reads the interfaces again first, as the banner's and the
+    // card's do, so it never restarts on the range this computer left.
+    restartTop() { return this.movedAway() ? this.restartHere() : this.askRestart(); },
+    movedAway() { const st = this.liveStatus || {}; return !!st.held && st.heldReason === 'network_changed'; },
+    // Restart watching from the banner or the card for another network: the
+    // interfaces are read again first, so the restart watches the network
+    // this computer is on now (its new address range), not the one it left.
     async restartHere() {
       const opener = document.activeElement;
       try {
@@ -1406,9 +1456,19 @@ document.addEventListener('alpine:init', () => {
       if (opener && opener.isConnected && document.activeElement !== opener) opener.focus();
       this.askRestart();
     },
+    // "(since 10 Oct 09:12)", with the day when it is not today (pnClock).
     restartSince() {
-      const t = Date.parse((this.watching || {}).since || '');
-      return isNaN(t) ? '' : ' (since ' + new Date(t).toTimeString().slice(0, 5) + ')';
+      const t = this.pnClock((this.watching || {}).since);
+      return t ? ' (since ' + t + ')' : '';
+    },
+    // The range netdiag is watching, so "this network" is never unclear
+    // when the person typed another one.
+    watchedRange() { return (this.watching || {}).cidr || this.watchedCidr || 'this network'; },
+    // What Restart does: with Live mode unticked (a stale tab) it ends the
+    // watching and runs one scan, and says so.
+    restartSettings() {
+      const c = this.cidr.trim();
+      return this.live ? 'These settings: ' + c + ', live mode.' : 'Restart stops watching and runs one scan of ' + c + ', without live mode.';
     },
     closeRestart() { const d = this.$refs.restartDlg; if (d && d.open) d.close(); },
     // Focuses the first of els that is shown, trying for a few frames while
@@ -1623,14 +1683,18 @@ document.addEventListener('alpine:init', () => {
       // watching, and the page says why.
       if (r && r.status === 401) return;
       if (this.es) this.es.close();
+      // Nothing is watched any more: no live pill, Stop live or Restart
+      // watching, and Scan is off (gone).
       this.running = false; this.quitted = true;
+      this.state = ''; this.liveStatus = null; this.stage = '';
       clearTimeout(hbTimer);
       this.leaveBeeper();
     },
 
     stageLabel() {
       const names = {icmp: 'Ping sweep', arp: 'ARP table', probe: 'Probing services',
-                     live: 'Initial scan complete - watching for new devices',
+                     live: !this.gone() ? 'Initial scan complete - watching for new devices'
+                       : this.backend === 'restarted' ? 'Not watching: this page is out of date' : 'Not watching: netdiag has stopped',
                      finished: this.state === 'cancelled' ? 'Cancelled' : 'Finished'};
       if (!this.stage) return 'Idle';
       const n = names[this.stage] || this.stage;
@@ -1744,7 +1808,7 @@ document.addEventListener('alpine:init', () => {
       const st = this.liveStatus || {};
       if (st.held) {
         if (st.heldReason === 'network_changed') return 'Live · alerts stopped: this computer is on a different network now';
-        const since = this.clock(st.heldSince) ? ' (since ' + this.clock(st.heldSince) + ')' : '';
+        const since = this.pnClock(st.heldSince) ? ' (since ' + this.pnClock(st.heldSince) + ')' : '';
         if (st.heldReason === 'gateway') return 'Live · checks paused: the router stopped answering' + since;
         return 'Live · checks paused: this computer lost the network' + since;
       }

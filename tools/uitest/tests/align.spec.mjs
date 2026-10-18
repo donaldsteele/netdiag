@@ -161,11 +161,24 @@ for (const width of [360, 390, 768, 1100, 1440]) {
     await page.setViewportSize({ width, height: 800 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto(HOME);
-    await expect(page.locator('#restart-btn')).toBeVisible();
+    // The replayed scan takes the page a few seconds to draw when several
+    // workers run at once.
+    await expect(page.locator('#restart-btn')).toBeVisible({ timeout: 20_000 });
     await expect(page.locator('#hosts tbody tr.host')).toHaveCount(fx.TOTAL_HOSTS);
-    await page.evaluate(() => { document.querySelector('.shell')._x_dataStack[0].backend = 'restarted'; });
-    await expect(page.locator('#backend-restarted')).toBeVisible();
     const all = [...await measure(page, 'live')];
+    // The restarted and stopped banners: their triangle sits on the text's
+    // line (never alone on a line of its own), and the page shows no
+    // Stop live or Restart watching while nothing is watched.
+    for (const backend of ['restarted', 'stopped']) {
+      await page.evaluate((b) => { document.querySelector('.shell')._x_dataStack[0].backend = b; }, backend);
+      await expect(page.locator('#backend-' + backend)).toBeVisible();
+      await expect(page.locator('#restart-btn')).toBeHidden();
+      all.push(...await measure(page, 'backend-' + backend));
+      const icon = await page.locator('#backend-' + backend + ' svg.ico').first().boundingBox();
+      const word = await page.locator('#backend-' + backend + ' strong').first().boundingBox();
+      expect(Math.abs((icon.y + icon.height / 2) - (word.y + word.height / 2)), `${backend} banner icon on the text line`).toBeLessThan(6);
+    }
+    await page.evaluate(() => { document.querySelector('.shell')._x_dataStack[0].backend = 'ok'; });
     await page.locator('#restart-btn').click();
     await expect(page.locator('#restart-dialog')).toBeVisible();
     all.push(...await measure(page, 'restart-dialog'));

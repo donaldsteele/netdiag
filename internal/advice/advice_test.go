@@ -505,6 +505,7 @@ func TestUITestFixtureAdvice(t *testing.T) {
 		"wifi hidden_location":      hc("wifi", model.HealthUnavailable, model.ReasonHiddenLocation, nil),
 		"netdiagLink link":          Notice(model.Notice{Trigger: model.TriggerNetdiagLink, Code: model.HeldLink}, nil, x),
 		"netdiagLink other network": Notice(model.Notice{Trigger: model.TriggerNetdiagLink, Code: model.HeldNetworkChanged}, nil, x),
+		"netdiagLink gateway":       Notice(model.Notice{Trigger: model.TriggerNetdiagLink, Code: model.HeldGateway}, nil, x),
 	}
 	quoted := func(s string) string {
 		var b strings.Builder

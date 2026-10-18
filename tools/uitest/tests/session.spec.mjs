@@ -97,11 +97,17 @@ test('a page with an old token shows the buttons-off banner and keeps the view; 
   // Read-only views keep working.
   await expect(page.getByLabel('Target (CIDR or range)')).toHaveValue(fx.CIDR);
 
-  await page.getByRole('button', { name: 'Scan', exact: true }).click();
+  // The buttons look off (aria-disabled), as the banner says; a click still
+  // reaches netdiag, which refuses it, and the page shows no second,
+  // differently worded error: the banner already says what to do.
+  const scan = page.getByRole('button', { name: 'Scan', exact: true });
+  await expect(scan).toHaveAttribute('aria-disabled', 'true');
+  await scan.click({ force: true });
   await expect.poll(() => rec.unauthorized.some((u) => u.startsWith('POST /api/scans'))).toBe(true);
   await expect(banner).toBeVisible();
+  await expect(page.locator('main > .alert.error')).toBeHidden();
   // Quit cannot stop netdiag from this page, and the page does not claim it did.
-  await page.getByRole('button', { name: 'Quit', exact: true }).click();
+  await page.getByRole('button', { name: 'Quit', exact: true }).click({ force: true });
   await expect.poll(() => rec.unauthorized.some((u) => u.startsWith('POST /api/quit'))).toBe(true);
   await expect(page.getByText('netdiag has stopped. You can close this tab.')).toBeHidden();
   await expect(banner).toBeVisible();
@@ -161,7 +167,16 @@ test('a page with an old token makes no sound for a live notice and leaves the b
   await open.click();
   const dlg = page.locator('#settings-dialog');
   await expect(dlg.getByRole('alert')).toHaveText('Settings are turned off on this page for safety. Double-click netdiag to open a fresh page.');
+  // Only the explanation and Close: no blank form to type into that could
+  // not be saved.
+  await expect(dlg.locator('input, select')).toHaveCount(0);
+  await expect(dlg.getByRole('button', { name: 'Save', exact: true })).toBeHidden();
+  await expect(dlg.getByRole('button', { name: 'Close', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
+  await expect(dlg).toHaveJSProperty('open', false);
+  await expect(open).toBeFocused();
+  await open.click();
+  await dlg.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dlg).toHaveJSProperty('open', false);
   await expect(open).toBeFocused();
   // The Problems right now card needs no token: netdiag applies the

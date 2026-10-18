@@ -124,7 +124,8 @@ func TestWatchGuardUI(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{`<dialog id="restart-dialog"`, `id="restart-btn"`, "Restart watching", "Keep watching",
-		"netdiag is watching this network", `id="backend-stopped"`, "<strong>netdiag has stopped.</strong> Open netdiag again to keep watching.",
+		"netdiag is watching ' + watchedRange()", `id="backend-stopped"`,
+		"<strong>netdiag has stopped.</strong> Double-click netdiag to start it again, then press <strong>Scan</strong> with <strong>Live mode</strong> ticked to watch again.",
 		`id="backend-restarted"`, "<strong>netdiag was restarted.</strong>", "Reload page", "icons.svg#i-refresh-cw"} {
 		if !strings.Contains(string(html), want) {
 			t.Errorf("index.html missing %q", want)

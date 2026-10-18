@@ -386,3 +386,15 @@ details.ptry summary{cursor:pointer;font-weight:600;font-size:13px}
 details.ptry .advice{margin-top:var(--s1)}
 .pmore{margin:var(--s2) 0 0}
 .pnwatch{margin:var(--s2) 0 0}
+/* v0.6 follow-up: the stopped, restarted, session and settings-repaired alerts mark their status with the
+   triangle icon, inside the text (never a glyph alone on its own line); buttons a stale page turned off look off */
+.alert.iconalert::before{content:none}
+.alert.iconalert .ico{vertical-align:-0.2em}
+.controls button[aria-disabled=true],.pacts button[aria-disabled=true]{opacity:.55;cursor:not-allowed}
+/* Phones: the alert banners scroll with the page (three pinned banners with What to try covered half the screen),
+   and the live pill gets a row of its own, so its whole text wraps across the width */
+@media (max-width:759px){
+.banners{position:static}
+.hdrtools{flex-wrap:wrap}
+.topbar .livepill,.topbar .livepill.held{flex-basis:100%;max-width:100%;white-space:normal;overflow:visible}
+}

@@ -254,7 +254,7 @@ func TestAdviceUI(t *testing.T) {
 		"/^https?:/i.test(a.target || '')", "noInternetNetworks: 'This network has no internet'",
 		"return this.alternations(hist) >= 2;", "if (c.kind !== 'mac_flap') return false;",
 		"noInternet: 'set-nointernet'", "vendors[mac] ||", "this.health && this.health.network",
-		"this.problems && this.problems.everythingFine ? 'Everything looks fine' : 'All health checks look fine'",
+		"this.problems && this.problems.everythingFine && !this.gone() ? 'Everything looks fine' : 'All health checks look fine'",
 	} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("app.js missing %q", want)
@@ -273,7 +273,8 @@ func TestProblemsCardUI(t *testing.T) {
 	for _, want := range []string{
 		`<section id="problems-now" class="problems-now" aria-labelledby="pn-h"`, `<h2 id="pn-h" tabindex="-1">Problems right now</h2>`,
 		"'Everything looks fine (checked ' + pnTime() + ')'", `id="pn-all" :aria-expanded="pnAll"`, `id="pn-watch"`,
-		"Tick <strong>Live mode</strong> and press <strong>Scan</strong> to keep watching.",
+		"Tick <strong>Live mode</strong> and press <strong>Scan</strong> to start watching.", "Press <strong>Scan</strong> to start watching.",
+		`id="pn-gone"`, `id="pn-health"`, `id="pn-restart"`,
 		"What to try<span", "Open Health<span", "Dismiss<span",
 	} {
 		if !strings.Contains(string(html), want) {
@@ -684,7 +685,7 @@ func TestSettingsRepairedUI(t *testing.T) {
 	if !strings.Contains(string(html), `id="settings-repaired"`) {
 		t.Error(`index.html missing id="settings-repaired"`)
 	}
-	if !strings.Contains(string(js), "Some settings were not valid and were reset: ") {
+	if !strings.Contains(string(js), "Some settings were not valid and were reset to their defaults: ") {
 		t.Error("app.js missing the repaired settings notice")
 	}
 	block := func(name string) string {
