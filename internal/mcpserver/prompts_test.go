@@ -32,16 +32,27 @@ func TestPrompts(t *testing.T) {
 		must []string
 	}{
 		{"triage_network", map[string]string{"cidr": "10.0.0.0/24"}, []string{"start_scan", "10.0.0.0/24", "list_devices", "get_device", "get_health", "mac_flap", "ARP",
-			"get_status", "alreadyWatching", "list_problems", "advice"}},
+			"get_status", "alreadyWatching", "list_problems", "advice",
+			"Call get_scan with scanId = watching.scanId for its summary, and go to step 3", "Read the summary (from start_scan, or from get_scan with the scanId)"}},
 		{"diagnose_printer", map[string]string{"ip": "10.0.0.50"}, []string{"get_device", "10.0.0.50", "9100", "631", "supplies", "probe_host", "get_events",
 			"list_problems", "advice"}},
 		{"explain_conflict", map[string]string{"ip": "10.0.0.50"}, []string{"mac_flap", "mac_multi_ip", "duplicate_name", "compare_scans", "extender",
-			"macHistory", "Possible conflict", "advice", `**Ignore this MAC** now asks "Are you sure?"`}},
+			"macHistory", "Possible conflict", "advice", "**Ignore this MAC**", "asks them to confirm",
+			`list_problems titles it "Network conflict"`, `severity "fail"`, "taking turns"}},
 		{"device_missing", map[string]string{"nameOrIp": "printer-2"}, []string{"printer-2", "list_devices", "compare_scans", "probe_host",
 			"list_problems", "device_offline"}},
 		{"what_changed", map[string]string{"baseId": "a1", "currentId": "b2"}, []string{"compare_scans", "a1", "b2"}},
 		{"explain_problems", nil, []string{"get_status", "list_problems", "advice.meaning", "advice.steps", "everything looks fine", "Fixed at",
-			`"OK: everything looks fine`, `"Problem:"`, `"Not checked:"`}},
+			`"OK: everything looks fine`, `"Problem:"`,
+			// Not checked, by cause, with the card's own buttons: no scan
+			// yet (Scan), the storm guard (Paused or Stopped), a scan still
+			// going (wait), health checks that did not run (Open Health,
+			// then Recheck).
+			`If source is "none", start with "Not checked: netdiag has not looked at the local network yet."`, "**Live mode**", "**Scan**",
+			"If held is true", "Paused or Stopped", `"link": "Problem: this computer lost the local network`, `"gateway": "Problem: the router stopped answering`,
+			`"network_changed": "Not checked: this computer is on a different network now`, "**Restart watching**",
+			`source is "live": its scan is still going. Start with "Not checked: netdiag has not finished checking yet." Suggest waiting a minute`,
+			`"Not checked: no problems found, but the health checks did not run for this scan." Suggest **Open Health** on the Problems right now card in the netdiag window, then **Recheck**`}},
 		{"internet_not_working", nil, []string{"run_health_check", "wifi", "dhcp", "gateway", "dns", "internet", "Recheck", "Health"}},
 		{"device_offline", nil, []string{"list_devices", "get_device", "probe_host", "foundBy", "conflict", "Fixed", "filter=offline"}},
 		{"device_offline", map[string]string{"device": "Front desk PC"}, []string{`query="Front desk PC"`, "get_device", "probe_host"}},
@@ -70,6 +81,11 @@ func TestPrompts(t *testing.T) {
 			t.Errorf("%s: missing UI reminder", c.name)
 		}
 		checkDeviceTextRule(t, c.name, txt)
+	}
+	// The Health view has Recheck; Check again is only an advice button on
+	// a failing check, which a Not checked answer has none of.
+	if txt := promptText(t, e, "explain_problems", nil); strings.Contains(txt, "**Check again** in the **Health** view") {
+		t.Error("explain_problems sends the person to a Check again button in the Health view")
 	}
 	// optional args may be omitted
 	for _, n := range []string{"triage_network", "what_changed", "explain_problems", "internet_not_working", "device_offline", "first_look"} {

@@ -2,10 +2,13 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -19,9 +22,10 @@ import (
 var bubblesToolNames = []string{"list_alerts", "resolve_alert", "post_message", "post_alert", "ack_alert"}
 
 // runbookFields are the snake_case output, argument and value names a
-// runbook may use that are not tools or prompts: the conflict kinds and the
-// bubbles fields (dedupe_key and the like).
-var runbookFields = []string{"mac_flap", "mac_multi_ip", "duplicate_name", "dedupe_key", "next_cursor", "thread_root_id", "renotify_after_s"}
+// runbook may use that are not tools or prompts: the conflict kinds, the
+// storm guard reason network_changed and the bubbles fields (dedupe_key and
+// the like).
+var runbookFields = []string{"mac_flap", "mac_multi_ip", "duplicate_name", "network_changed", "dedupe_key", "next_cursor", "thread_root_id", "renotify_after_s"}
 
 // bubblesLabels are bubbles' own buttons a runbook may name in bold.
 var bubblesLabels = []string{"Acknowledge", "Resolve", "Admin", "Pairing", "Apps", "Overview"}
@@ -159,17 +163,50 @@ func TestRunbookFooter(t *testing.T) {
 	}
 }
 
-// TestRunbookButtonsExist: every **Label** a runbook names (split on
-// " > ") is a button or heading in the page, an advice button, or one of
-// bubbles' own.
-func TestRunbookButtonsExist(t *testing.T) {
-	var page strings.Builder
-	for _, f := range []string{"index.html", "app.js"} {
-		b, err := os.ReadFile(filepath.Join("..", "..", "web", f))
-		if err != nil {
-			t.Fatal(err)
+// control matches a control or a heading of the page and its content.
+var control = regexp.MustCompile(`(?s)<(button|a|label|legend|summary|h2|h3)\b[^>]*>(.*?)</(?:button|a|label|legend|summary|h2|h3)>`)
+
+// srText is text for screen readers only, which is not part of a label
+// people see.
+var srText = regexp.MustCompile(`(?s)<span class="sr"[^>]*>.*?</span>`)
+
+// pageLabels is the visible text of every control and heading in
+// web/index.html (buttons, links, labels, fieldset legends, summaries,
+// headings), tags and screen-reader text removed: "Ignore this MAC <span
+// x-text>" is "Ignore this MAC".
+func pageLabels(t *testing.T) map[string]bool {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", "web", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tag := regexp.MustCompile(`<[^>]*>`)
+	out := map[string]bool{}
+	for _, m := range control.FindAllStringSubmatch(string(b), -1) {
+		txt := tag.ReplaceAllString(srText.ReplaceAllString(m[2], ""), " ")
+		if txt = strings.Join(strings.Fields(txt), " "); txt != "" {
+			out[txt] = true
 		}
-		page.Write(b)
+	}
+	return out
+}
+
+// TestRunbookButtonsExist: every **Label** a runbook names (split on
+// " > ") is the whole visible text of a button, link, switch or heading in
+// the page, an advice button (advice.ActionLabels, built by the server), or
+// one of bubbles' own. A runbook that names **Ignore this MAC** says it
+// asks to confirm, as the page does (window.confirm), and none quotes
+// "Are you sure?", which the page never asks.
+func TestRunbookButtonsExist(t *testing.T) {
+	labels := pageLabels(t)
+	for _, want := range []string{"Scan", "Recheck", "Open Health", "Live mode", "Ignore this MAC", "Team chat (bubbles)"} {
+		if !labels[want] {
+			t.Fatalf("pageLabels misses %q: %v", want, labels)
+		}
+	}
+	appJS, err := os.ReadFile(filepath.Join("..", "..", "web", "app.js"))
+	if err != nil {
+		t.Fatal(err)
 	}
 	allowed := slices.Concat(advice.ActionLabels(), bubblesLabels)
 	bold := regexp.MustCompile(`\*\*([^*]+)\*\*`)
@@ -179,15 +216,29 @@ func TestRunbookButtonsExist(t *testing.T) {
 			for _, m := range bold.FindAllStringSubmatch(txt, -1) {
 				for _, label := range strings.Split(m[1], " > ") {
 					n++
-					if !slices.Contains(allowed, label) && !strings.Contains(page.String(), label) {
+					if !slices.Contains(allowed, label) && !labels[label] {
 						t.Errorf("%s names **%s**, which is no button in the netdiag window", name, label)
 					}
 				}
+			}
+			if strings.Contains(txt, "**Ignore this MAC**") &&
+				(!strings.Contains(txt, "asks them to confirm") || !strings.Contains(string(appJS), "window.confirm(this.ignoreConfirmText(")) {
+				t.Errorf("%s: Ignore this MAC asks to confirm (ignoreConfirmText), and the runbook should say so", name)
+			}
+			if strings.Contains(txt, "Are you sure") {
+				t.Errorf("%s quotes a confirmation the page never shows", name)
 			}
 		}
 	}
 	if n == 0 {
 		t.Fatal("no bold labels found")
+	}
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "mcp.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(doc), "Are you sure") {
+		t.Error("docs/mcp.md quotes a confirmation the page never shows")
 	}
 }
 
@@ -198,7 +249,7 @@ func TestGetRunbookMatchesPrompt(t *testing.T) {
 	e := setup(t, "http", true, fakePinger{})
 	var idx getRunbookOut
 	e.ok(t, "get_runbook", nil, &idx)
-	if len(idx.Runbooks) != len(runbooks) || idx.Runbook != nil {
+	if len(idx.Runbooks) != len(runbooks) || idx.Name != "" || idx.Text != "" {
 		t.Fatalf("index = %+v", idx)
 	}
 	for i, info := range idx.Runbooks {
@@ -214,12 +265,32 @@ func TestGetRunbookMatchesPrompt(t *testing.T) {
 		for k, v := range args {
 			margs[k] = v
 		}
-		e.ok(t, "get_runbook", map[string]any{"name": rb.Name, "arguments": margs}, &out)
-		if out.Runbook == nil || out.Runbook.Name != rb.Name || out.Runbook.Title != rb.Title {
+		res := e.ok(t, "get_runbook", map[string]any{"name": rb.Name, "arguments": margs}, &out)
+		if out.Name != rb.Name || out.Title != rb.Title || out.Runbooks != nil {
 			t.Fatalf("%s: %+v", rb.Name, out)
 		}
-		if want := promptText(t, e, rb.Name, args); out.Runbook.Text != want {
+		if want := promptText(t, e, rb.Name, args); out.Text != want {
 			t.Errorf("%s: get_runbook text differs from the prompt", rb.Name)
+		}
+		// The plan's shape (v0.6 §4.14), {name,title,text} at the top
+		// level, the same as netdiag://runbooks/{name} gives.
+		var raw map[string]any
+		b, _ := json.Marshal(res.StructuredContent)
+		if err := json.Unmarshal(b, &raw); err != nil {
+			t.Fatal(err)
+		}
+		if len(raw) != 3 || raw["name"] != rb.Name || raw["title"] != rb.Title || raw["text"] != out.Text {
+			t.Errorf("%s: get_runbook shape %v", rb.Name, slices.Sorted(maps.Keys(raw)))
+		}
+		if len(rb.Args) == 0 {
+			txt, err := e.read(t, URIRunbooks+"/"+rb.Name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var doc map[string]any
+			if err := json.Unmarshal([]byte(txt), &doc); err != nil || !maps.Equal(doc, raw) {
+				t.Errorf("%s: the resource %s differs from get_runbook %s", rb.Name, txt, b)
+			}
 		}
 	}
 	if msg := e.failing(t, "get_runbook", map[string]any{"name": "nope"}); !strings.Contains(msg, "get_runbook without a name") {
@@ -249,6 +320,19 @@ func TestDocsListEveryRunbook(t *testing.T) {
 		if !strings.Contains(doc, "`"+u+"`") {
 			t.Errorf("docs/mcp.md does not list %s", u)
 		}
+	}
+}
+
+// TestSiteToolCount: the site's "N tools for Claude over MCP" stat
+// (docs/index.html) is the number of tools.
+func TestSiteToolCount(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`<b>(\d+) tools</b><span>for Claude over MCP</span>`).FindSubmatch(b)
+	if m == nil || string(m[1]) != strconv.Itoa(len(ToolNames)) {
+		t.Fatalf("docs/index.html tool stat = %q, want %d tools", m, len(ToolNames))
 	}
 }
 

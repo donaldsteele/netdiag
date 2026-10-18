@@ -16,6 +16,7 @@ import (
 	"netdiag/internal/health"
 	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
+	"netdiag/internal/problems"
 	"netdiag/internal/scan"
 	"netdiag/internal/service"
 	"netdiag/internal/snmpprobe"
@@ -93,9 +94,25 @@ type env struct {
 	st       *store.Store
 	progress chan *mcp.ProgressNotificationClientRequest
 	srv      *mcp.Server
+	// ledger is the window's open-problem ledger (setupWindow only).
+	ledger *problems.Ledger
 }
 
 func setup(t *testing.T, transport string, withStore bool, p fakePinger) *env {
+	t.Helper()
+	return setupWith(t, transport, withStore, p, false, nil)
+}
+
+// setupWindow wires the env as the netdiag window wires its own /mcp: a data
+// folder, one open-problem ledger for the scans and the service, and the
+// service told it serves the window (SetWindow). edit changes the scan
+// dependencies (nil: none).
+func setupWindow(t *testing.T, p fakePinger, edit func(*scan.Deps)) *env {
+	t.Helper()
+	return setupWith(t, "http", true, p, true, edit)
+}
+
+func setupWith(t *testing.T, transport string, withStore bool, p fakePinger, window bool, edit func(*scan.Deps)) *env {
 	t.Helper()
 	e := &env{progress: make(chan *mcp.ProgressNotificationClientRequest, 64)}
 	deps := scan.Deps{
@@ -111,6 +128,19 @@ func setup(t *testing.T, transport string, withStore bool, p fakePinger) *env {
 		e.st = st
 		deps.Store, deps.Settings = st, st
 	}
+	if window {
+		l, err := problems.OpenLedger(e.st)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.ledger, deps.Ledger = l, l
+		// After the scans stop (cleanups run last first), before the
+		// data folder goes.
+		t.Cleanup(func() { _ = l.Flush() })
+	}
+	if edit != nil {
+		edit(&deps)
+	}
 	reg := scan.NewRegistry(scan.New(deps))
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -120,7 +150,11 @@ func setup(t *testing.T, transport string, withStore bool, p fakePinger) *env {
 			return []netinfo.Iface{{Name: "eth0", IP: "10.0.0.5", CIDR: "10.0.0.5/28", MAC: "aa:bb:cc:00:00:01", IsDefault: true}}, nil
 		},
 		Gateway: func() (string, error) { return "10.0.0.1", nil },
+		Ledger:  e.ledger,
 	})
+	if window {
+		e.svc.SetWindow(func() int { return 8787 })
+	}
 	e.srv = New(e.svc, Options{Transport: transport, Version: "test"})
 	ct, st := mcp.NewInMemoryTransports()
 	ss, err := e.srv.Connect(ctx, st, nil)

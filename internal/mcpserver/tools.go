@@ -247,7 +247,9 @@ func registerTools(s *mcp.Server, svc *service.Service, opts Options) {
 		Annotations: readAnn("Get netdiag status")}, t.getStatus)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "list_problems", Title: "List problems right now",
-		Description: "What is wrong on the local network right now, most urgent first, as the Problems right now card in the netdiag window shows it: failing health checks, offline printers, printer alerts, low supplies and conflicts (each follows its Alerts setting), with plain-words advice (advice.meaning, advice.steps and the advice.actions buttons), when it began, and which tool re-checks it. everythingFine is true when nothing is a warning or worse. Also lists the problems fixed in the last 24 hours.",
+		Description: "What is wrong on the local network right now, most urgent first, as the Problems right now card in the netdiag window shows it: failing health checks, offline printers, printer alerts, low supplies and conflicts (each follows its Alerts setting), with plain-words advice (advice.meaning, advice.steps and the advice.actions buttons), when it began, and which tool re-checks it. everythingFine is true only when a finished check that is not paused, with health results (unless health alerts are off), found nothing that is a warning or worse; " +
+			"it is also false when nothing was checked yet (source none), while a scan is still on its first pass, while the checks are paused (held), and when the health checks did not run, so false with no warning means \"not checked\", not a problem. " +
+			"Also lists the problems fixed in the last 24 hours.",
 		Annotations: readAnn("List problems right now")}, t.listProblems)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_runbook", Title: "Get a runbook",

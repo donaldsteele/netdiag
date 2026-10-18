@@ -61,8 +61,9 @@ func cannotText() string {
 
 // Verdict words that start a final answer.
 const (
-	verdictOK      = "OK"
-	verdictProblem = "Problem"
+	verdictOK         = "OK"
+	verdictProblem    = "Problem"
+	verdictNotChecked = "Not checked"
 )
 
 // runbookFooter (footer v2) ends every runbook.
@@ -73,7 +74,7 @@ var runbookFooter = "\n\nRules for this runbook:\n" +
 	deviceTextRule + "\n" +
 	"- Ask before anything that sends traffic to the whole local network (start_scan).\n" +
 	"- Final answer, for someone who is not technical: the first line is the verdict with a status word (" + verdictOK + ", " + verdictProblem +
-	", Fixed or Not checked), never a colour or coloured symbol alone. Then what it means, in one or two sentences. " +
+	", Fixed or " + verdictNotChecked + "), never a colour or coloured symbol alone. Then what it means, in one or two sentences. " +
 	"Then at most three numbered next steps (something physical or a netdiag button). Name devices by name first, then address. " +
 	"Say \"local network\". Avoid ARP, DHCP, DNS, MAC, SNMP, subnet and port numbers unless the person uses them; if you must, explain in a few words. " +
 	"Use netdiag's own advice wording (advice.meaning, advice.steps) rather than inventing your own. Offer technical details for IT only if asked."
@@ -157,9 +158,14 @@ type RunbookDoc struct {
 	Text  string `json:"text"`
 }
 
+// getRunbookOut is get_runbook: without a name the index ({runbooks}, as
+// netdiag://runbooks), with one the runbook's name, title and text (the
+// same fields as RunbookDoc and netdiag://runbooks/{name}).
 type getRunbookOut struct {
 	Runbooks []RunbookInfo `json:"runbooks,omitempty"`
-	Runbook  *RunbookDoc   `json:"runbook,omitempty"`
+	Name     string        `json:"name,omitempty"`
+	Title    string        `json:"title,omitempty"`
+	Text     string        `json:"text,omitempty"`
 }
 
 // runbookIndex lists every runbook.
@@ -188,7 +194,7 @@ func (t *tools) getRunbook(_ context.Context, _ *mcp.CallToolRequest, in getRunb
 	if err != nil {
 		return nil, getRunbookOut{}, fmt.Errorf("%w; pass it in arguments", err)
 	}
-	return nil, getRunbookOut{Runbook: &RunbookDoc{Name: rb.Name, Title: rb.Title, Text: txt}}, nil
+	return nil, getRunbookOut{Name: rb.Name, Title: rb.Title, Text: txt}, nil
 }
 
 // ---- the runbooks ----
@@ -213,10 +219,10 @@ var runbooks = []runbook{
 				start = fmt.Sprintf("start_scan with cidr=%q and waitSec=60", a["cidr"])
 			}
 			return "Triage this local network. Follow these steps:\n" +
-				"1. Call get_status. If watching is set, netdiag is already watching the network: use watching.scanId as the scanId, do not call start_scan, and go to step 3.\n" +
+				"1. Call get_status. If watching is set, netdiag is already watching the network: do not call start_scan. Call get_scan with scanId = watching.scanId for its summary, and go to step 3.\n" +
 				"2. Otherwise a scan is needed. It sends traffic to every address on the local network, like the Scan button, so unless the person already asked for one, ask first. Then call " + start + ". " +
 				"If it answers alreadyWatching or alreadyRunning, use its scanId. If stillRunning is true, poll get_scan with the scanId until state is done.\n" +
-				"3. Read the summary: stats (online, offline and new devices), health, conflicts and printer alerts.\n" +
+				"3. Read the summary (from start_scan, or from get_scan with the scanId): stats (online, offline and new devices), health, conflicts and printer alerts.\n" +
 				"4. Call get_health (or run_health_check if the report is missing or old). Note any check that is not ok: " + healthChecksText + ". Each check that is not ok has advice.\n" +
 				"5. Call list_problems. Go through its open problems, most urgent first, and explain each one with its advice (advice.meaning, then advice.steps).\n" +
 				"6. For the details of one device, call list_devices with scanId and filter=\"problems\", then get_device (scanId, ip). " +
@@ -246,7 +252,7 @@ var runbooks = []runbook{
 	{Name: "explain_conflict", Title: "Explain a conflict", Since: since050,
 		Desc:  "Explain the address or name conflict involving one device.",
 		Args:  []*mcp.PromptArgument{{Name: "ip", Description: "IPv4 address of a device involved in a conflict", Required: true}},
-		Tools: []string{"get_status", "list_history", "start_scan", "get_device", "list_devices", "compare_scans"},
+		Tools: []string{"get_status", "list_history", "start_scan", "get_device", "list_devices", "list_problems", "compare_scans"},
 		Text: func(_ *service.Service, a map[string]string) string {
 			ip := a["ip"]
 			return fmt.Sprintf("Explain the conflict involving %s. Follow these steps:\n"+
@@ -256,13 +262,15 @@ var runbooks = []runbook{
 				"3. Interpret by kind: mac_flap means the same address answers from different MACs, or one MAC moves between addresses (two devices clashing, a roaming device, a Wi-Fi extender or mesh node); "+
 				"mac_multi_ip means one MAC owns several addresses (often an extender or mesh node, a router or a device with several addresses, usually harmless); "+
 				"duplicate_name means two devices share a name (cloned machines or devices left with a default name).\n"+
-				"4. Say \"Conflict\" only when a swap was seen: macHistory shows the address going back and forth between two MACs at least twice (A, B, A). "+
-				"Otherwise say \"Possible conflict\": the device answering at the address changed, which is expected after replacing a device.\n"+
+				"4. Use netdiag's own verdict, as the netdiag window shows it. Say \"Conflict\" only when netdiag saw a swap: the conflict's advice.meaning says two devices are taking turns using the address, "+
+				"and list_problems titles it \"Network conflict\". netdiag decides this from macHistory (the address went back and forth between two MACs at least twice: A, B, A) "+
+				"or, for a scan without a macHistory, from the conflict's severity \"fail\", which netdiag gives only to MACs seen taking turns. "+
+				"Otherwise say \"Possible conflict\", as list_problems titles it: the device answering at the address changed, which is expected after replacing a device.\n"+
 				"5. Describe the two devices side by side: maker (vendor), MAC, the other addresses each one uses, and when each was seen (the macHistory times).\n"+
 				"6. Use the conflict's advice (advice.meaning, advice.steps) for what it means and what to try.\n"+
 				"7. Call compare_scans (currentId = this scanId) to see whether the conflict is new since the previous scan.\n"+
 				"8. If it is a known harmless extender or mesh MAC, the person can click **Ignore this MAC** on that device in the netdiag window. "+
-				"**Ignore this MAC** now asks \"Are you sure?\" first, and it can be undone in Settings.", ip, ip)
+				"It asks them to confirm first, and it can be undone in Settings.", ip, ip)
 		}},
 
 	{Name: "device_missing", Title: "Find a missing device", Since: since050,
@@ -313,15 +321,28 @@ var runbooks = []runbook{
 		Text: func(_ *service.Service, _ map[string]string) string {
 			return "Explain what is wrong on this local network right now, in plain words, most urgent first. Follow these steps:\n" +
 				"1. Call get_status. If problems.source is \"saved\", or window.thisProcess is false (this connection cannot see the netdiag window), say that the list is from the last check at problems.checkedAt, in local time.\n" +
-				"2. Call list_problems. If everythingFine is true, start your answer with \"" + verdictOK + ": everything looks fine (checked <time>)\", add any fixed items from the last 24 hours, and stop.\n" +
-				"3. If source is \"none\", or no open problem is a warning or critical but everythingFine is false (a scan still running, checks paused while held, or health checks that did not run), " +
-				"start with \"Not checked:\" and the reason, and suggest **Check again** in the **Health** view.\n" +
-				"4. Otherwise start your answer with \"" + verdictProblem + ":\" and the title of the most urgent problem. Order the open problems critical, then warning, then info (\"Also worth knowing\"), and within each group the longest-open first (the earliest since).\n" +
-				"5. For at most 5 problems (then say \"and N more\"), give the title, the device name, advice.meaning (lightly reworded, keep the facts) and up to 3 advice.steps. " +
+				"2. Call list_problems. The first line of your answer comes from the first of steps 3 to 7 that applies.\n" +
+				"3. If everythingFine is true, start your answer with \"" + verdictOK + ": everything looks fine (checked <time>)\", add any fixed items from the last 24 hours, and stop.\n" +
+				"4. If source is \"none\", start with \"" + verdictNotChecked + ": netdiag has not looked at the local network yet.\" " +
+				"Suggest ticking **Live mode** and pressing **Scan** in the netdiag window, and stop.\n" +
+				"5. If held is true, netdiag's checks are on hold (the netdiag window says Paused or Stopped), so the list is from the last check at checkedAt. Start with the line for its heldReason:\n" +
+				"   - \"link\": \"" + verdictProblem + ": this computer lost the local network, so netdiag paused its checks.\" Suggest checking this computer's network cable or Wi-Fi.\n" +
+				"   - \"gateway\": \"" + verdictProblem + ": the router stopped answering, so netdiag paused its checks.\" Suggest checking that the router is switched on and its lights look normal.\n" +
+				"   - \"network_changed\": \"" + verdictNotChecked + ": this computer is on a different network now, so netdiag stopped its alerts.\" " +
+				"If it moved on purpose, suggest **Restart watching** in the netdiag window.\n" +
+				"   Then go on with step 8 for the open problems, which are from before the pause.\n" +
+				"6. If no open problem is a warning or critical (only notes, or nothing), netdiag has not finished checking:\n" +
+				"   - source is \"live\": its scan is still going. Start with \"" + verdictNotChecked + ": netdiag has not finished checking yet.\" Suggest waiting a minute, then asking again.\n" +
+				"   - otherwise: start with \"" + verdictNotChecked + ": no problems found, but the health checks did not run for this scan.\" " +
+				"Suggest **Open Health** on the Problems right now card in the netdiag window, then **Recheck**.\n" +
+				"   List any notes as \"Also worth knowing\", and stop.\n" +
+				"7. Otherwise start your answer with \"" + verdictProblem + ":\" and the title of the most urgent problem.\n" +
+				"8. Order the open problems critical, then warning, then info (\"Also worth knowing\"), and within each group the longest-open first (the earliest since).\n" +
+				"9. For at most 5 problems (then say \"and N more\"), give the title, the device name, advice.meaning (lightly reworded, keep the facts) and up to 3 advice.steps. " +
 				"Name each advice.actions button by its label in bold, such as **Open router page**, **Check again**, **Open Settings** or **Show device**.\n" +
-				"6. If the gateway or Wi-Fi check is failing and several devices went offline together, say there is one likely cause (this computer's connection or the router) instead of listing every device.\n" +
-				"7. List fixed items as \"Fixed at 10:42 (was down 12 min)\", from fixedAt and downForSec.\n" +
-				"8. If checkedAt is more than 10 minutes old and nothing is watching (get_status watching is null), offer run_health_check, or probe_host for one device. Ask first."
+				"10. If the gateway or Wi-Fi check is failing and several devices went offline together, say there is one likely cause (this computer's connection or the router) instead of listing every device.\n" +
+				"11. List fixed items as \"Fixed at 10:42 (was down 12 min)\", from fixedAt and downForSec.\n" +
+				"12. If checkedAt is more than 10 minutes old and nothing is watching (get_status watching is null), offer run_health_check, or probe_host for one device. Ask first."
 		}},
 
 	{Name: "internet_not_working", Title: "Internet not working", Since: since060,

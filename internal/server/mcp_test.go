@@ -11,6 +11,10 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"netdiag/internal/model"
+	"netdiag/internal/problems"
+	"netdiag/internal/scan"
 )
 
 const mcpDisabledMsg = "MCP is disabled; enable it in Settings > Agent access"
@@ -102,6 +106,52 @@ func TestMCPEnableAndUse(t *testing.T) {
 	}
 	if lp := callJSON(t, cs, "list_problems", nil); lp["source"] == nil {
 		t.Fatalf("list_problems = %v", lp)
+	}
+}
+
+// Over the window's /mcp, list_problems is the card's list (v0.6 M9): for a
+// saved scan with the router down, the window's own ledger, in memory,
+// gives the problem's key, its start and its team chat state, and
+// get_status speaks for this process.
+func TestMCPProblemsFromWindowLedger(t *testing.T) {
+	var ledger *problems.Ledger
+	_, base, st := startStoreWith(t, func(d *scan.Deps) { ledger, _ = d.Ledger.(*problems.Ledger) })
+	if ledger == nil {
+		t.Fatal("no ledger")
+	}
+	setMCP(t, base, true)
+	const network, key, opened = "n-0123456789ab", "healthFailed||gateway", "2026-10-17T09:50:00Z"
+	now := time.Now().UTC()
+	res := model.ScanResult{ID: "gw-down", State: model.StateDone, Request: model.ScanRequest{CIDR: "10.0.0.0/24"}, Gateway: "10.0.0.1",
+		StartedAt: now.Add(-2 * time.Minute).Format(time.RFC3339), FinishedAt: now.Add(-time.Minute).Format(time.RFC3339),
+		Hosts: []model.Host{{IP: "10.0.0.20", Alive: true, Online: true}},
+		Health: &model.HealthReport{CheckedAt: now.Add(-90 * time.Second).Format(time.RFC3339), Network: network,
+			Checks: []model.HealthCheck{{ID: "gateway", Label: "Gateway", Status: model.HealthFail, Detail: "10.0.0.1 did not reply to ping",
+				Data: map[string]any{"reason": model.ReasonNoReply}}}}}
+	if err := st.SaveScan(res); err != nil {
+		t.Fatal(err)
+	}
+	ledger.Apply(network, []model.Notice{{Trigger: model.TriggerHealthFailed, Key: key, Severity: "critical", Title: "Health check failed", At: opened}})
+	ledger.MarkChat(network, key, problems.ChatPosted)
+
+	cs := mcpConnect(t, base)
+	status := callJSON(t, cs, "get_status", nil)
+	w, _ := status["window"].(map[string]any)
+	ps, _ := status["problems"].(map[string]any)
+	if w["thisProcess"] != true || ps["source"] != problems.SourceSaved || fmt.Sprint(ps["open"]) != "1" || ps["everythingFine"] != false {
+		t.Fatalf("get_status = %v", status)
+	}
+	lp := callJSON(t, cs, "list_problems", nil)
+	open, _ := lp["open"].([]any)
+	if lp["source"] != problems.SourceSaved || lp["everythingFine"] != false || len(open) != 1 {
+		t.Fatalf("list_problems = %v", lp)
+	}
+	gw, _ := open[0].(map[string]any)
+	chat, _ := gw["chat"].(map[string]any)
+	re, _ := gw["recheck"].(map[string]any)
+	if gw["key"] != key || gw["since"] != opened || gw["severity"] != problems.SevCritical || gw["title"] != "Health check failed" ||
+		chat["posted"] != true || re["tool"] != "run_health_check" || gw["advice"] == nil {
+		t.Fatalf("gateway item = %v", gw)
 	}
 }
 
