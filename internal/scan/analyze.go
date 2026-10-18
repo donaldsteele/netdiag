@@ -174,7 +174,8 @@ func (s *state) setAway(on bool) {
 // health report) and keeps those in keep open unchecked. A cancelled pass
 // (complete false) checks nothing. The notices the first pass held back go
 // out then, and from here on every notice goes into the ledger under
-// network. done runs last, once the ledger has heard them.
+// network. done runs last, once the ledger has heard them (finishFirstPass
+// passes Scan.markReconciled only for a complete pass).
 func (s *state) reconcile(network string, check, keep []notify.OpenFault, complete bool, done func()) {
 	s.ops <- func(hosts map[string]*model.Host) {
 		defer done()

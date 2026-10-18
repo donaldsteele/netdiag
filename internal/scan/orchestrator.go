@@ -363,12 +363,13 @@ func (s *Scan) Network() string {
 // whether it checked, and the storm guard); ok is false until it went live.
 func (s *Scan) LiveStatus() (model.LiveStatus, bool) { return s.bus.Live() }
 
-// Reconciled is closed once the scan's first pass has been reconciled with
-// the open-problem ledger (v0.6 X-1): the ledger then knows which problems
-// are still open, and the notices the pass held back have been published.
-// The team chat outbox holds what a previous run left until then (v0.6
-// 4.9). A scan that stops before its first pass ends never closes it; Done
-// is closed then.
+// Reconciled is closed once the scan's first pass has ended and been
+// reconciled with the open-problem ledger (v0.6 X-1): the ledger then knows
+// which problems are still open, and the notices the pass held back have
+// been published. The team chat outbox holds what a previous run left until
+// then (v0.6 4.9). A scan whose first pass is cancelled (or that stops
+// before it ends) checked nothing, so it never closes it; Done is closed
+// then.
 func (s *Scan) Reconciled() <-chan struct{} { return s.reconciled }
 
 // markReconciled closes Reconciled, once.
@@ -896,7 +897,11 @@ func (r *runner) finishFirstPass(complete bool) {
 			}
 		}
 	}
-	r.st.reconcile(r.fp.ID, check, keep, complete, r.s.markReconciled)
+	done := func() {} // a cancelled pass checked nothing: Reconciled stays open
+	if complete {
+		done = r.s.markReconciled
+	}
+	r.st.reconcile(r.fp.ID, check, keep, complete, done)
 	if complete {
 		r.saveProfile(r.fp)
 	}

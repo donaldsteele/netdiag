@@ -103,8 +103,32 @@ func TestPrinterAlertReachesTeamChatAndCloses(t *testing.T) {
 }
 
 // Reconciled is closed once, after the ledger heard the first pass's
-// notices, also for a one-shot scan.
+// notices, also for a one-shot scan. A first pass that is cancelled checked
+// nothing: Reconciled stays open and only Done closes.
 func TestReconciledAfterLedger(t *testing.T) {
+	t.Run("cancelled", func(t *testing.T) {
+		d := zebraDeps(coverOpen)
+		d.Ledger = &recLedger{}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		s, err := New(d).Start(ctx, model.ScanRequest{CIDR: "10.0.0.0/24", Live: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-s.Done():
+		case <-time.After(5 * time.Second):
+			t.Fatal("never done")
+		}
+		select {
+		case <-s.Reconciled():
+			t.Fatal("a cancelled first pass closed Reconciled")
+		default:
+		}
+		if res := s.Wait(); res.State != model.StateCancelled {
+			t.Fatalf("state %q", res.State)
+		}
+	})
 	rl := &recLedger{}
 	d := zebraDeps(coverOpen)
 	d.Ledger = rl
