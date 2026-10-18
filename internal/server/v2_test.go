@@ -27,6 +27,13 @@ func (f fakeHealth) Run(_ context.Context, in health.Input) model.HealthReport {
 
 func startStore(t *testing.T) (*Server, string, *store.Store) {
 	t.Helper()
+	return startStoreWith(t, nil)
+}
+
+// startStoreWith is startStore with the scan dependencies changed by edit
+// (nil: none).
+func startStoreWith(t *testing.T, edit func(*scan.Deps)) (*Server, string, *store.Store) {
+	t.Helper()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -36,11 +43,15 @@ func startStore(t *testing.T) (*Server, string, *store.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg := scan.NewRegistry(scan.New(scan.Deps{
+	deps := scan.Deps{
 		Pinger: fakePinger{}, ARP: fakeARP{}, Ports: fakePorts{}, Web: fakeWeb{},
 		SNMP: fakeSNMP{}, DNS: fakeDNS{}, Vendors: fakeVendors{}, Env: fakeEnv{},
 		Store: st, Settings: st, Ledger: ledger, Profiles: scan.NewProfiles(st),
-	}))
+	}
+	if edit != nil {
+		edit(&deps)
+	}
+	reg := scan.NewRegistry(scan.New(deps))
 	s := New(Config{
 		Registry:     reg,
 		Store:        st,

@@ -12,7 +12,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"netdiag/internal/arp"
 	"netdiag/internal/mcpserver"
+	"netdiag/internal/model"
+	"netdiag/internal/scan"
+	"netdiag/internal/snmpprobe"
+	"netdiag/internal/store"
 )
 
 // readEvents reads an SSE stream until the named event (or EOF) and returns
@@ -42,14 +47,38 @@ func readEvents(t *testing.T, url, until string) string {
 	return b.String()
 }
 
+// routerARP is an ARP table with the router and the printer at 10.0.0.10,
+// so a scan can tell the network (and keep its problems in the ledger).
+type routerARP struct{}
+
+func (routerARP) Table(context.Context) ([]arp.Entry, error) {
+	return []arp.Entry{{IP: "10.0.0.1", MAC: "00:11:22:33:44:01"}, {IP: "10.0.0.10", MAC: "00:07:4D:00:00:10"}}, nil
+}
+
+// coverSNMP is a printer at 10.0.0.10 whose cover is open: a problem every
+// scan reports, so the ledger has something to save.
+type coverSNMP struct{}
+
+func (coverSNMP) Probe(_ context.Context, ip, _ string) (*snmpprobe.Result, error) {
+	if ip != "10.0.0.10" {
+		return nil, snmpprobe.ErrNoResponse
+	}
+	return &snmpprobe.Result{
+		Snmp: &model.SnmpInfo{Version: "v2c", SysDescr: "Zebra ZD621", SysName: "Front Desk", HrPrinterStatus: "other"},
+		Printer: &model.PrinterInfo{Model: "ZD621", Alerts: []model.Alert{
+			{Severity: "critical", Code: "hrPrinterDetectedErrorState.doorOpen", Description: "Door or cover open"}}},
+	}, nil
+}
+
 // F11 (the s3cr3t-x grep test): the SNMP community, whether sent with a scan
 // or taken from the settings, must appear nowhere netdiag hands it out:
 // scan JSON, the event stream, exports, comparisons, history (API and the
-// files on disk) and MCP tools and resources. GET /api/settings is the one
-// exception, because the Settings dialog edits the community.
+// files on disk), the open-problem ledger and network-profile.json, and MCP
+// tools and resources. GET /api/settings is the one exception, because the
+// Settings dialog edits the community.
 func TestSecretCommunityAppearsNowhere(t *testing.T) {
 	const secret = "s3cr3t-x"
-	srv, u, st := startStore(t)
+	srv, u, st := startStoreWith(t, func(d *scan.Deps) { d.ARP, d.SNMP = routerARP{}, coverSNMP{} })
 	noLeak := func(what, body string) {
 		t.Helper()
 		if strings.Contains(body, secret) {
@@ -198,10 +227,19 @@ func TestSecretCommunityAppearsNowhere(t *testing.T) {
 	// Finally, nothing written to disk by a scan holds it: the history files
 	// (the old one rewritten on read) and every other file in the data dir
 	// except settings.json, which the Settings dialog edits. The ledger is
-	// saved first, as Quit saves it, so open-problems.json is among them
-	// whenever a scan put anything in it.
+	// saved first, as Quit saves it: it has the printer's cover alert, and
+	// network-profile.json the network the scans saw.
 	if err := srv.svc.Close(); err != nil {
 		t.Fatal(err)
+	}
+	for _, name := range []string{store.FileOpenProblems, store.FileNetworkProfile} {
+		data, err := os.ReadFile(filepath.Join(st.Dir(), name))
+		if err != nil || len(data) == 0 {
+			t.Fatalf("%s not written: %v", name, err)
+		}
+		if name == store.FileOpenProblems && !strings.Contains(string(data), `"trigger": "printerAlert"`) {
+			t.Fatalf("%s has no cover alert: %s", name, data)
+		}
 	}
 	err = filepath.WalkDir(st.Dir(), func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || d.Name() == "settings.json" {
