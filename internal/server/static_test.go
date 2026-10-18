@@ -242,7 +242,7 @@ func TestAdviceUI(t *testing.T) {
 		"Show device<span", `class="plain cpair"`, `id="printer-nostatus"`, `id="set-nointernet"`,
 		"This network has no internet</label>", `x-model="noInternetHere" :disabled="!healthNetwork()"`,
 		`id="health-fine"`, `<span x-text="healthFineText()"></span>`,
-		"conflictSeen(c) ? 'Conflict' : 'Possible conflict'", `:href="linkAction(a) ? a.target : null"`,
+		`<strong x-text="conflictWord(c)"></strong>`, `:href="linkAction(a) ? a.target : null"`,
 		`rel="noopener noreferrer"`,
 	} {
 		if !strings.Contains(string(html), want) {
@@ -255,6 +255,7 @@ func TestAdviceUI(t *testing.T) {
 		"return this.alternations(hist) >= 2;", "if (c.kind !== 'mac_flap') return false;",
 		"noInternet: 'set-nointernet'", "vendors[mac] ||", "this.health && this.health.network",
 		"this.problems && this.problems.everythingFine && !this.gone() ? 'Everything looks fine' : 'All health checks look fine'",
+		"conflictLevel(c) { return c.kind === 'mac_multi_ip' ? 'note'", "seen: 'Conflict', possible: 'Possible conflict', note: 'Note'",
 	} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("app.js missing %q", want)
@@ -493,7 +494,7 @@ func TestDeviceDrawerUI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"openDrawer(ip)", "closeDrawer(noFocus)", "drawerHost()", "hostText(h)"} {
+	for _, want := range []string{"openDrawer(ip, from)", "closeDrawer(noFocus)", "drawerHost()", "hostText(h)"} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("app.js missing drawer hook %q", want)
 		}

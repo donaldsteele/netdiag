@@ -97,7 +97,9 @@ test('"This network has no internet" makes Everything looks fine reachable, for 
   await expect(sw).toBeFocused();
   await expect(sw).toBeEnabled();
   await expect(sw).not.toBeChecked();
-  await expect(dialog.locator('#nointernet-help')).toContainText('It counts only on this network');
+  await expect(dialog.locator('#nointernet-help')).toHaveText(
+    "Turn this on if this network has no internet on purpose. netdiag then stops warning that the internet can't be reached, on this network only.",
+    { useInnerText: true });
   await sw.check();
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(dialog).toHaveJSProperty('open', false);
@@ -203,10 +205,23 @@ test('the switch waits until netdiag knows which network this is', async ({ page
   // netdiag could not read.
   await healthReport(page, false, (h) => { delete h.network; });
   await page.goto(HOME);
-  await page.locator('#nav-settings').click();
+  await page.locator('#tab-health').click();
+  // A button that opens Settings at the switch (here from a report that
+  // still offers it) lands on the switch's help, which says why it is
+  // grey, not on the first field of the dialog.
+  const open = card(page, 'DNS resolving').getByRole('button', { name: /^Open Settings/ });
+  await open.click();
   const dialog = page.locator('#settings-dialog');
+  await expect(dialog).toHaveJSProperty('open', true);
   await expect(dialog.getByRole('switch', { name: 'This network has no internet' })).toBeDisabled();
-  await expect(dialog.locator('#nointernet-help')).toContainText("netdiag doesn't know which network this is yet.");
+  const help = dialog.locator('#nointernet-help');
+  await expect(help).toHaveText("netdiag can't tell which network this is yet, so this can't be turned on. " +
+    "Press Check again on Health; if this stays grey, netdiag can't read your router's details.", { useInnerText: true });
+  await expect(help).toBeFocused();
+  await expect(help).toBeInViewport();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveJSProperty('open', false);
+  await expect(open).toBeFocused();
 });
 
 test('the health line waits for a check that could not run', async ({ page }) => {
@@ -240,8 +255,29 @@ for (const [alt, heading] of [[0, 'Possible conflict'], [1, 'Possible conflict']
     await expect(cards.nth(0)).toContainText('Device A: Espressif Inc.');
     await expect(cards.nth(0)).toContainText(fx.FLAP_MACS[0]);
     await expect(cards.nth(1)).toContainText(`Device B: Hewlett Packard · ${fx.FLAP_MACS[1]} · also uses 192.168.2.45${alt >= 1 ? ' · seen at ' : ''}`);
-    await expect(box.locator('.advice')).toContainText(alt >= 2 ? 'Two devices are taking turns using 192.168.2.44' : 'Possible conflict: the device answering at 192.168.2.44 changed.');
-    await expect(box.locator('.advice ol.steps li')).toHaveCount(alt >= 2 ? 3 : 2);
+    // The heading is in plain words, and says "Possible conflict" once.
+    await expect(box.locator('.chead')).toHaveText(alt >= 2 ? 'Conflict: Two devices are using the same address'
+      : 'Possible conflict: Two devices may be using the same address');
+    await expect(box.locator('.advice .meaning')).toHaveText(alt >= 2
+      ? 'What this means: Two devices are taking turns using 192.168.2.44, so both work badly.'
+      : 'What this means: The device answering at 192.168.2.44 changed.');
+    await expect(box.locator('.advice .meaning use')).toHaveAttribute('href', 'icons.svg#i-lightbulb');
+    // The drawer shows both devices already: its steps say so, and promise nothing later.
+    await expect(box.locator('.advice ol.steps li')).toHaveText(alt >= 2
+      ? ['Compare the two devices (Device A and Device B).', 'Restart one of them so it gets a new address.',
+        'If it keeps happening, ask whoever looks after the router to reserve an address for one of them.']
+      : ['If you just replaced a device, this is expected.', 'If it happens again, netdiag will mark it as a conflict.']);
+    // The addresses and MACs wait under Technical details, in its small
+    // monospace, below the size of the advice.
+    const tech = box.locator('details.tech');
+    const ips = tech.locator('p.hdetail', { hasText: 'IPs:' });
+    await expect(ips).toBeHidden();
+    await tech.locator('summary').click();
+    await expect(ips).toHaveText(`IPs: ${fx.FLAP_IP} - MACs: ${fx.FLAP_MACS.join(', ')}`);
+    const px = (loc) => loc.evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+    expect(await px(tech.locator('p.hdetail').first())).toBeLessThan(await px(box.locator('.advice .meaning')));
+    await page.keyboard.press('Escape');
+    await expect(ips).toBeHidden();
     await page.keyboard.press('Escape');
     await expect(page.locator('#drawer')).toBeHidden();
     await expect(btn).toBeFocused();
@@ -268,9 +304,9 @@ test('a device that uses no other address still shows its maker', async ({ page 
 });
 
 // Only a mac_flap can be a "Conflict": a MAC that also took turns at the
-// address, such as an extender's, stays a "Possible conflict" in its
+// address, such as an extender's, stays a neutral "Note" in its
 // mac_multi_ip box, as its advice says it is normal.
-test('mac_multi_ip with an alternating history still reads "Possible conflict"', async ({ page }) => {
+test('mac_multi_ip with an alternating history reads "Note"', async ({ page }) => {
   await initStorage(page, { theme: 'dark', live: false });
   const list = fx.hosts();
   const at = list.find((h) => h.ip === '192.168.2.30');
@@ -284,8 +320,10 @@ test('mac_multi_ip with an alternating history still reads "Possible conflict"',
   await page.locator('#hosts button.rowbtn[data-ip="192.168.2.30"]').click();
   const box = page.locator('#drawer .cbox');
   await expect(box).toHaveCount(1);
-  await expect(box.locator('.chead strong')).toHaveText('Possible conflict');
-  await expect(box.locator('.chead use')).toHaveAttribute('href', 'icons.svg#i-triangle-alert');
+  await expect(box.locator('.chead')).toHaveText('Note: One device uses several addresses');
+  await expect(box.locator('.chead use')).toHaveAttribute('href', 'icons.svg#i-info');
+  await expect(box.locator('.chead svg')).toHaveClass(/s-info/);
+  await expect(box).toHaveClass(/note/);
   await expect(box.locator('.advice')).toContainText('This is normal for Wi-Fi extenders');
   expect(rec.unmatched).toEqual([]);
 });
@@ -336,10 +374,86 @@ test('a banner offers What to try and Show device', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expect(meaning).toBeHidden();
   await expect(tryIt.locator('summary')).toBeFocused();
-  await banner.getByRole('button', { name: /^Show device/ }).click();
+  const show = banner.getByRole('button', { name: /^Show device/ });
+  await show.click();
   await expect(page.locator('#drawer')).toBeVisible();
   await expect(page.locator('#drawer h2')).toHaveText('192.168.2.10');
+  // Keyboard and screen reader users are taken into the drawer, and Esc
+  // brings them back to the button they started from.
+  await expect(page.getByRole('button', { name: 'Close details' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#drawer')).toBeHidden();
+  await expect(show).toBeFocused();
   expect(rec.unmatched).toEqual([]);
+});
+
+test('Show device from another view opens the drawer with focus in it', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { scenario: 'scan' });
+  await page.goto(HOME);
+  await scanToFinish(page);
+  await page.locator('#tab-health').click();
+  const show = page.locator('#alerts div.banner').filter({ hasText: 'Warning: Toner low' }).getByRole('button', { name: /^Show device/ });
+  await show.click();
+  await expect(page.locator('#hosts')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Close details' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(show).toBeFocused();
+  expect(rec.unmatched).toEqual([]);
+});
+
+// The conflict's banner says what is wrong in plain words; the MACs stay
+// with the conflict, under Technical details in the drawer.
+test('a conflict banner leads with plain words and offers Show device', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { frames: framesWith(fx.flapHosts(2), [fx.flapConflict(2)], [fx.flapNotice(2)]) });
+  await page.goto(HOME);
+  await scanToFinish(page);
+  const banner = page.locator('#alerts div.banner:not(.more)').filter({ hasText: 'Network conflict' });
+  await expect(banner.locator('.btext')).toContainText('Critical: Network conflict Two devices may be using 192.168.2.44.');
+  await expect(banner).not.toContainText(fx.FLAP_MACS[0]);
+  await banner.locator('details.btry summary').click();
+  await expect(banner.locator('ol.steps li').first()).toHaveText('In netdiag, press Show device and compare the two devices (Device A and Device B).');
+  await banner.getByRole('button', { name: /^Show device/ }).click();
+  await expect(page.locator('#drawer .cbox .chead strong')).toHaveText('Conflict');
+  expect(rec.unmatched).toEqual([]);
+});
+
+// A health check that keeps failing: the banner has its own way to the
+// Health view, where the check's card says what to try.
+test('a health check banner offers Open Health', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { frames: framesWith(fx.hosts(), [], [fx.healthNotice()]) });
+  await page.goto(HOME);
+  await scanToFinish(page);
+  const banner = page.locator('#alerts div.banner:not(.more)').filter({ hasText: 'Health check failed' });
+  await banner.locator('details.btry summary').click();
+  await expect(banner.locator('ol.steps li')).toHaveText(['In netdiag, press Open Health to see what to try.']);
+  await expect(banner.getByRole('button', { name: /^Show device/ })).toBeHidden();
+  await banner.getByRole('button', { name: /^Open Health/ }).click();
+  await expect(page.locator('#health')).toBeVisible();
+  await expect(page.locator('#health')).toBeFocused();
+  expect(rec.unmatched).toEqual([]);
+});
+
+// On a phone the banners scroll away with the page: three of them, with
+// What to try open, would otherwise cover most of the screen.
+test('banners stay on top when wide and scroll away on a phone', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  await installMocks(page, { frames: framesWith(fx.flapHosts(2), [fx.flapConflict(2)], [fx.notice(1), fx.flapNotice(2), fx.healthNotice()]) });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(HOME);
+  await scanToFinish(page);
+  const shown = page.locator('#alerts div.banner:not(.more)');
+  await expect(shown).toHaveCount(3);
+  for (const s of await page.locator('#alerts details.btry summary').all()) await s.click();
+  const pos = () => page.locator('#alerts').evaluate((e) => getComputedStyle(e).position);
+  expect(await pos()).toBe('static');
+  await page.evaluate(() => window.scrollTo(0, 2000));
+  const box = await page.locator('#alerts').boundingBox();
+  expect(box.y + box.height, 'the banners scrolled off the top').toBeLessThanOrEqual(0);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  expect(await pos()).toBe('sticky');
 });
 
 test('a printer without status shows what it means and Open its page', async ({ page }) => {
@@ -376,10 +490,17 @@ for (const [platform, shown] of [['Win32', true], ['MacIntel', false]]) {
       await expect(btn).toHaveCount(0);
       return;
     }
+    // Open Location settings, then Check again, as the step says.
+    await expect(wifi.locator('.advice ol.steps li')).toHaveText(['Turn on Location, then press Check again.']);
+    await expect(wifi.locator('.aacts button:visible')).toHaveText([/^Open Location settings/, /^Check again/]);
     await btn.click();
     await expect.poll(() => posts(rec, '/api/os/open').length).toBe(1);
     expect(JSON.parse(posts(rec, '/api/os/open')[0].body)).toEqual({ page: 'location' });
-    await expect(page.locator('#health [role="status"].sub')).toContainText('Windows Settings is opening.');
+    // The card says it, next to its Check again.
+    await expect(wifi.locator('.hmsg')).toContainText('Windows Settings is opening.');
+    const before = posts(rec, '/api/health/run').length;
+    await wifi.getByRole('button', { name: /^Check again/ }).click();
+    await expect.poll(() => posts(rec, '/api/health/run').length).toBe(before + 1);
   });
 }
 
@@ -390,5 +511,110 @@ test('Open Location settings explains a 501', async ({ page }) => {
   await page.goto(HOME);
   await page.locator('#tab-health').click();
   await card(page, 'Wi-Fi').getByRole('button', { name: /^Open Location settings/ }).click();
-  await expect(page.locator('#health [role="status"].sub')).toContainText("netdiag can't open that page on this computer.");
+  await expect(card(page, 'Wi-Fi').locator('.hmsg')).toContainText("netdiag can't open that page on this computer.");
+});
+
+// A card's Check again says what it does next to the button, so on a
+// phone the press never looks like it did nothing.
+test('a card\'s Check again shows its progress on the card', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const rec = await installMocks(page, { health: 'all' });
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  await page.route('**/api/health/run', async (route) => {
+    await gate;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fx.health({ state: 'all' })) });
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(HOME);
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await page.locator('#tab-health').click();
+  const gw = card(page, 'Gateway reachable');
+  const btn = gw.getByRole('button', { name: /^(Check again|Checking)/ });
+  await btn.evaluate((e) => e.scrollIntoView({ block: 'center' }));
+  await btn.click();
+  await expect(btn).toHaveText(/^Checking\.\.\./);
+  await expect(btn).toBeDisabled();
+  const msg = gw.locator('.hmsg');
+  await expect(msg).toHaveAttribute('role', 'status');
+  await expect(msg).toHaveText('Running checks...');
+  await expect(msg).toBeInViewport();
+  // The panel's own line stays quiet: one place says it.
+  await expect(page.locator('#health-run ~ [role="status"]')).toHaveText('');
+  release();
+  await expect(msg).toHaveText('Checks updated.');
+  await expect(btn).toHaveText(/^Check again/);
+  await expect(btn).toBeEnabled();
+  await expect(btn).toBeFocused();
+  // The panel's Check again speaks under the cards again.
+  await page.locator('#health-run').click();
+  await expect(msg).toHaveText('');
+  await expect(page.locator('#health-run ~ [role="status"]')).toHaveText('Checks updated.');
+  expect(rec.unmatched).toEqual([]);
+});
+
+// One label for the same action, and one order: Check again first, then
+// Settings or a link.
+test('Check again has one label and comes first', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  await installMocks(page, { health: 'all' });
+  await page.goto(HOME);
+  await page.locator('#tab-health').click();
+  await expect(page.locator('#health').getByRole('button', { name: 'Recheck' })).toHaveCount(0);
+  await expect(page.locator('#health-run')).toHaveText('Check again');
+  for (const label of ['DNS resolving', 'Web server']) {
+    await expect(card(page, label).locator('.aacts button:visible')).toHaveText([/^Check again/, /^Open Settings/]);
+  }
+});
+
+// A redirect, or another address with its own certificate: the step names
+// the address, and Use this address puts it in "Web server URL", where
+// nothing is saved until Save.
+for (const [web, addr] of [['redirect', 'https://portal.example.com/login'], ['tls-other', 'https://intranet.local:8443/']]) {
+  test(`the ${web} advice names the address and Use this address fills Settings`, async ({ page }) => {
+    await initStorage(page, { theme: 'dark', live: false });
+    const rec = await installMocks(page, { web });
+    await page.goto(HOME);
+    await page.locator('#tab-health').click();
+    const wc = card(page, 'Web server');
+    await expect(wc.locator('.advice ol.steps li').first()).toContainText(`sends you to ${addr}`);
+    await expect(wc.locator('.advice ol.steps li').first()).toContainText('If that is the right page, set it as "Web server URL" in Settings.');
+    const use = wc.getByRole('button', { name: 'Use this address' });
+    await use.click();
+    const dialog = page.locator('#settings-dialog');
+    await expect(dialog).toHaveJSProperty('open', true);
+    await expect(dialog.locator('#set-weburl')).toBeFocused();
+    await expect(dialog.locator('#set-weburl')).toHaveValue(addr);
+    expect(settingsPuts(rec)).toHaveLength(0);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveJSProperty('open', false);
+    await expect(use).toBeFocused();
+    expect(settingsPuts(rec)).toHaveLength(0);
+    expect(rec.unmatched).toEqual([]);
+  });
+}
+
+// The printer block starts with the plain words; how netdiag recognised
+// the printer waits under Technical details.
+test('the printer block puts its plain advice before the raw reason', async ({ page }) => {
+  await initStorage(page, { theme: 'dark', live: false });
+  const list = fx.hosts();
+  list[35] = fx.noStatusPrinter();
+  await installMocks(page, { frames: framesWith(list) });
+  await page.goto(HOME);
+  await scanToFinish(page);
+  await page.locator(`#hosts button.rowbtn[data-ip="${fx.NOSTATUS_IP}"]`).click();
+  const section = page.locator('#drawer section').filter({ has: page.getByRole('heading', { name: 'Printer', exact: true }) });
+  const first = section.locator('h3 ~ *:visible').first();
+  await expect(first).toHaveId('printer-nostatus');
+  const reason = section.locator('details.tech p.hdetail');
+  await expect(reason).toBeHidden();
+  await section.locator('details.tech summary').click();
+  await expect(reason).toHaveText('Recognised by: port 9100 (raw printing) open');
+  // A printer with status data names the reason as a short line instead.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.locator('#hosts button.rowbtn[data-ip="192.168.2.10"]').click();
+  await expect(page.locator('#drawer section').filter({ has: page.getByRole('heading', { name: 'Printer', exact: true }) }).locator('p.sub').first())
+    .toHaveText('Recognised by: hrDeviceType=printer');
 });

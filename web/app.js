@@ -8,6 +8,7 @@ let pairTimer = 0; // next poll of the team chat pairing request
 let wizEpoch = 0; // counts team chat wizard openings and closings
 let pairAsking = 0; // team chat pairing requests on their way
 let pnTimer = 0; // pending re-read of the Problems right now card
+let drawerOpener = null; // element that opened the device drawer (a banner's or card's Show device, a row)
 document.addEventListener('alpine:init', () => {
   Alpine.data('app', () => ({
     ifaces: [], ifaceName: '', cidr: '', community: 'public',
@@ -17,7 +18,7 @@ document.addEventListener('alpine:init', () => {
     filter: 'all', sortKey: 'ip', sortDir: 1, drawerIP: '', search: '',
     live: true, liveStatus: null, nowMs: Date.now(), announce: '', announced: {}, liveSynced: false,
     theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
-    view: 'devices', navOpen: false, views: ['devices', 'health', 'activity', 'history'], health: null, healthOpen: true, healthBusy: false, healthMsg: '',
+    view: 'devices', navOpen: false, views: ['devices', 'health', 'activity', 'history'], health: null, healthOpen: true, healthBusy: false, healthMsg: '', healthAt: '',
     conflicts: [], banners: [], seenNotices: {},
     settings: null, draft: null, draftLoaded: false, noInternetHere: false, settingsError: '', storeDown: false, desktopNote: '', audio: null, repairedNote: '', repairedPending: [], repairedShown: [],
     history: [], historyError: '', baseId: '', currentId: '', diff: null, diffError: '', diffBusy: false,
@@ -159,7 +160,12 @@ document.addEventListener('alpine:init', () => {
         if (r.ok) this.health = await r.json();
       } catch (e) {}
     },
-    async recheck() {
+    // from: the id of the health card whose button ran the checks. Its own
+    // status line says how it went, next to the button (healthMsgFor), and
+    // the button reads Checking... meanwhile; otherwise the panel's line
+    // under the cards does.
+    async recheck(from) {
+      this.healthAt = typeof from === 'string' ? from : '';
       this.healthBusy = true; this.healthMsg = 'Running checks...';
       try {
         const r = await this.api('POST', '/api/health/run', {interface: this.ifaceName});
@@ -167,7 +173,17 @@ document.addEventListener('alpine:init', () => {
         else { this.healthMsg = r.status === 401 ? '' : 'Health check failed (HTTP ' + r.status + ').'; }
       } catch (e) { this.healthMsg = 'Health check failed: ' + e.message; }
       this.healthBusy = false;
+      // The button was disabled while the checks ran, or it went with the
+      // problem it was for: focus goes back to it, else to the card's line.
+      const at = this.healthAt;
+      if (at) this.$nextTick(() => {
+        const a = document.activeElement;
+        if (a && a !== document.body && a.isConnected) return;
+        this.focusShown([document.querySelector('#hc-' + at + ' button[data-act="recheck"]'), document.getElementById('hmsg-' + at)]);
+      });
     },
+    // The status line of card id, or the panel's ('' for both: the other one speaks).
+    healthMsgFor(id) { return this.healthAt === id ? this.healthMsg : ''; },
     healthIcon(s) { return {ok: '✔', warn: '▲', fail: '✖', info: 'ℹ'}[s] || '–'; },
     healthStatusText(s) { return {ok: 'OK', warn: 'Note', fail: 'Failed', info: 'Info', unavailable: 'Could not run'}[s] || s; },
     // A check finished unless it is unavailable: a timeout, or the router
@@ -389,13 +405,32 @@ document.addEventListener('alpine:init', () => {
     actionOff(a) {
       return a.kind === 'recheck' && this.healthBusy || this.sessionOff && (a.kind === 'recheck' || a.kind === 'osSettings');
     },
-    async runAction(a) {
-      if (a.kind === 'recheck') return this.recheck();
+    // from: the id of the health card the button is on.
+    async runAction(a, from) {
+      if (a.kind === 'recheck') return this.recheck(from);
       if (a.kind === 'openSettings') return this.openSettings(a.target);
       if (a.kind === 'showDevice') return this.showDevice(a.target);
-      if (a.kind === 'osSettings') return this.openOSPage(a.target);
+      if (a.kind === 'osSettings') return this.openOSPage(a.target, from);
     },
-    async openOSPage(page) {
+    // The steps as the Web server card says them: the card has the Trust
+    // this certificate button, so its step points at the button there, and
+    // says nothing of it when the button is not shown (the certificate is
+    // for another address than the one in Settings now). Elsewhere (the
+    // banner, chat, Claude) the server's words, which send people here.
+    cardSteps(c) {
+      const steps = (c && c.advice && c.advice.steps) || [];
+      if (c.id !== 'webserver') return steps;
+      return steps.flatMap(s => /press Trust this certificate on the Web server card/.test(s)
+        ? (this.canTrust(c) ? ['If this is your own server, press Trust this certificate below.'] : []) : [s]);
+    },
+    // The steps as the drawer says them: it shows Device A and Device B
+    // itself, so the swap's first step (advice.StepCompareDevices) drops
+    // "In netdiag, press Show device and".
+    drawerSteps(adv) {
+      return ((adv && adv.steps) || []).map(s => s.replace(/^In netdiag, press Show device and (\w)/, (m, ch) => ch.toUpperCase()));
+    },
+    async openOSPage(page, from) {
+      this.healthAt = typeof from === 'string' ? from : '';
       try {
         const r = await this.api('POST', '/api/os/open', {page: page});
         this.healthMsg = r.ok ? 'Windows Settings is opening. If no window appears, look for it on the taskbar.'
@@ -403,11 +438,14 @@ document.addEventListener('alpine:init', () => {
           : r.status === 401 ? '' : 'Could not open it (HTTP ' + r.status + ').';
       } catch (e) { this.healthMsg = 'Could not open it: ' + e.message; }
     },
-    // Show device: the device's details in the Devices view.
-    showDevice(ip) {
+    // Show device: the device's details in the Devices view. Focus goes
+    // into the drawer, and back to the button that opened it when it
+    // closes (closeDrawer).
+    async showDevice(ip) {
       if (!ip) return;
-      this.showView('devices');
-      this.$nextTick(() => this.openDrawer(ip));
+      const from = document.activeElement;
+      await this.showView('devices');
+      this.openDrawer(ip, from);
     },
     // Esc closes an open disclosure and puts focus back on its summary; on a
     // closed one it goes on to close the drawer.
@@ -442,6 +480,26 @@ document.addEventListener('alpine:init', () => {
       };
       return norm(a) !== '' && norm(a) === norm(b);
     },
+    // The address the web server check was sent to instead, when Settings
+    // could use it: a redirect's target, or the other address of the server
+    // whose certificate differs. Only for the URL set in Settings now, and
+    // never one with a user name in it (the check hides its password).
+    webNewURL(c) {
+      if (!this.settings || !c || c.id !== 'webserver' || c.status !== 'fail' || !c.data) return '';
+      const d = c.data, u = d.reason === 'redirect' ? d.location : d.reason === 'tls' && !d.certSHA256 ? d.finalURL : '';
+      let x = null;
+      try { x = new URL(String(u || '')); } catch (e) { return ''; }
+      if (!/^https?:$/.test(x.protocol) || x.username || x.password) return '';
+      return this.sameWebURL(d.url, (this.settings.webServer || {}).url) ? x.href : '';
+    },
+    // Use this address: Settings opens with it in "Web server URL", to save
+    // or change; nothing is saved until the person presses Save.
+    useWebURL(c) {
+      const u = this.webNewURL(c);
+      if (!u) return;
+      this.openSettings('webserver');
+      this.draft.webServer.url = u;
+    },
     fpPairs(fp) { return (fp || '').toUpperCase().match(/../g) || []; },
     fpLong(fp) { return this.fpPairs(fp).join(':'); },
     fpShort(fp) { const p = this.fpPairs(fp); return p.slice(0, 8).join(':') + (p.length > 8 ? '…' : ''); },
@@ -454,8 +512,8 @@ document.addEventListener('alpine:init', () => {
       if (!window.confirm(msg)) return;
       const doc = JSON.parse(JSON.stringify(this.settings));
       doc.webServer = Object.assign({}, doc.webServer, {trustedCert: d.certSHA256});
-      if (await this.putSettings(doc, false)) await this.recheck();
-      else this.healthMsg = 'Could not save the trusted certificate.';
+      if (await this.putSettings(doc, false)) await this.recheck(c.id);
+      else { this.healthAt = c.id; this.healthMsg = 'Could not save the trusted certificate.'; }
     },
 
     // ---- settings ----
@@ -475,7 +533,11 @@ document.addEventListener('alpine:init', () => {
       this.loadChat();
       this.$nextTick(() => {
         const d = this.$refs.dlg; if (d && !d.open) d.showModal();
-        const f = focus && document.getElementById(focus); if (f) f.focus();
+        let f = focus && document.getElementById(focus);
+        // A switch that can't be turned on yet takes no focus: its help,
+        // which says why, does.
+        if (f && f.disabled) f = document.getElementById(f.getAttribute('aria-describedby') || '') || f;
+        if (f) { f.scrollIntoView({block: 'nearest'}); f.focus(); }
         if (section === 'chat') this.focusChat();
       });
     },
@@ -1199,6 +1261,9 @@ document.addEventListener('alpine:init', () => {
       return !b.ok && !!b.ip && !!b.advice && (b.advice.actions || []).some(a => a.kind === 'showDevice') &&
         this.hosts.some(h => h.ip === b.ip);
     },
+    // Open Health next to Dismiss: for a health check that keeps failing,
+    // whose What to try is on its card in the Health view.
+    bannerHealth(b) { return !b.ok && b.trigger === 'healthFailed'; },
     // The storm guard's banner for another network offers Restart watching
     // while this tab still watches the old one.
     bannerRestart(b) {
@@ -1250,8 +1315,9 @@ document.addEventListener('alpine:init', () => {
     // "Conflict" only for a mac_flap whose two devices were seen taking
     // turns: the address's MAC history shows at least two alternations.
     // Without a history (a scan that is not live), a mac_flap the scan
-    // marked "fail" was seen as a swap. Every other kind is a "Possible
-    // conflict" (mirrors advice.SwapSeen).
+    // marked "fail" was seen as a swap (mirrors advice.SwapSeen). One
+    // device with several addresses is often normal (an extender): a
+    // "Note". Every other kind is a "Possible conflict".
     conflictSeen(c) {
       if (c.kind !== 'mac_flap') return false;
       const h = this.hosts.find(x => x.ip === (c.ips || [])[0]);
@@ -1285,10 +1351,15 @@ document.addEventListener('alpine:init', () => {
         return {mac: mac, label: 'Device ' + String.fromCharCode(65 + i) + ':', text: parts.filter(Boolean).join(' · ')};
       });
     },
+    // seen, possible or note: the conflict box's shape, word and colour.
+    conflictLevel(c) { return c.kind === 'mac_multi_ip' ? 'note' : this.conflictSeen(c) ? 'seen' : 'possible'; },
+    conflictWord(c) { return {seen: 'Conflict', possible: 'Possible conflict', note: 'Note'}[this.conflictLevel(c)]; },
+    conflictIcon(c) { return {seen: 'circle-x', possible: 'triangle-alert', note: 'info'}[this.conflictLevel(c)]; },
+    conflictIconClass(c) { return {seen: 's-bad', possible: 's-warn', note: 's-info'}[this.conflictLevel(c)]; },
+    // The heading's plain words; the addresses and MACs are under Technical details.
     conflictKind(c) {
-      return {mac_flap: 'The MAC address for this IP keeps changing - two devices may share the IP, or a device is switching adapters.',
-              mac_multi_ip: 'One MAC address answers for several IPs - often a range extender or router, or a device with several addresses.',
-              duplicate_name: 'More than one device uses the same name.'}[c.kind] || c.kind;
+      if (c.kind === 'mac_flap') return this.conflictSeen(c) ? 'Two devices are using the same address' : 'Two devices may be using the same address';
+      return {mac_multi_ip: 'One device uses several addresses', duplicate_name: 'Two devices use the same name'}[c.kind] || c.kind;
     },
     onConflict(ev) {
       if (!ev || !ev.conflict) return;
@@ -1564,9 +1635,10 @@ document.addEventListener('alpine:init', () => {
     },
     closeRestart() { const d = this.$refs.restartDlg; if (d && d.open) d.close(); },
     // Focuses the first of els that is shown, trying for a few frames while
-    // x-show catches up.
+    // x-show catches up. els may be a function that returns them, for
+    // elements that x-if has not made yet.
     focusShown(els, tries) {
-      const el = els.find(e => e && e.isConnected && e.offsetParent !== null && !e.disabled);
+      const el = (typeof els === 'function' ? els() : els).find(e => e && e.isConnected && e.offsetParent !== null && !e.disabled);
       if (el) { el.focus(); return; }
       if ((tries || 0) < 10) requestAnimationFrame(() => this.focusShown(els, (tries || 0) + 1));
     },
@@ -1964,18 +2036,24 @@ document.addEventListener('alpine:init', () => {
     drawerHosts() { const h = this.drawerHost(); return h ? [h] : []; },
     rowClick(ev, ip) {
       if (ev.target.closest("a, button, input")) return;
-      this.openDrawer(ip);
+      this.openDrawer(ip, ev.currentTarget.querySelector("button.rowbtn"));
     },
-    openDrawer(ip) {
+    // from: the element that opened the drawer (default: the focused one),
+    // which gets focus back when it closes, while it is still shown.
+    openDrawer(ip, from) {
+      const o = from || document.activeElement;
+      drawerOpener = o && o !== document.body && !o.closest("#drawer") ? o : null;
       this.drawerIP = ip;
-      this.$nextTick(() => { const b = this.$refs.drawerClose; if (b) b.focus(); });
+      this.$nextTick(() => this.focusShown(() => [document.querySelector("#drawer .drawerhead .iconbtn")]));
     },
     closeDrawer(noFocus) {
-      const ip = this.drawerIP;
+      const ip = this.drawerIP, back = drawerOpener;
       if (!ip) return;
       this.drawerIP = "";
+      drawerOpener = null;
       if (noFocus) return;
       this.$nextTick(() => {
+        if (back && back.isConnected && back.offsetParent !== null) { back.focus(); return; }
         const rows = document.querySelectorAll("#hosts button.rowbtn");
         for (const b of rows) { if (b.dataset.ip === ip) { b.focus(); return; } }
         const m = document.getElementById("main"); if (m) m.focus();

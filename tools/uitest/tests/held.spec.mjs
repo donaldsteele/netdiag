@@ -37,7 +37,11 @@ test('checks paused: the pill and one banner say this computer lost the network'
   await expect(b).toHaveCount(1);
   await expect(b).toHaveClass(/sev-warn/);
   await expect(b.getByRole('button', { name: 'Restart watching' })).toBeHidden();
+  // The banner says it in a few words; What to try says why, and when the
+  // checks start again, instead of the same sentence twice.
+  await expect(b.locator('.btext > span').first()).toHaveText('netdiag paused its checks.');
   await b.getByText('What to try').click();
+  await expect(b.locator('.advice')).toContainText('They start again by themselves when the network is back.');
   await expect(b).toContainText("Check this computer's network cable or Wi-Fi.");
   expect(rec.unmatched, 'unmatched requests').toEqual([]);
 });

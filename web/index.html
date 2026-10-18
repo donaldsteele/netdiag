@@ -92,6 +92,7 @@
           </details></div>
         <div class="bacts">
           <button type="button" x-show="bannerDevice(b)" @click="showDevice(b.ip)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-monitor"></use></svg>Show device<span class="sr" x-text="' ' + b.title"></span></button>
+          <button type="button" x-show="bannerHealth(b)" @click="openHealth()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-heart-pulse"></use></svg>Open Health<span class="sr" x-text="' ' + b.title"></span></button>
           <button type="button" class="brestart" x-show="bannerRestart(b)" aria-haspopup="dialog" @click="restartHere()" :aria-disabled="sessionOff ? 'true' : null"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart watching</button>
           <button type="button" @click="dismiss(b.bid)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-x"></use></svg>Dismiss<span class="sr" x-text="' ' + b.title"></span></button>
         </div>
@@ -211,26 +212,29 @@
         <p class="hfine" id="health-fine" role="status" x-show="healthFine()"><svg class="ico s-ok" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg> <strong>OK</strong> <span x-text="healthFineText()"></span></p>
         <ul class="plain hcards" x-show="health && (health.checks || []).length" aria-label="Network health checks">
           <template x-for="c in (health ? health.checks || [] : [])" :key="c.id">
-            <li class="hcard" :class="'hc-' + healthMark(c)">
+            <li class="hcard" :class="'hc-' + healthMark(c)" :id="'hc-' + c.id">
               <div class="hchead"><h3><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + checkIcon(c.id)"></use></svg> <span x-text="c.label"></span></h3>
                 <span class="hs" :class="'hs-' + healthMark(c)"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusShape(healthMark(c))"></use></svg> <span x-text="healthStatusText(c.status)"></span></span></div>
               <template x-if="c.advice">
                 <div class="advice">
                   <p class="meaning"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-lightbulb"></use></svg> <strong>What this means:</strong> <span x-text="c.advice.meaning"></span></p>
-                  <ol class="steps" x-show="(c.advice.steps || []).length">
-                    <template x-for="(s, i) in (c.advice.steps || [])" :key="i"><li x-text="s"></li></template>
+                  <ol class="steps" x-show="cardSteps(c).length">
+                    <template x-for="(s, i) in cardSteps(c)" :key="i"><li x-text="s"></li></template>
                   </ol>
-                  <p class="aacts" x-show="adviceActions(c.advice).length">
+                  <p class="aacts" x-show="adviceActions(c.advice).length || canTrust(c) || webNewURL(c)">
                     <template x-for="a in adviceActions(c.advice)" :key="a.kind + ':' + (a.target || '')">
-                      <span class="aact"><a class="btnlink" x-show="linkAction(a)" :href="linkAction(a) ? a.target : null" target="_blank" rel="noopener noreferrer"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-external-link"></use></svg><span x-text="a.label"></span><span class="sr"> (opens in a new tab)</span></a><button type="button" x-show="!linkAction(a)" @click="runAction(a)" :disabled="actionOff(a)"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + actionIcon(a)"></use></svg><span x-text="a.label"></span><span class="sr" x-text="' (' + c.label + ')'"></span></button></span>
+                      <span class="aact"><a class="btnlink" x-show="linkAction(a)" :href="linkAction(a) ? a.target : null" target="_blank" rel="noopener noreferrer"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-external-link"></use></svg><span x-text="a.label"></span><span class="sr"> (opens in a new tab)</span></a><button type="button" x-show="!linkAction(a)" :data-act="a.kind" @click="runAction(a, c.id)" :disabled="actionOff(a)"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + actionIcon(a)"></use></svg><span x-text="a.kind === 'recheck' && healthBusy ? 'Checking...' : a.label"></span><span class="sr" x-text="' (' + c.label + ')'"></span></button></span>
                     </template>
+                    <button type="button" class="usebtn" x-show="webNewURL(c)" aria-haspopup="dialog" @click="useWebURL(c)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-settings"></use></svg>Use this address</button>
+                    <button type="button" class="trustbtn" x-show="canTrust(c)" @click="trustCert(c)" :disabled="sessionOff"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-fingerprint"></use></svg>Trust this certificate</button>
                   </p>
                   <details class="tech" @keydown.escape="closeDetails($event, $el)"><summary>Technical details</summary><p class="hdetail mono" x-text="c.detail"></p></details>
                 </div>
               </template>
               <p class="hdetail mono" x-show="!c.advice"><span x-text="c.detail"></span>
                 <a href="#" class="setweb" x-show="webUnset(c)" @click.prevent="openSettings()">Set the web server URL in Settings</a></p>
-              <p class="hact" x-show="canTrust(c)"><button type="button" class="trustbtn" @click="trustCert(c)" :disabled="sessionOff">Trust this certificate</button></p>
+              <p class="hact" x-show="canTrust(c) && !c.advice"><button type="button" class="trustbtn" @click="trustCert(c)" :disabled="sessionOff"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-fingerprint"></use></svg>Trust this certificate</button></p>
+              <p class="sub hmsg" role="status" :id="'hmsg-' + c.id" tabindex="-1" x-text="healthMsgFor(c.id)"></p>
               <p class="hlat mono" x-text="healthLatency(c)"></p>
             </li>
           </template>
@@ -239,7 +243,7 @@
         <p>
           <button type="button" id="health-run" @click="recheck()" :disabled="healthBusy || sessionOff"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Check again</button>
           <a href="#" @click.prevent="openSettings()">Settings</a>
-          <span class="sub" role="status" x-text="healthMsg"></span>
+          <span class="sub" role="status" x-text="healthMsgFor('')"></span>
         </p>
       </div>
     </section>
@@ -348,7 +352,7 @@
             </dl>
           </section>
           <section x-show="h.printerReason"><h3>Printer</h3>
-            <p x-text="h.printerReason"></p>
+            <p class="sub" x-show="!h.advice">Recognised by: <span class="mono" x-text="h.printerReason"></span></p>
             <template x-if="h.advice">
               <div class="advice" id="printer-nostatus">
                 <p class="meaning"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-lightbulb"></use></svg> <strong>What this means:</strong> <span x-text="h.advice.meaning"></span></p>
@@ -360,6 +364,7 @@
                     <a class="btnlink" :href="a.target" target="_blank" rel="noopener noreferrer"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-external-link"></use></svg><span x-text="a.label"></span><span class="sr"> (opens in a new tab)</span></a>
                   </template>
                 </p>
+                <details class="tech" @keydown.escape="closeDetails($event, $el)"><summary>Technical details</summary><p class="hdetail mono" x-text="'Recognised by: ' + h.printerReason"></p></details>
               </div>
             </template>
             <template x-if="h.printer">
@@ -406,8 +411,8 @@
           </section>
           <section x-show="hasConflict(h)"><h3>Conflicts</h3>
             <template x-for="c in conflictsFor(h)" :key="c.id">
-              <div class="cbox" :class="conflictSeen(c) ? 'seen' : 'possible'">
-                <p class="chead"><svg class="ico" :class="conflictSeen(c) ? 's-bad' : 's-warn'" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + (conflictSeen(c) ? 'circle-x' : 'triangle-alert')"></use></svg> <strong x-text="conflictSeen(c) ? 'Conflict' : 'Possible conflict'"></strong><span>: </span><span x-text="conflictKind(c)"></span></p>
+              <div class="cbox" :class="conflictLevel(c)">
+                <p class="chead"><svg class="ico" :class="conflictIconClass(c)" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + conflictIcon(c)"></use></svg> <strong x-text="conflictWord(c)"></strong><span>: </span><span x-text="conflictKind(c)"></span></p>
                 <ul class="plain cpair" x-show="conflictCards(c).length" aria-label="The devices in this conflict">
                   <template x-for="d in conflictCards(c)" :key="d.mac">
                     <li class="ccard"><strong x-text="d.label"></strong> <span x-text="d.text"></span></li>
@@ -415,15 +420,15 @@
                 </ul>
                 <template x-if="c.advice">
                   <div class="advice">
-                    <p><strong>What this means:</strong> <span x-text="c.advice.meaning"></span></p>
-                    <ol class="steps" x-show="(c.advice.steps || []).length">
-                      <template x-for="(s, i) in (c.advice.steps || [])" :key="i"><li x-text="s"></li></template>
+                    <p class="meaning"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-lightbulb"></use></svg> <strong>What this means:</strong> <span x-text="c.advice.meaning"></span></p>
+                    <ol class="steps" x-show="drawerSteps(c.advice).length">
+                      <template x-for="(s, i) in drawerSteps(c.advice)" :key="i"><li x-text="s"></li></template>
                     </ol>
                   </div>
                 </template>
-                <p x-show="c.detail && !c.advice" x-text="c.detail"></p>
-                <details class="tech" x-show="c.detail && c.advice" @keydown.escape="closeDetails($event, $el)"><summary>Technical details</summary><p x-text="c.detail"></p></details>
-                <p class="sub">IPs: <span class="mono" x-text="(c.ips || []).join(', ')"></span> - MACs: <span class="mono" x-text="(c.macs || []).join(', ')"></span><span x-show="c.name"> - name <span x-text="c.name"></span></span></p>
+                <details class="tech" @keydown.escape="closeDetails($event, $el)"><summary>Technical details</summary>
+                  <p class="hdetail mono" x-show="c.detail" x-text="c.detail"></p>
+                  <p class="hdetail mono">IPs: <span x-text="(c.ips || []).join(', ')"></span> - MACs: <span x-text="(c.macs || []).join(', ')"></span><span x-text="c.name ? ' - name ' + c.name : ''"></span></p></details>
                 <p class="sub" x-show="c.kind === 'mac_multi_ip' && !c.advice">Hint: a WiFi range extender or mesh node commonly shows one MAC for many IPs. If that is expected, ignore the MAC.</p>
                 <template x-for="m in (c.macs || [])" :key="m">
                   <button type="button" @click="ignoreMac(m)" :disabled="sessionOff">Ignore this MAC <span x-text="m"></span></button>
@@ -592,7 +597,7 @@
           <p class="sub" id="trusted-pending" x-show="settings && settings.webServer && settings.webServer.trustedCert && !draft.webServer.trustedCert">The certificate is forgotten when you click Save.</p>
           <label>Internet check URL <input type="text" id="set-internet" x-model="draft.internetCheckURL" spellcheck="false" autocomplete="off"></label>
           <label class="check"><input type="checkbox" role="switch" id="set-nointernet" x-model="noInternetHere" :disabled="!healthNetwork()" aria-describedby="nointernet-help"> This network has no internet</label>
-          <p class="sub" id="nointernet-help"><span x-show="healthNetwork()">Turn this on for a local network that has no internet on purpose. It counts only on this network, the one the health checks last looked at; on other networks the checks stay as they are. Here the internet check then stays a note, and names that need the internet are not a warning.</span><span x-show="!healthNetwork()">netdiag doesn't know which network this is yet. Run the health checks first (Health, then Check again).</span></p>
+          <p class="sub" id="nointernet-help" tabindex="-1"><span x-show="healthNetwork()">Turn this on if this network has no internet on purpose. netdiag then stops warning that the internet can't be reached, on this network only.</span><span x-show="!healthNetwork()">netdiag can't tell which network this is yet, so this can't be turned on. Press Check again on Health; if this stays grey, netdiag can't read your router's details.</span></p>
         </fieldset>
         <fieldset><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-bell"></use></svg>Alerts</legend>
           <label class="check"><input type="checkbox" x-model="draft.alerts.sound"> Play a sound</label>

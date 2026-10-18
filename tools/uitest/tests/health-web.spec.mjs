@@ -69,9 +69,12 @@ for (const theme of THEMES) {
     const trust = card.getByRole('button', { name: 'Trust this certificate' });
     await expect(trust).toBeVisible();
     await expect(page.getByRole('button', { name: 'Trust this certificate' })).toHaveCount(1);
-    // The advice points at that button, not at Settings (which can't trust).
-    await expect(card.locator('.advice ol.steps li').first()).toHaveText(
-      'If this is your own server on this network, open Health in netdiag and press Trust this certificate on the Web server card.');
+    // The card's own step points at that button, which sits with the
+    // advice's buttons, not at Settings (which can't trust); banners, chat
+    // and Claude say "open Health in netdiag" instead.
+    await expect(card.locator('.advice ol.steps li').first()).toHaveText('If this is your own server, press Trust this certificate below.');
+    await expect(card.locator('.advice .aacts').getByRole('button', { name: 'Trust this certificate' })).toBeVisible();
+    await expect(trust.locator('use')).toHaveAttribute('href', 'icons.svg#i-fingerprint');
     await expect(card.getByRole('button', { name: /^Open Settings/ })).toHaveCount(0);
     await runAxe(page, `health-untrusted-${theme}`, testInfo);
 
@@ -154,6 +157,8 @@ test('the trust button is only offered for the web server address in Settings', 
   await expect(card).toContainText('the certificate is not trusted');
   await expect(card.getByRole('button', { name: 'Trust this certificate' })).toHaveCount(0);
   await expect(page.locator('.trustbtn:visible')).toHaveCount(0);
+  // Nor does the card name a button it does not show.
+  await expect(card.locator('.advice ol.steps li')).toHaveText(['Otherwise, ask whoever looks after it.']);
   expect(rec.unmatched, 'unmatched requests').toEqual([]);
 });
 

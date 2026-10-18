@@ -402,3 +402,8 @@ details.ptry .advice{margin-top:var(--s1)}
 .hdrtools{flex-wrap:wrap}
 .topbar .livepill,.topbar .livepill.held{flex-basis:100%;max-width:100%;white-space:normal;overflow:visible}
 }
+/* v0.6 audit follow-up: a card's own status line (Check again, Open Location settings) and the conflict note
+   (the banners already scroll away on phones, above) */
+.hmsg{margin:var(--s1) 0 0}.hmsg:empty{margin:0}
+.cbox.note{border-color:var(--info)}
+details.tech .hdetail{margin:var(--s1) 0 0}
