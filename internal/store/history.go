@@ -111,6 +111,9 @@ func (s *Store) readScan(f fileInfo) (model.ScanResult, error) {
 			h.DeviceType, h.DeviceTypeReason = string(t), why
 		}
 	}
+	// Scans an older netdiag saved name the checks "Gateway reachable",
+	// "DNS resolving" and so on.
+	r.Health.NameChecks()
 	return r, nil
 }
 

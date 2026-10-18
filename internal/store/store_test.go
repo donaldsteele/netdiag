@@ -311,6 +311,40 @@ func TestReadBackfillsDeviceType(t *testing.T) {
 	}
 }
 
+// TestReadNamesOldHealthChecks: a scan an older netdiag saved shows its
+// checks by the names this one uses (v0.6-D50); a check netdiag has no
+// name for keeps its label.
+func TestReadNamesOldHealthChecks(t *testing.T) {
+	s := open(t)
+	old := `{"id":"old2","schemaVersion":2,"startedAt":"2026-01-01T10:00:00Z","state":"done","request":{"cidr":"10.0.0.0/24"},` +
+		`"health":{"checkedAt":"2026-01-01T10:00:05Z","checks":[{"id":"gateway","label":"Gateway reachable","status":"fail"},` +
+		`{"id":"dhcp","label":"DHCP lease","status":"ok"},{"id":"dns","label":"DNS resolving","status":"ok"},` +
+		`{"id":"internet","label":"Internet reachability","status":"info"},{"id":"custom","label":"Something else","status":"ok"}]}}`
+	if err := os.WriteFile(filepath.Join(s.Dir(), "history", "20260101T100000Z-old2.json"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.LoadScan("old2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range r.Health.Checks {
+		got = append(got, c.Label)
+	}
+	want := []string{"Router", "Getting an address (DHCP)", "Name lookup (DNS)", "Internet", "Something else"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("labels %q, want %q", got, want)
+	}
+	// A scan without a health report still loads.
+	if err := os.WriteFile(filepath.Join(s.Dir(), "history", "20260101T110000Z-old3.json"),
+		[]byte(`{"id":"old3","schemaVersion":2,"startedAt":"2026-01-01T11:00:00Z","state":"done","request":{"cidr":"10.0.0.0/24"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := s.LoadScan("old3"); err != nil || r.Health != nil {
+		t.Fatalf("no health: %+v %v", r.Health, err)
+	}
+}
+
 func TestTwoStoresSameDir(t *testing.T) {
 	d := t.TempDir()
 	a, err := Open(d)

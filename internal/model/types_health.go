@@ -69,6 +69,19 @@ type HealthReport struct {
 	Network string `json:"network,omitempty"`
 }
 
+// NameChecks gives every check of r its plain name (HealthCheck.Name) as
+// its Label, so a report an older netdiag saved ("Gateway reachable",
+// "DNS resolving") shows in the Health panel, get_health and the scan
+// summaries with the names this netdiag uses. A nil r is left alone.
+func (r *HealthReport) NameChecks() {
+	if r == nil {
+		return
+	}
+	for i := range r.Checks {
+		r.Checks[i].Label = r.Checks[i].Name()
+	}
+}
+
 // Health check reasons, in Data["reason"]. Every result that is not ok
 // carries one, and so does a gateway that answers only on its web ports.
 // The advice catalogue keys on check id and reason, never on Detail text.

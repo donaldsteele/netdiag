@@ -188,13 +188,21 @@ func TestLatestHealth(t *testing.T) {
 	if _, ok := s.LatestHealth(); ok {
 		t.Fatal("expected none")
 	}
+	// Saved by an older netdiag, with the old check names.
 	old := model.ScanResult{ID: "h-1", Request: model.ScanRequest{CIDR: "10.9.0.0/24"}, State: "done",
-		Health: &model.HealthReport{CheckedAt: "2099-01-01T00:00:00Z"}}
+		Health: &model.HealthReport{CheckedAt: "2099-01-01T00:00:00Z", Checks: []model.HealthCheck{
+			{ID: "gateway", Label: "Gateway reachable", Status: model.HealthOK},
+			{ID: "dns", Label: "DNS resolving", Status: model.HealthFail}}}}
 	if err := st.SaveScan(old); err != nil {
 		t.Fatal(err)
 	}
 	if h, ok := s.LatestHealth(); !ok || h.CheckedAt != "2099-01-01T00:00:00Z" {
 		t.Fatalf("history fallback: %+v %v", h, ok)
+	} else if h.Checks[0].Label != "Router" || h.Checks[1].Label != "Name lookup (DNS)" {
+		t.Fatalf("history fallback keeps the old names: %+v", h.Checks)
+	}
+	if r, err := s.LoadScan("h-1"); err != nil || r.Health.Checks[0].Label != "Router" {
+		t.Fatalf("saved scan keeps the old names: %+v %v", r.Health, err)
 	}
 	runScan(t, s)
 	// A listed (registry) report wins over history even if history is newer.
