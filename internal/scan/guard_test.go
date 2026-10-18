@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,6 +14,7 @@ import (
 
 	"netdiag/internal/arp"
 	"netdiag/internal/model"
+	"netdiag/internal/notify"
 	"netdiag/internal/store"
 )
 
@@ -260,5 +263,29 @@ func TestNetworkChangedStaysHeld(t *testing.T) {
 	if len(link) != 1 || link[0].OK || link[0].Title != "This computer is on a different network" || link[0].Key != "netdiagLink||"+want ||
 		link[0].Code != model.HeldNetworkChanged || link[0].Advice == nil || !strings.Contains(link[0].Advice.Meaning, "different network") {
 		t.Fatalf("netdiagLink notices: %+v", link)
+	}
+}
+
+// The uitest fixtures show the storm guard's notices word for word.
+func TestUITestFixtureHeld(t *testing.T) {
+	const fx = "n-5f2c0a9d3e71"
+	src, err := os.ReadFile(filepath.Join("..", "..", "tools", "uitest", "fixtures", "index.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, reason := range []string{model.HeldLink, model.HeldNetworkChanged} {
+		title, msg := heldNotice(reason)
+		for _, want := range []string{"title: '" + title + "'", "const message = '" + msg + "'"} {
+			if !strings.Contains(string(src), want) {
+				t.Errorf("fixtures missing %q", want)
+			}
+		}
+	}
+	e := notify.New(notify.DefaultConfig(), nil)
+	e.LinkLost(fx, model.HeldLink, "", "")
+	for _, want := range []string{"title: '" + e.LinkBack(fx)[0].Title + "'"} {
+		if !strings.Contains(string(src), want) {
+			t.Errorf("fixtures missing %q", want)
+		}
 	}
 }

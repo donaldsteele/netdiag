@@ -510,6 +510,11 @@ document.addEventListener('alpine:init', () => {
       return !b.ok && !!b.ip && !!b.advice && (b.advice.actions || []).some(a => a.kind === 'showDevice') &&
         this.hosts.some(h => h.ip === b.ip);
     },
+    // The storm guard's banner for another network offers Restart watching
+    // while this tab still watches the old one.
+    bannerRestart(b) {
+      return !b.ok && b.trigger === 'netdiagLink' && b.code === 'network_changed' && this.state === 'live';
+    },
     shownBanners() { return this.banners.slice(0, 3); },
     moreBanners() { return Math.max(0, this.banners.length - 3); },
     dismiss(bid) { this.banners = this.banners.filter(b => b.bid !== bid); },
@@ -1132,8 +1137,18 @@ document.addEventListener('alpine:init', () => {
     },
     ariaSort(key) { return this.sortKey === key ? (this.sortDir > 0 ? 'ascending' : 'descending') : 'none'; },
     arrow(key) { return this.sortKey === key ? (this.sortDir > 0 ? ' ▲' : ' ▼') : ''; },
+    // The storm guard (v0.6 F9c) says why netdiag holds: this computer lost
+    // the network or the router went quiet (checks paused, back by
+    // themselves), or this computer is on another network (alerts stopped
+    // until Restart watching).
     liveText() {
       const st = this.liveStatus || {};
+      if (st.held) {
+        if (st.heldReason === 'network_changed') return 'Live · alerts stopped: this computer is on a different network now';
+        const since = this.clock(st.heldSince) ? ' (since ' + this.clock(st.heldSince) + ')' : '';
+        if (st.heldReason === 'gateway') return 'Live · checks paused: the router stopped answering' + since;
+        return 'Live · checks paused: this computer lost the network' + since;
+      }
       let last = 'first check pending';
       if (st.lastCheckAt) {
         const s = Math.max(0, Math.round((this.nowMs - Date.parse(st.lastCheckAt)) / 1000));

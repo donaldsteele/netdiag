@@ -60,7 +60,7 @@
       <button type="button" class="danger" @click="quit()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-power"></use></svg>Quit</button>
     </form>
     <div class="hdrtools">
-      <span class="livepill" x-show="state === 'live'" x-text="liveText()" :title="liveText()"></span>
+      <span class="livepill" :class="{held: liveStatus && liveStatus.held}" x-show="state === 'live'" :title="liveText()"><template x-if="liveStatus && liveStatus.held"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg></template><span x-text="liveText()"></span></span>
       <button type="button" class="chipbtn" :class="'h-' + (healthSummary().includes('fail') ? 'fail' : healthSummary().includes('warn') ? 'warn' : 'ok')"
               @click="showView('health'); $nextTick(() => $refs.healthPanel && $refs.healthPanel.focus())" ><svg class="ico" :class="healthSummary().includes('fail') ? 's-bad' : healthSummary().includes('warn') ? 's-warn' : 's-ok'" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + (healthSummary().includes('fail') ? 'circle-x' : healthSummary().includes('warn') ? 'triangle-alert' : 'circle-check')"></use></svg><span x-text="healthSummary()"></span></button>
       <button type="button" class="iconbtn tool" :aria-pressed="!soundOn()" @click="toggleSound()" :disabled="!settings" title="Mute alerts">
@@ -90,6 +90,7 @@
           </details></div>
         <div class="bacts">
           <button type="button" x-show="bannerDevice(b)" @click="showDevice(b.ip)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-monitor"></use></svg>Show device<span class="sr" x-text="' ' + b.title"></span></button>
+          <button type="button" class="brestart" x-show="bannerRestart(b)" aria-haspopup="dialog" @click="askRestart()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart watching</button>
           <button type="button" @click="dismiss(b.bid)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-x"></use></svg>Dismiss<span class="sr" x-text="' ' + b.title"></span></button>
         </div>
       </div>

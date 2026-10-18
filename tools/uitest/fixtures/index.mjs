@@ -383,6 +383,36 @@ export function fixedNotice(n = 2) {
     at, key: f.key, ok: true, openedAt: f.at };
 }
 
+// The storm guard (v0.6 F9c): a live status while it holds, and its local
+// netdiagLink notice (reason link or network_changed; the advice is the
+// catalogue's, TestUITestFixtureAdvice). HELD_SINCE is when it began.
+export const HELD_SINCE = '2026-10-10T09:40:00Z';
+export function heldStatus(reason = 'link') {
+  return { cycle: 3, unseen: 1, newHosts: 0, online: 64, offline: 0, intervalSec: 15,
+    lastCheckAt: new Date().toISOString(), nextCheckAt: new Date(Date.now() + 15000).toISOString(),
+    held: true, heldReason: reason, heldSince: HELD_SINCE, network: NETWORK };
+}
+export function linkNotice(reason = 'link') {
+  const key = 'netdiagLink||' + NETWORK;
+  if (reason === 'network_changed') {
+    const message = 'netdiag stopped its alerts for the network it was watching. Press Restart watching to watch this one.';
+    return { id: 'n-30', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'This computer is on a different network',
+      message, at: HELD_SINCE, key, code: reason,
+      advice: advice("This computer is on a different network now, so netdiag stopped the alerts for the network it was watching.",
+        ["If this computer moved on purpose, press Restart watching to watch the network it is on now."], [], message) };
+  }
+  const message = 'This computer lost the local network, so netdiag paused its checks. They start again by themselves when the network is back.';
+  return { id: 'n-30', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'netdiag lost the network',
+    message, at: HELD_SINCE, key, code: reason,
+    advice: advice("This computer lost the local network, so netdiag paused its checks instead of reporting every device offline.",
+      ["Check this computer's network cable or Wi-Fi."], [], message) };
+}
+export function linkBackNotice() {
+  return { id: 'n-31', trigger: 'netdiagLink', severity: 'info', ip: '', title: 'netdiag is back on the network',
+    message: 'netdiag checks the local network again.', at: new Date().toISOString(),
+    key: 'netdiagLink||' + NETWORK, ok: true, openedAt: HELD_SINCE };
+}
+
 export function interfaces() {
   return [
     { name: 'Wi-Fi', ip: SELF_IP, cidr: CIDR, mac: 'AA:BB:CC:00:11:22', isDefault: true, suggested: CIDR },
