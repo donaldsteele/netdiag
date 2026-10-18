@@ -1117,8 +1117,9 @@ document.addEventListener('alpine:init', () => {
       if (!isNaN(from) && end >= from) s += ' (was down ' + this.downFor(Math.floor((end - from) / 60000)) + ')';
       return s + '.';
     },
-    // m minutes as team chat says them (chat.downFor): "12 min", "2 h 5
-    // min", and from a day on "1 day", "8 days 2 h".
+    // m minutes in words: "12 min", "2 h 5 min", and from a day on "1 day",
+    // "8 days 2 h", the days as team chat says them (chat.downFor, which
+    // also says a whole hour as "2 h").
     downFor(m) {
       if (m < 1) return 'less than a minute';
       if (m < 60) return m + ' min';
