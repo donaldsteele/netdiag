@@ -50,11 +50,13 @@ func TestNoMutatingCallsInMCPLayer(t *testing.T) {
 	// (F9); only the window's Restart watching does. The team chat actions
 	// (v0.6 M10): agents never connect or disconnect team chat, choose its
 	// channel or send test alerts (chat.Manager's StartPairing,
-	// ConnectString, SetChannel, SendTest and Disconnect). Nor do they post
-	// to team chat themselves or push its outbox: v0.6 M11's Enqueue, as
-	// the registry names it, and Try now's TryNow.
+	// ConnectString, SetChannel, SendTest and Disconnect), nor push its
+	// outbox (Try now's TryNow). Nor do they post to team chat themselves:
+	// the outbox's Post, Resolve and Message are methods of a type
+	// internal/chat does not export, and this package may not import
+	// internal/chat at all (TestMCPImportsNoActionPackages; v0.6-D42).
 	forbidden := []string{"SaveSettings(", "DeleteScan(", "IgnoreMAC(", "handleQuit", "Quit(", "OpenOSPage(", "ReplaceLive",
-		"StartPairing(", "ConnectString(", "Disconnect(", "SendTest(", "SetChannel(", "Enqueue(", "TryNow("}
+		"StartPairing(", "ConnectString(", "Disconnect(", "SendTest(", "SetChannel(", "TryNow("}
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
