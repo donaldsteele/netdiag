@@ -120,17 +120,28 @@ func verdict(st StatusOut, p ProblemsOut) string {
 
 // explain reads explain_problems, get_status and list_problems as an agent
 // following the runbook does, and returns the first line of its answer.
+// get_status and list_problems are two calls, and a live scan can change
+// between them (TestExplainProblemsHeld drops the link while it reads), so
+// a pair is compared only when get_status reads the same after
+// list_problems as before it.
 func explain(t *testing.T, e *env) (string, StatusOut, ProblemsOut) {
 	t.Helper()
 	checkVerdictRules(t, promptText(t, e, "explain_problems", nil))
-	var st StatusOut
-	e.ok(t, "get_status", nil, &st)
-	var out ProblemsOut
-	e.ok(t, "list_problems", nil, &out)
-	if st.Problems.Source != out.Source || st.Problems.Open != len(out.Open) || st.Problems.EverythingFine != out.EverythingFine {
-		t.Fatalf("status %+v does not match the list %+v", st.Problems, out)
+	held := func(st StatusOut) bool { return st.Watching != nil && st.Watching.Held }
+	for try := 0; ; try++ {
+		var st, again StatusOut
+		e.ok(t, "get_status", nil, &st)
+		var out ProblemsOut
+		e.ok(t, "list_problems", nil, &out)
+		e.ok(t, "get_status", nil, &again)
+		if (st.Problems != again.Problems || held(st) != held(again)) && try < 20 {
+			continue
+		}
+		if st.Problems.Source != out.Source || st.Problems.Open != len(out.Open) || st.Problems.EverythingFine != out.EverythingFine {
+			t.Fatalf("status %+v does not match the list %+v", st.Problems, out)
+		}
+		return verdict(st, out), st, out
 	}
-	return verdict(st, out), st, out
 }
 
 // The explain_problems acceptance check (M9) without a live agent, over
