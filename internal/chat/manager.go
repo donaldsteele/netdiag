@@ -117,6 +117,12 @@ type Ledger interface {
 	OnDrop(fn func([]problems.Entry))
 }
 
+// Problems is what the Problems right now card says is wrong on network
+// (Service.Problems): its View.Alerted items, the ledger's open problems the
+// scan watching network shows, under the ledger's key. false when the card
+// does not speak for a live scan of network.
+type Problems func(network string) ([]problems.Problem, bool)
+
 // Manager owns the team chat connection: bubbles.json and
 // chat-outbox.json (their one writer), the pairing wizard's requests, the
 // connection's state, the alert router on each scan, the outbox and its
@@ -179,6 +185,9 @@ type Manager struct {
 	// its "…and N more problems" since sending started: a later burst
 	// leaves them out, so they never trickle in after it.
 	summed map[string]bool
+	// problems is what is wrong right now on a network (SetProblems), the
+	// problems a burst may post; nil: every open problem of the ledger.
+	problems Problems
 	// oldChannel is the channel before the last Change channel, for the
 	// words when a card cannot be moved out of it.
 	oldChannel string

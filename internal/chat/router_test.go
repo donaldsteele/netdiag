@@ -977,6 +977,65 @@ func TestStatusSendAlerts(t *testing.T) {
 	}
 }
 
+// The burst posts the Problems card's alerted items (View.Alerted), not the
+// ledger's: a problem the first pass adopted without checking it (here a
+// printer outside the address range it watches, which the scan does not
+// show) stays out of chat, and so does one whose card the view does not
+// speak for.
+func TestBurstPostsOnlyWhatTheScanShows(t *testing.T) {
+	f := bubblestest.New(t)
+	st, _ := newStore(t)
+	l := ledgerOn(t, st)
+	shown, adopted := fault(0, "warn"), fault(1, "warn")
+	l.Apply(testNet, []model.Notice{shown, adopted})
+	// The scan shows the first printer offline; the second one is not in it.
+	r := model.ScanResult{State: model.StateRunning, Hosts: []model.Host{
+		{IP: shown.IP, Alive: true, Online: false, IsPrinter: true, OfflineSince: shown.At}}}
+	var vmu sync.Mutex
+	speaks := true
+	view := func(network string) ([]problems.Problem, bool) {
+		vmu.Lock()
+		defer vmu.Unlock()
+		if !speaks || network != testNet {
+			return nil, false
+		}
+		open, fixed := l.Snapshot()
+		v := problems.NewView(problems.Input{Source: problems.SourceLive, Watching: true, Result: &r,
+			Settings: store.DefaultSettings(), Network: testNet, Open: open, Fixed: fixed, Now: t0})
+		return v.Alerted(), true
+	}
+	m := connected(t, f, st, l)
+	m.SetProblems(view)
+	sc := newFakeScan(testNet, true)
+	m.Attach(sc)
+	sc.reconcile()
+	waitFor(t, "the burst", func() bool { return len(f.Posted()) == 1 })
+	time.Sleep(burstQuiet + 100*time.Millisecond)
+	p := f.Posted()
+	if len(p) != 1 || p[0].DedupeKey != shown.Key {
+		t.Fatalf("posted %+v, want only %s", p, shown.Key)
+	}
+	if c := l.Chat(testNet, adopted.Key); c != "" {
+		t.Fatalf("the adopted problem's chat state is %q", c)
+	}
+
+	// Sending starts again while the card speaks for another scan: nothing
+	// goes, rather than the ledger's problems.
+	l.Apply(testNet, []model.Notice{fault(2, "warn")})
+	vmu.Lock()
+	speaks = false
+	vmu.Unlock()
+	m.ApplySettings(model.SettingsChat{Enabled: false, MinSeverity: model.ChatSeverityWarning})
+	m.ApplySettings(model.SettingsChat{Enabled: true, MinSeverity: model.ChatSeverityWarning})
+	waitFor(t, "the connected message", func() bool { return len(f.Messages()) == 2 })
+	time.Sleep(100 * time.Millisecond)
+	for _, in := range f.Posted()[1:] {
+		if in.DedupeKey != shown.Key {
+			t.Fatalf("posted %s while the card spoke for another scan", in.DedupeKey)
+		}
+	}
+}
+
 // The ledger drops a problem of a network netdiag has not been on for 7
 // days: its card is resolved with words that say so.
 func TestSevenDayDropResolves(t *testing.T) {

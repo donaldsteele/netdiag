@@ -333,13 +333,46 @@ func (m *Manager) maybeBurst() {
 	}
 }
 
-// burst posts network's open problems at or above the Send level that have
-// no card in chat and none on its way: at most 10, the most severe first,
-// then a message saying how many more there are. A problem marked pending
-// whose post is no longer in the outbox (it lapsed, or the outbox file was
-// lost) counts as having none; one an earlier burst only counted (summed)
-// is left out until sending starts again. hosts are the scan's, when the
-// router has them. It returns the keys it posted.
+// SetProblems gives the burst the Problems right now card's view (the
+// service sets it): a burst then posts only the problems the card shows
+// as alerted (v0.6 4.9 "First connect").
+func (m *Manager) SetProblems(fn Problems) {
+	m.mu.Lock()
+	m.problems = fn
+	m.mu.Unlock()
+}
+
+// shown is the keys of network's problems the card shows as alerted
+// (SetProblems), and whether it speaks for network; nil and true without
+// a card: then every open problem of the ledger counts.
+func (m *Manager) shown(network string) (map[string]bool, bool) {
+	m.mu.Lock()
+	fn := m.problems
+	m.mu.Unlock()
+	if fn == nil {
+		return nil, true
+	}
+	ps, ok := fn(network)
+	if !ok {
+		return nil, false
+	}
+	keys := make(map[string]bool, len(ps))
+	for _, p := range ps {
+		keys[p.Key] = true
+	}
+	return keys, true
+}
+
+// burst posts network's current problems at or above the Send level that
+// have no card in chat and none on its way: at most 10, the most severe
+// first, then a message saying how many more there are. The current
+// problems are the card's alerted ones (View.Alerted: the ledger's open
+// problems the watching scan shows), never a ledger entry the first pass
+// adopted without checking it (its device outside the address range). A
+// problem marked pending whose post is no longer in the outbox (it lapsed,
+// or the outbox file was lost) counts as having none; one an earlier burst
+// only counted (summed) is left out until sending starts again. hosts are
+// the scan's, when the router has them. It returns the keys it posted.
 func (m *Manager) burst(network string, hosts map[string]model.Host) map[string]bool {
 	min, ok := m.sending()
 	if !ok || m.opt.Ledger == nil {
@@ -347,6 +380,10 @@ func (m *Manager) burst(network string, hosts map[string]model.Host) map[string]
 	}
 	m.burstMu.Lock() // two bursts at once would post a problem twice
 	defer m.burstMu.Unlock()
+	shown, ok := m.shown(network)
+	if !ok {
+		return nil
+	}
 	m.mu.Lock()
 	summed := maps.Clone(m.summed)
 	m.mu.Unlock()
@@ -354,6 +391,9 @@ func (m *Manager) burst(network string, hosts map[string]model.Host) map[string]
 	var cur []problems.Entry
 	for _, e := range open {
 		if e.Network != network || !sends(e.Severity, min) || summed[e.Network+"\x00"+e.Key] {
+			continue
+		}
+		if shown != nil && !shown[e.Key] {
 			continue
 		}
 		if e.Chat == "" || (e.Chat == problems.ChatPending && !m.out.hasPost(e.Network, e.Key)) {

@@ -42,7 +42,8 @@ type Config struct {
 	// the registry's scan.Deps.Ledger); Close saves it. nil: none.
 	Ledger *problems.Ledger
 	// Chat is the team chat connection (the one the /api/bubbles routes
-	// use): Start puts its alert router on every scan, and Close gives its
+	// use): Start puts its alert router on every scan, its first-connect
+	// burst posts what Problems shows as alerted, and Close gives its
 	// outbox a last chance to send. nil: no team chat.
 	Chat *chat.Manager
 }
@@ -90,7 +91,12 @@ func New(cfg Config) *Service {
 	if cfg.BaseCtx == nil {
 		cfg.BaseCtx = context.Background()
 	}
-	return &Service{cfg: cfg, logs: map[string]*EventLog{}}
+	s := &Service{cfg: cfg, logs: map[string]*EventLog{}}
+	if cfg.Chat != nil {
+		// The first-connect burst posts what the Problems card shows.
+		cfg.Chat.SetProblems(s.alertedOn)
+	}
+	return s
 }
 
 // Registry returns the scan registry.
