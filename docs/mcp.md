@@ -31,8 +31,8 @@ netdiag mcp [--store-dir DIR]
 
 ### HTTP: the running netdiag window
 
-1. Start the UI on a fixed port: `netdiag ui --port 8787 --no-browser`.
-2. Open **Settings**, find **Agent access (MCP)**, and turn on **Allow AI agents to connect (MCP)**. Click **Save**.
+1. Start the UI on a fixed port: `netdiag ui --port 8787`. It opens the netdiag page in your browser. (If netdiag is already running, this opens its page instead.)
+2. In that page, open **Settings**, find **Agent access (MCP)**, and turn on **Allow AI agents to connect (MCP)**. Click **Save**. Settings only work in a page netdiag opened: if the page says "Buttons on this page are turned off for safety", run netdiag again to open a fresh one.
 3. The console prints `netdiag MCP: http://127.0.0.1:8787/mcp (enabled)`. The same URL is shown in Settings with a **Copy** button.
 
 The endpoint is `http://127.0.0.1:<port>/mcp` and accepts `POST`, `GET` and `DELETE`. While Agent access is off, every request to `/mcp` returns `404` with a JSON message: `MCP is disabled; enable it in Settings > Agent access`. Turning it off in Settings closes any open agent sessions.
@@ -173,13 +173,13 @@ Check the path in the config or in `claude mcp list`. Restart Claude Desktop or 
 Run the command from the `command` line in a terminal. The stdio server writes only protocol messages to stdout, so a line of text printed by another program in the path (or a wrapper script) will break the connection. Check that the path is correct and that netdiag runs (`netdiag version`).
 
 **HTTP: "connection refused".**
-The netdiag window is not running, or it was started without `--port`, so the port changed. Start `netdiag ui --port 8787 --no-browser` and use the same port in the URL.
+The netdiag window is not running, or it is on another port: netdiag uses the port it used last (normally 8787), but picks a free one when that port is taken. Start `netdiag ui --port 8787` and use the same port in the URL.
 
 **HTTP: `404` with "MCP is disabled".**
-Agent access is off. Open **Settings**, turn on **Allow AI agents to connect (MCP)**, and click **Save**.
+Agent access is off. Open **Settings**, turn on **Allow AI agents to connect (MCP)**, and click **Save**. If Settings says it is turned off on this page for safety, run netdiag again: it opens a fresh page where Settings work.
 
 **HTTP: `403`.**
-The request came from a different address or Origin. Use `http://127.0.0.1:<port>/mcp` (not a LAN address or a host name).
+The request came from a different address or Origin. Use `http://127.0.0.1:<port>/mcp` (not a local network address or a host name).
 
 **Windows Firewall asks about netdiag.**
 The alert comes from scanning, not from MCP: a scan waits for answers from devices, such as Bonjour (mDNS) names. The HTTP method listens only on `127.0.0.1`, so it is reachable from this computer only. The stdio method opens no network port. Without an administrator password, click **Cancel**; scans still work, but Bonjour names may be missing. See "Windows shows a Windows Security Alert about netdiag" in the main README troubleshooting section.
