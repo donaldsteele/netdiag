@@ -16,6 +16,7 @@ import (
 	"netdiag/internal/chat"
 	"netdiag/internal/mdns"
 	"netdiag/internal/model"
+	"netdiag/internal/scan"
 	"netdiag/internal/store"
 )
 
@@ -38,7 +39,9 @@ func startChat(t *testing.T, f *bubblestest.Server) (string, *store.Store) {
 	m := chat.NewManager(chat.Options{Files: st, Browse: browse, PairPoll: 5 * time.Millisecond,
 		TrayConfig: func() (string, error) { return filepath.Join(t.TempDir(), "none.json"), nil },
 		Hostname:   func() (string, error) { return "FRONTDESK-PC", nil }})
-	s := New(Config{Store: st, Chat: m, SessionToken: testToken})
+	reg := scan.NewRegistry(scan.New(scan.Deps{Pinger: fakePinger{}, ARP: fakeARP{}, Ports: fakePorts{}, Web: fakeWeb{},
+		SNMP: fakeSNMP{}, DNS: fakeDNS{}, Vendors: fakeVendors{}, Env: fakeEnv{}}))
+	s := New(Config{Store: st, Chat: m, SessionToken: testToken, Registry: reg})
 	if err := s.Listen(0); err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +128,30 @@ func TestChatRoutes(t *testing.T) {
 	if cs.State != chat.StateConnected || cs.Channel == nil || cs.Server == nil || cs.Server.Name != "Office" || strings.Contains(b, f.Token()) {
 		t.Fatalf("status %s", b)
 	}
+	// Try now answers the status.
+	r, b = do(t, "POST", u+"/api/bubbles/retry", `{}`, "")
+	if r.StatusCode != 200 || decode[chat.Status](t, b).State != chat.StateConnected || strings.Contains(b, f.Token()) {
+		t.Fatalf("retry %d %s", r.StatusCode, b)
+	}
+	// Saving Settings with Send alerts on reaches the manager: the first
+	// connect says so in the channel.
+	r, b = do(t, "GET", u+"/api/settings", "", "")
+	set := decode[map[string]any](t, b)
+	set["chat"] = map[string]any{"enabled": true, "minSeverity": "warning"}
+	delete(set, "mcpUrl")
+	delete(set, "repaired")
+	sb, _ := json.Marshal(set)
+	if r, b := do(t, "PUT", u+"/api/settings", string(sb), ""); r.StatusCode != 200 {
+		t.Fatalf("save %d %s", r.StatusCode, b)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for len(f.Messages()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if m := f.Messages(); len(m) != 1 || !strings.Contains(m[0], "netdiag on FRONTDESK-PC is connected.") {
+		t.Fatalf("messages %q", m)
+	}
+
 	r, b = do(t, "POST", u+"/api/bubbles/channel", `{"channelId":"C1"}`, "")
 	if r.StatusCode != 200 || decode[chat.ChannelChoice](t, b).Channel.ID != "C1" {
 		t.Fatalf("channel %d %s", r.StatusCode, b)

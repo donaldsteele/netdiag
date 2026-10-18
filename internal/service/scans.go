@@ -22,13 +22,17 @@ func (s *Service) Interfaces() ([]netinfo.Iface, error) {
 	return list, nil
 }
 
-// Start begins a scan bound to the service base context.
+// Start begins a scan bound to the service base context, with its event
+// log and the team chat alert router on its bus.
 func (s *Service) Start(req model.ScanRequest) (*scan.Scan, error) {
 	sc, err := s.cfg.Registry.Start(s.cfg.BaseCtx, req)
 	if err != nil {
 		return nil, err
 	}
 	s.attachLog(sc, false)
+	if s.cfg.Chat != nil {
+		s.cfg.Chat.Attach(sc)
+	}
 	return sc, nil
 }
 

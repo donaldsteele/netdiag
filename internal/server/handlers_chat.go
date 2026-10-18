@@ -161,6 +161,15 @@ func (s *Server) handleChatTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.chat.SendTest(r.Context()))
 }
 
+// handleChatRetry is Try now: ask the chat server at once and let the
+// waiting alerts go (v0.6 4.10 Recovery). It answers the status.
+func (s *Server) handleChatRetry(w http.ResponseWriter, r *http.Request) {
+	if !s.needChat(w) {
+		return
+	}
+	writeJSON(w, http.StatusOK, s.chat.TryNow(r.Context()))
+}
+
 func (s *Server) handleChatDisconnect(w http.ResponseWriter, r *http.Request) {
 	if !s.needChat(w) {
 		return

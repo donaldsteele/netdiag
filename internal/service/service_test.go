@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"netdiag/internal/arp"
+	"netdiag/internal/chat"
 	"netdiag/internal/health"
 	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
@@ -458,6 +459,13 @@ func TestLoadSettingsRepaired(t *testing.T) {
 func TestCloseFlushesLedger(t *testing.T) {
 	if err := New(Config{}).Close(); err != nil {
 		t.Fatalf("no ledger: %v", err)
+	}
+	// Team chat that is not connected: nothing to wait for.
+	m := chat.NewManager(chat.Options{})
+	defer m.Close()
+	start := time.Now()
+	if err := New(Config{Chat: m}).Close(); err != nil || time.Since(start) > time.Second {
+		t.Fatalf("chat not connected: %v after %v", err, time.Since(start))
 	}
 	st, err := store.Open(t.TempDir())
 	if err != nil {

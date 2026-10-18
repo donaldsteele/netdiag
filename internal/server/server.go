@@ -89,10 +89,17 @@ type Server struct {
 // New returns a server for cfg.
 func New(cfg Config) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
+	if cfg.Chat == nil && cfg.Store != nil {
+		var l chat.Ledger
+		if cfg.Ledger != nil {
+			l = cfg.Ledger
+		}
+		cfg.Chat = chat.NewManager(chat.Options{Files: cfg.Store, Ledger: l})
+	}
 	svc := cfg.Service
 	if svc == nil {
 		svc = service.New(service.Config{Registry: cfg.Registry, Store: cfg.Store, Health: cfg.Health,
-			Interfaces: cfg.Interfaces, Gateway: cfg.Gateway, BaseCtx: ctx, Ledger: cfg.Ledger})
+			Interfaces: cfg.Interfaces, Gateway: cfg.Gateway, BaseCtx: ctx, Ledger: cfg.Ledger, Chat: cfg.Chat})
 	}
 	if cfg.Remote == nil {
 		cfg.Remote = remote.System{}
@@ -106,9 +113,6 @@ func New(cfg Config) *Server {
 	if cfg.SessionToken == "" {
 		cfg.SessionToken = instance.NewToken()
 	}
-	if cfg.Chat == nil && cfg.Store != nil {
-		cfg.Chat = chat.NewManager(chat.Options{Files: cfg.Store})
-	}
 	s := &Server{cfg: cfg, svc: svc, keepalive: 15 * time.Second, baseCtx: ctx, cancel: cancel, quit: make(chan struct{}),
 		instanceID: cfg.InstanceID, startedAt: time.Now().UTC().Format(time.RFC3339), token: cfg.SessionToken, chat: cfg.Chat}
 	s.mcpSrv = mcpserver.New(svc, mcpserver.Options{Transport: "http", Version: cfg.Version})
@@ -117,6 +121,9 @@ func New(cfg Config) *Server {
 	if svc.HasStore() {
 		if set, err := svc.LoadSettings(); err == nil {
 			s.mcpOn.Store(set.MCP.Enabled)
+			if s.chat != nil {
+				s.chat.ApplySettings(set.Chat)
+			}
 		}
 	}
 	svc.OnSettingsSaved(s.settingsSaved)
@@ -138,8 +145,12 @@ func (s *Server) version() string {
 	return s.cfg.Version
 }
 
-// settingsSaved updates the MCP runtime gate; disabling closes live sessions.
+// settingsSaved updates the MCP runtime gate (disabling closes live
+// sessions) and team chat's Send switch and level.
 func (s *Server) settingsSaved(set model.Settings) {
+	if s.chat != nil {
+		s.chat.ApplySettings(set.Chat)
+	}
 	was := s.mcpOn.Swap(set.MCP.Enabled)
 	if was && !set.MCP.Enabled {
 		for ss := range s.mcpSrv.Sessions() {
@@ -239,6 +250,7 @@ func (s *Server) routes() []route {
 		f("DELETE /api/bubbles/pair", s.handleChatPairCancel),
 		f("POST /api/bubbles/channel", s.handleChatChannel),
 		f("POST /api/bubbles/test", s.handleChatTest),
+		f("POST /api/bubbles/retry", s.handleChatRetry),
 	}
 	for _, m := range []string{"GET", "POST", "DELETE"} {
 		rs = append(rs, route{m + " /mcp", s.mcpGate(s.mcpHandler)})
@@ -295,18 +307,21 @@ func (s *Server) Serve(ctx context.Context) error {
 	select {
 	case err := <-errc:
 		s.cancel()
+		s.cancelPairing()
 		s.waitScans(5 * time.Second)
 		_ = s.svc.Close()
+		s.closeChat()
 		return err
 	case <-ctx.Done():
 	case <-s.quit:
 	}
 	s.cancel() // cancels running scans and open SSE streams
-	if s.chat != nil {
-		s.chat.Close() // stops waiting for a pairing approval
-	}
+	s.cancelPairing()
 	s.waitScans(5 * time.Second)
+	// The service gives the team chat outbox its last 3 s and saves the
+	// ledger; then the chat's sender and polling stop.
 	closeErr := s.svc.Close()
+	s.closeChat()
 	sctx, c := context.WithTimeout(context.Background(), 3*time.Second)
 	defer c()
 	if err := hs.Shutdown(sctx); err != nil {
@@ -316,7 +331,21 @@ func (s *Server) Serve(ctx context.Context) error {
 		return fmt.Errorf("server: %w", err)
 	}
 	if closeErr != nil {
-		return fmt.Errorf("server: saving open problems: %w", closeErr)
+		return fmt.Errorf("server: saving open problems and team chat alerts: %w", closeErr)
 	}
 	return nil
+}
+
+// cancelPairing stops waiting for a pairing approval (netdiag is closing).
+func (s *Server) cancelPairing() {
+	if s.chat != nil {
+		s.chat.CancelPairing()
+	}
+}
+
+// closeChat stops the team chat sender and polling and saves the outbox.
+func (s *Server) closeChat() {
+	if s.chat != nil {
+		s.chat.Close()
+	}
 }

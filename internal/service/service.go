@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
+	"netdiag/internal/chat"
 	"netdiag/internal/health"
 	"netdiag/internal/model"
 	"netdiag/internal/netinfo"
@@ -39,7 +41,14 @@ type Config struct {
 	// Ledger is the open-problem ledger the scans write (the same one as
 	// the registry's scan.Deps.Ledger); Close saves it. nil: none.
 	Ledger *problems.Ledger
+	// Chat is the team chat connection (the one the /api/bubbles routes
+	// use): Start puts its alert router on every scan, and Close gives its
+	// outbox a last chance to send. nil: no team chat.
+	Chat *chat.Manager
 }
+
+// chatFlush is how long Close waits for the team chat outbox (v0.6 4.9).
+const chatFlush = 3 * time.Second
 
 // Service implements the application operations.
 type Service struct {
@@ -83,13 +92,23 @@ func New(cfg Config) *Service {
 func (s *Service) Registry() *scan.Registry { return s.cfg.Registry }
 
 // Close saves what the service still holds in memory before netdiag exits
-// (Quit): the open-problem ledger's last changes. Call it after the scans
-// have stopped.
+// (Quit): it gives the team chat outbox up to 3 s to send what waits and
+// saves the rest, then saves the open-problem ledger's last changes (the
+// outbox marks in it what it posted). Call it after the scans have
+// stopped.
 func (s *Service) Close() error {
-	if s.cfg.Ledger == nil {
-		return nil
+	var errs []error
+	if s.cfg.Chat != nil {
+		if err := s.cfg.Chat.Flush(chatFlush); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	return s.cfg.Ledger.Flush()
+	if s.cfg.Ledger != nil {
+		if err := s.cfg.Ledger.Flush(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // HasStore reports whether a data store is configured.
