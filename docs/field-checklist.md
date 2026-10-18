@@ -262,10 +262,11 @@ When testing, stop only the netdiag you started, by its process ID or its path, 
 - [x] **Release candidate scan.** Steps: run `"%ProgramFiles%\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File <path to the RC netdiag.exe>` (it now uses DPAPI, a start lock and more Bonjour service types). Record the result; a detection is filed as a false positive before release.
   Date: 2026-10-18 · OS: Windows 11 Pro 26300 (administrator account, Ethernet) · Result: rc-v0.6.0-d17d2db netdiag.exe: MpCmdRun custom scan found no threats (definitions 1.461.89.0, engine 1.1.26090.9).
 - [ ] **Release build scan.** Steps: the same scan on the release build's `netdiag.exe`, then submit it to Microsoft as a false positive (until code signing lands).
-  Date: · OS: · Result:
+  Date: 2026-10-18 · OS: Windows 11 Pro 26300 (administrator account, Ethernet) · Result: v0.6.0 release netdiag.exe (from netdiag-windows-amd64.zip, SHA-256 CAE6F984…6DEA): MpCmdRun custom scan found no threats (definitions 1.461.89.0, engine 1.1.26090.9). Microsoft false-positive submission not filed yet (the exe is staged in `dist\wdsi-v0.6.0` on the build PC).
 
 ## Results
 
 | Date | Tester | Build version | Machine / OS | Router model | Printer model | Notes |
 |------|--------|---------------|--------------|--------------|---------------|-------|
 | 2026-10-18 | Product owner with Claude Code | v0.6 at 5fa841b, f20a2a4 and the release candidate d17d2db (v0.5.8-207-gd17d2db) | Windows 11 Pro 26300, administrator account, Ethernet; bubbles v0.2.0 on the same PC (127.0.0.1) | TP-Link (by its MAC vendor) at 192.168.68.1 | Zebra ZD621 (192.168.68.76) | 6.1 all passed (the cable test after the f20a2a4 fix); 6.6 release candidate scan clean. |
+| 2026-10-18 | Claude Code | v0.6.0 (e417334, the release build) | Windows 11 Pro 26300, administrator account, Ethernet | | | 6.6 release build scan clean. 6.2 to 6.5 not run: waived for the v0.6.0 release (master roadmap v0.6-D58). |
