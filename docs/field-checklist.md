@@ -6,6 +6,8 @@ models in the table at the bottom.
 
 Status: **NOT YET EXECUTED.** All items are unchecked. They must be completed
 by a person on physical hardware. Do not tick an item without observing it.
+The v0.6 items (section 6) were added on 2026-10-18 and are not run yet; tick
+each one only with its date, OS and result filled in.
 
 Machines required:
 - [ ] One Windows 11 PC (amd64, standard user account, no admin rights)
@@ -51,7 +53,7 @@ Machines required:
 - [ ] `netdiag ui --port 80` and `--port 443` are refused with exit code 2
 - [ ] Scan cancelled mid-run prints partial results and exits with code 1
 - [ ] Starting a second scan while one is running is refused (API returns 409; UI shows the refusal)
-- [ ] Two netdiag windows at once each get their own random port and both work
+- [ ] Starting netdiag a second time opens the page of the one already running (v0.6, see section 6); a second netdiag started with its own `NETDIAG_DATA_DIR` gets its own port and both work
 
 ## 5. v0.2 features (unchecked; field test deferred)
 
@@ -137,8 +139,8 @@ Use a Windows 11 standard user account with Windows Defender Firewall on and no 
 ### Live alerts
 - [ ] Unplugging a printer in live mode shows a warning banner and one beep (printerOffline, v0.6); plugging it back in turns that banner into "Fixed: Printer back online" after two good checks, with no beep
 - [ ] When the page loses its connection for a moment and reconnects (for example after the PC sleeps and wakes), old alerts do not beep or notify again (replay is silent)
-- [ ] Reloading the page during live mode shows an empty page, as README "Live mode" says; pressing Scan then stops the hidden live scan, it appears in History, and the new scan starts
-- [ ] Reloading during the first scan and pressing Scan at once shows "a scan is already running"; pressing Scan after the first scan finishes works
+- [ ] Reloading the page during live mode brings the live view back (table, health, live status and banners) without playing a sound, as README "Live mode" says (v0.6); pressing Scan in that page asks **Restart watching?**, and **Keep watching** leaves the live scan running
+- [ ] Reloading during the first scan picks that scan up again, and live mode starts when it finishes (v0.6)
 - [ ] Mute and Unmute change the beep and survive a restart
 - [ ] "Enable desktop alerts" from a click shows the browser permission prompt; denying it still leaves the banner and beep working
 - [ ] An alert is not repeated while its problem lasts (a printer that stays offline gives one banner), and the same new device is not announced twice within the cooldown (default 300 s). A problem that was fixed and comes back is shown again at once (v0.6)
@@ -158,6 +160,92 @@ Use a Windows 11 standard user account with Windows Defender Firewall on and no 
 - [ ] Settings and history are created under `%AppData%\netdiag` (Windows) or `~/Library/Application Support/netdiag` (macOS)
 - [ ] `NETDIAG_DATA_DIR` moves the data to the chosen folder
 - [ ] Deleting the folder while netdiag is closed resets everything to defaults on the next start
+
+## 6. v0.6 chat alerts and watching
+
+Run these with the v0.6 release candidate. Each item has the steps to follow
+and what you should see. Fill in its **Date**, **OS** and **Result** line
+(what you saw, in a few words, plus anything unexpected), then tick it. An
+item that fails stays unticked: write what happened in its Result line.
+
+Set up first (v0.6 §3, "Test rig"):
+- A Windows 11 PC with a standard user account (no administrator rights) and Windows Defender Firewall on
+- A Mac with Apple Silicon on macOS 15, with a standard user account
+- A bubbles v0.2.0 server on another computer on the same local network, with its admin page open, and a channel such as #netdiag-alerts
+- The Zebra ZD621 at 192.168.68.76, with someone next to it who opens and closes the cover when asked
+- netdiag connected to team chat (6.2, first item) before running 6.1
+
+When testing, stop only the netdiag you started, by its process ID or its path, never by its name (no `taskkill /IM`, no `pkill netdiag`).
+
+### 6.1 Real hardware: the Zebra and team chat (v0.6 §7.4)
+
+- [ ] **Cover open, then closed.** Steps: with team chat connected and **Send alerts to team chat** on, start a live scan of the Zebra's network and wait for the first scan to finish. Ask for the Zebra's cover to be opened. Within about 5 seconds the banner reads "Printer alert: … Door or cover open" (one alert: the printer's "offline or paused" flag is part of it), and #netdiag-alerts gets exactly one alert card within 10 seconds. Ask for the cover to be closed. The banner turns into ✔ **Fixed**, with no sound, and the same chat card (same key) is resolved with "Fixed at HH:MM (was down N min)" within 10 seconds. Capture `real-zebra-fault.png` and `real-zebra-recovered.png` again (with the Fixed banner) into `docs/assets/shots/`, and a screenshot of the resolved card in bubbles as `docs/assets/shots/bubbles-resolved.png`.
+  Date: · OS: · Result:
+- [ ] **Printer offline, then back.** Steps: in live mode, ask for the Zebra to be switched off. After 2 missed checks (about 30 seconds at the default 15 s), "Printer offline" appears on the page and in chat, as a warning. Ask for it to be switched on: after 2 good checks the banner turns into "Fixed: Printer back online at HH:MM (was down N min)" and the chat card is resolved with the same words.
+  Date: · OS: · Result:
+- [ ] **Restart while a problem is open.** Steps: open the cover and wait for its alert. Click **Quit**. Ask for the cover to be closed. Start netdiag again and scan with **Live mode** ticked: the first scan gives one Fixed and one chat resolve, and no new alert. Then open the cover, restart netdiag the same way with the cover still open: no second alert appears, on the page or in chat.
+  Date: · OS: · Result:
+- [ ] **This computer loses the network.** Steps: in live mode, unplug this computer's network cable (or turn its Wi-Fi off) for 2 minutes. No device is reported offline; the status line says "Live · checks paused: this computer lost the network", one "netdiag lost the network" notice appears, nothing is posted to chat, and one "netdiag is back on the network" notice appears after reconnecting. Then put the laptop to sleep for 5 minutes and wake it: no devices are reported offline.
+  Date: · OS: · Result:
+- [ ] **Chat server down.** Steps: stop the bubbles server. Open the cover, then close it, then start the server: nothing about it is posted. Stop the server again, open the cover, click **Quit** in netdiag, start the server, then start netdiag and scan with **Live mode**: exactly one alert is posted, and in bubbles its time is when the cover was opened, not when netdiag started again.
+  Date: · OS: · Result:
+- [ ] **One netdiag at a time.** Steps: double-click netdiag twice. The second start opens the same page (same address, buttons working) and its window closes by itself, saying "netdiag is already running at …". Stop only the netdiag you started.
+  Date: · OS: · Result:
+
+### 6.2 Windows 11, standard user, firewall on (v0.6 §7.5)
+
+- [ ] **First start uses 127.0.0.1:8787.** Steps: on a standard account that never ran netdiag (or with a new, empty `NETDIAG_DATA_DIR`), start netdiag. The browser opens `http://127.0.0.1:8787/`; record which browser.
+  Date: · OS: · Result:
+- [ ] **A second start opens the same page.** Steps: start netdiag again while it runs. The page that opens is the running one, and its buttons work (Settings opens and saves).
+  Date: · OS: · Result:
+- [ ] **Buttons work in Edge, Chrome and Firefox.** Steps: make each browser the default in turn and start netdiag. The page's buttons work on the first open: no "Buttons on this page are turned off for safety" banner. Record each browser and version.
+  Date: · OS: · Result:
+- [ ] **Connect to team chat without admin.** Steps: Settings > Team chat (bubbles) > **Connect to team chat**. The bubbles server is listed (record it if it is not). **Use this**, compare the first four groups of the fingerprint with bubbles Admin > Overview, **It matches**, have the chat admin approve in Admin > Pairing with a channel ticked, then **Send test alert**: the test card shows in the channel and closes. No administrator password is asked for at any point.
+  Date: · OS: · Result:
+- [ ] **Firewall prompt while looking for the chat server.** Steps: note whether a Windows Security Alert appears while netdiag looks for the chat server. Click **Cancel** if it does, then check that **Type the address** (the address from bubbles Admin > Overview) still connects.
+  Date: · OS: · Result:
+- [ ] **The chat key is protected (DPAPI).** Steps: after connecting, open `bubbles.json` in the data folder: it holds no readable token (the key is sealed). Copy `bubbles.json` into another Windows user's data folder and start netdiag there: Settings says **Needs reconnecting**, and **Reconnect** works.
+  Date: · OS: · Result:
+- [ ] **Open Location settings.** Steps: turn Location off (Settings > Privacy & security > Location), start a scan, open Health: the Wi-Fi card says Windows hides the details and **Open Location settings** opens that Settings page, nothing else.
+  Date: · OS: · Result:
+- [ ] **The chat server moves.** Steps: with team chat connected, give the bubbles server's computer a new address on the local network (for example renew its DHCP lease to a new address, or set another static address) and restart bubbles. Within about 3 minutes netdiag sends alerts again without reconnecting (send a test alert to check).
+  Date: · OS: · Result:
+
+### 6.3 macOS 15 (Apple Silicon), standard user (v0.6 §7.5)
+
+- [ ] **Only one netdiag on the Mac.** Steps: start `./netdiag` in Terminal, then again in a second Terminal window. The second one opens the running page and exits.
+  Date: · OS: · Result:
+- [ ] **The page opens with its buttons working.** Steps: start netdiag from Terminal with Safari as the default browser, then with Chrome. The page's buttons work on the first open (no "Buttons on this page are turned off for safety" banner).
+  Date: · OS: · Result:
+- [ ] **netdiag finds the chat server.** Steps: Settings > Team chat (bubbles) > **Connect to team chat**: the bubbles server is listed without typing its address. Finish connecting and send a test alert.
+  Date: · OS: · Result:
+- [ ] **The chat file is private.** Steps: after connecting, run `ls -l ~/Library/Application\ Support/netdiag/bubbles.json`: it reads `-rw-------` (only your user can read it).
+  Date: · OS: · Result:
+- [ ] **No Location button on a Mac.** Steps: scan, then open Health, also with Location Services off for netdiag (System Settings > Privacy & Security > Location Services). No card shows **Open Location settings**; the Wi-Fi card may say "hidden by macOS" instead.
+  Date: · OS: · Result:
+- [ ] **The Mac build.** Steps: on the build machine, `GOOS=darwin go vet ./...` passes and `scripts/build.sh` makes both darwin zips; the darwin-arm64 binary runs on this Mac after the HOW-TO-OPEN.txt steps.
+  Date: · OS: · Result:
+
+### 6.4 Windows and macOS
+
+- [ ] **Separate data folders, separate netdiags.** Steps: start netdiag normally, then start a second one with `NETDIAG_DATA_DIR` set to an empty folder. The second one runs on its own port with its own page, and both work.
+  Date: · OS: · Result:
+- [ ] **Another user's netdiag does not take your page.** Steps: sign in as a second user on the same computer (fast user switching) and start netdiag there first, then start netdiag as the first user. The first user's page is their own netdiag (their settings and history), on another port if 8787 is taken.
+  Date: · OS: · Result:
+
+### 6.5 Claude with the netdiag window and team chat
+
+- [ ] **Claude checks the chat alerts.** Steps: connect Claude Code to netdiag (`netdiag mcp --attach`, or HTTP with **Agent access (MCP)** on) and to bubbles' MCP server with a token of the netdiag app (see docs/mcp.md, "netdiag with team chat (bubbles)"). With one problem fixed and one still open, ask "Use netdiag to check its alerts in team chat." Claude reports the fixed one as fixed and closes it only after you say yes, and leaves the open one open after checking it again.
+  Date: · OS: · Result:
+- [ ] **Claude Desktop sees the window.** Steps: set `"args": ["mcp", "--attach"]` in Claude Desktop's config, turn on **Agent access (MCP)** in netdiag and start a live scan. Ask "Use netdiag to tell me what's wrong on the network.": Claude sees the live scan. Quit netdiag and start a new chat: Claude says no netdiag window is open, and still answers from the saved scans.
+  Date: · OS: · Result:
+
+### 6.6 Defender (v0.6 §7.6)
+
+- [ ] **Release candidate scan.** Steps: run `"%ProgramFiles%\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File <path to the RC netdiag.exe>` (it now uses DPAPI, a start lock and more Bonjour service types). Record the result; a detection is filed as a false positive before release.
+  Date: · OS: · Result:
+- [ ] **Release build scan.** Steps: the same scan on the release build's `netdiag.exe`, then submit it to Microsoft as a false positive (until code signing lands).
+  Date: · OS: · Result:
 
 ## Results
 

@@ -17,7 +17,7 @@ First time? Read **HOW-TO-OPEN.txt** (included in your zip). It explains the Sma
 5. Read the results:
    - **Devices** (the default view): the **Problems right now** card says what is broken at this moment, or "Everything looks fine" (see **Problems right now** below). Then the stat tiles (Alive, Printers, Web, mDNS, Offline, Conflicts). Click a tile to filter the table to those devices. Below them is the health strip (gateway, DHCP, DNS, internet, Wi-Fi and web server) and the hosts table (see below).
    - **Health** (sidebar, or click a health pill): one card per check, with its status, detail and response time (see **Health panel** below).
-   - **Activity**: the live activity log of the scan and of live-mode events (see below).
+   - **Activity**: the live activity log of the scan and of what changed in live mode (see below).
    - **History**: earlier scans, and a **Compare** view that shows what changed between two of them.
    - Click the IP address of a device (or anywhere on its row) to open its **details drawer**: printer model, supplies, SNMP, web links, remote access, conflicts and mDNS, with copy buttons for the IP and MAC.
 6. Export with **JSON** or **CSV** (the **Export** menu) if you need to send the results to someone.
@@ -38,7 +38,7 @@ First time? Read **HOW-TO-OPEN.txt** (included in your zip). It explains the Sma
 - **Keyboard**: Tab and Shift+Tab move between controls, Enter opens a row's details, and Esc closes the drawer and the settings dialog. Every control has a visible focus ring.
 - **Fonts and offline use**: the Inter and JetBrains Mono fonts are included in the program, so the page looks the same without an internet connection, and makes no outside requests.
 
-![netdiag details drawer in the light theme](docs/img/drawer-light.png)
+![netdiag details drawer in the light theme, showing a conflict: the two devices side by side, what it means and what to try](docs/img/drawer-light.png)
 
 Nothing is installed. No administrator rights are needed. The tool only listens on `127.0.0.1` (this computer), with no login. The web page itself makes no requests to the internet. Apart from name lookups sent to this computer's own DNS servers (the DNS check, and device names during a scan), the only outside request netdiag makes is the optional **internet check** (one quick request to a test address, described under Health panel), which runs from this computer. Once you connect team chat, netdiag also talks to your chat server on the local network.
 

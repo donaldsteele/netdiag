@@ -19,8 +19,9 @@ WINDOWS
 3. Windows SmartScreen may say "Windows protected your PC" because the
    program is not code-signed. Click "More info", then "Run anyway".
    You only need to do this once per download.
-4. Your browser opens to the netdiag page. Leave the black window open
-   while you use it. Click Quit in the page (or press Ctrl+C in the
+4. Your browser opens to the netdiag page, normally at
+   http://127.0.0.1:8787 (this computer only). Leave the black window
+   open while you use it. Click Quit in the page (or press Ctrl+C in the
    black window) to stop.
 
 You do not need an administrator password to run netdiag or to scan.
@@ -60,8 +61,9 @@ The Mac build is also not signed, so macOS blocks it the first time.
 
        ./netdiag
 
-   Your browser opens to the netdiag page. Click Quit in the page (or
-   press Ctrl+C in Terminal) to stop.
+   Your browser opens to the netdiag page, normally at
+   http://127.0.0.1:8787. Leave Terminal open while you use it. Click
+   Quit in the page (or press Ctrl+C in Terminal) to stop.
 
 If step 4 says "No such xattr", that is fine: the block was not set.
 If macOS still refuses to run it, open System Settings > Privacy &
@@ -91,13 +93,24 @@ WHAT YOU WILL SEE
   Wi-Fi extenders often do this on purpose; use "Ignore this MAC" if so.
 - Scans are saved in the History tab, and two scans can be compared.
 - Alerts (live mode) show as a banner and a beep. Use Mute to silence them.
+- The "Problems right now" card at the top says what is broken at this
+  moment, or "Everything looks fine", with what to try.
 - If you close the browser tab, double-click netdiag again: it opens the
-  same page.
+  same page, at the same address (normally http://127.0.0.1:8787).
+- Only one netdiag runs at a time. Starting it again does not start a
+  second copy: it opens the page of the one that is running.
+- A page you open by typing the address shows the results, but its
+  buttons stay off ("Buttons on this page are turned off for safety").
+  Double-click netdiag again to get a page whose buttons work.
+- Team chat: Settings > Team chat (bubbles) > "Connect to team chat"
+  sends the alerts to your team chat too, while netdiag is open and
+  watching (Live mode). Your chat admin approves it in bubbles.
 
 Everything stays on this computer. netdiag only listens on 127.0.0.1
 (this computer). The web page makes no internet requests. The only
 outside request is the optional internet check, which asks one test
 address whether the internet is reachable. The address can be changed in
-Settings.
+Settings. If you connect team chat, netdiag also talks to your chat
+server on the local network.
 
 Problems? See README.md, section "Troubleshooting".
