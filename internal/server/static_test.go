@@ -586,10 +586,13 @@ func TestTeamChatUI(t *testing.T) {
 	for _, want := range []string{
 		"Team chat (bubbles)</legend>", `<dialog id="chat-dialog"`, `x-ref="chatDlg"`, `@cancel.prevent="closeChatWizard()"`,
 		`id="chat-tool"`, `class="iconbtn tool chattool"`, "Connect to team chat", "Is this the right server?",
-		"Looking for your team chat on the local network…", "No chat server found automatically. Windows Firewall or a separate Wi-Fi network can hide it.",
+		`x-text="wiz.wait"`, "No chat server found automatically. A firewall or a separate Wi-Fi network can hide it.",
 		"Type the address", "Paste a connection string", "It matches", "It doesn't",
-		"Stop here and tell your chat admin.", "Ask your chat admin to approve netdiag", "Open bubbles admin page",
-		"netdiag isn't in any channel yet.", "Check again", "Send test alert", "<strong>while it is watching this network</strong>",
+		"Stop here and tell your chat admin.", "Ask your chat admin to approve netdiag", "Open the approval page (for your chat admin)",
+		"If the browser warns about the connection, ask your chat admin to approve on their own computer.",
+		"netdiag isn't in any channel yet.", "Check again", "Send test alert", "<strong>It sends them only while it is watching this network:</strong>",
+		"Add the port only if your chat admin says it isn't the usual one (28225), for example 192.168.1.20:30000.",
+		`<h2 id="chat-h" tabindex="-1" x-text="wiz.title">`, `id="chat-choose"`, "Choose a channel",
 		"Alerts go to team chat only while netdiag is watching this network.", `id="chat-enabled"`, `role="switch"`,
 		`<option value="warning">Problems and warnings</option>`, `<option value="critical">Only urgent problems</option>`,
 		`<option value="info">Everything, including notes</option>`, "Takes effect when you click Save.",
@@ -615,10 +618,25 @@ func TestTeamChatUI(t *testing.T) {
 		"wizEpoch++", "if (this.wiz.step === 'approve' || pairAsking)",
 		"s === 'connected' ? 'chat' : s === 'unreachable' ? 'chat-warn' : 'chat-off'",
 		"setInterval(() => this.loadChat(), 30000)", "}, 2000);",
-		"this.api('POST', '/api/bubbles/retry', {})", "netdiag keeps trying and will send ", "this.logPush('notice', n.text)",
+		"this.api('POST', '/api/bubbles/retry', {})", "'. netdiag keeps trying.'", "' Alerts from the last hour are sent when it is back.'",
+		"this.logPush('notice', n.text)",
+		// The wizard says what it is doing, and what it is waiting for.
+		"'Looking for your team chat on the local network…'", "'Reconnect to team chat'", "' to let netdiag in again…'",
+		"'Checking which channels netdiag is in…'",
+		// Connected with Send off never reads as sending (audit item 1).
+		"chatPaused() { return this.chatState() === 'connected' && !this.chatSendOn(); }", "'Connected (sending is off)'",
+		"'Team chat: connected, sending is off'", "'Alerts would go to'",
 	} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("app.js missing %q", want)
+		}
+	}
+	// What the chat server or this computer said (the field errors, the
+	// transport error) is never put together into the page's words, and
+	// netdiag never promises to send what it drops after an hour.
+	for _, bad := range []string{"The chat server refused it: ", "Something went wrong talking to the chat server", "waiting alerts when it is back"} {
+		if strings.Contains(string(js), bad) || strings.Contains(string(html), bad) {
+			t.Errorf("the page still says %q", bad)
 		}
 	}
 	if strings.Contains(string(js), "window.confirm('Disconnect") {

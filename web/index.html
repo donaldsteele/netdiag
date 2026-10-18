@@ -63,7 +63,7 @@
       <span class="livepill" :class="{held: liveStatus && liveStatus.held}" x-show="state === 'live'" :title="liveText()"><template x-if="liveStatus && liveStatus.held"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg></template><span x-text="liveText()"></span></span>
       <button type="button" class="chipbtn" :class="'h-' + (healthSummary().includes('fail') ? 'fail' : healthSummary().includes('warn') ? 'warn' : 'ok')"
               @click="showView('health'); $nextTick(() => $refs.healthPanel && $refs.healthPanel.focus())" ><svg class="ico" :class="healthSummary().includes('fail') ? 's-bad' : healthSummary().includes('warn') ? 's-warn' : 's-ok'" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + (healthSummary().includes('fail') ? 'circle-x' : healthSummary().includes('warn') ? 'triangle-alert' : 'circle-check')"></use></svg><span x-text="healthSummary()"></span></button>
-      <button type="button" class="iconbtn tool chattool" id="chat-tool" x-show="chatShown()" :class="'cs-' + chatState()" @click="openSettings('chat')" :title="chatTitle()">
+      <button type="button" class="iconbtn tool chattool" id="chat-tool" x-show="chatShown()" :class="chatToolClass()" @click="openSettings('chat')" :title="chatTitle()">
         <svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + chatIcon()"></use></svg><span class="sr" x-text="chatTitle()"></span></button>
       <button type="button" class="iconbtn tool" :aria-pressed="!soundOn()" @click="toggleSound()" :disabled="!settings" title="Mute alerts">
         <svg class="ico" aria-hidden="true" focusable="false"><use :href="soundOn() ? 'icons.svg#i-bell' : 'icons.svg#i-bell-off'"></use></svg><span class="sr">Mute alerts</span></button>
@@ -603,13 +603,13 @@
           <label>Repeat-alert cooldown (seconds, 30-3600) <input type="number" min="30" max="3600" x-model="draft.alerts.cooldownSec"></label>
         </fieldset>
         <fieldset id="set-chat"><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-chat"></use></svg>Team chat (bubbles)</legend>
-          <p class="sub" id="chat-status">Status: <span class="hs" :class="chatStatusClass()"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + (chatState() === 'off' ? 'info' : chatIcon())"></use></svg> <span x-text="chatStateWord()"></span></span></p>
+          <p class="sub" id="chat-status">Status: <span class="hs" :class="chatStatusClass()"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + (chatState() === 'off' || chatPaused() ? 'info' : chatIcon())"></use></svg> <span x-text="chatStateWord()"></span></span></p>
           <div x-show="chatState() === 'off'">
             <p class="sub">Post netdiag's alerts in your team chat, so everyone sees when something on the local network breaks and when it is fixed.</p>
             <p class="chatacts"><button type="button" id="chat-connect" aria-haspopup="dialog" @click="openChatWizard('connect')" :disabled="!settings"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-plug"></use></svg>Connect to team chat</button></p>
           </div>
           <div x-show="chatState() !== 'off'">
-            <p id="chat-where" x-show="chatWhere().channel"><span x-text="chatWhere().lead"></span> <strong x-text="chatWhere().channel"></strong><span x-text="chatWhere().rest"></span></p>
+            <p id="chat-where" x-show="chatWhere().channel"><span x-text="chatWhere().lead"></span> <strong x-text="chatWhere().channel"></strong><span x-text="chatWhere().rest + chatWhere().next"></span></p>
             <div class="alert error" role="alert" id="chat-identity" x-show="chatState() === 'identity_changed'"><strong>Warning: the chat server's identity changed.</strong> netdiag stopped sending alerts. This happens when the chat server is reinstalled, or when something is pretending to be it. Ask your chat admin before you reconnect.</div>
             <p class="alert warn" id="chat-trouble" x-show="chatTrouble()" x-text="chatTrouble()"></p>
             <p class="alert warn" id="chat-unsaved" x-show="chat && chat.unsaved" x-text="(chat && chat.unsaved) || ''"></p>
@@ -629,11 +629,12 @@
               <button type="button" id="chat-retry" x-show="chatState() === 'unreachable'" @click="chatTryNow()" :disabled="chatBusy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Try now</button>
               <button type="button" id="chat-test" x-show="chatState() === 'connected' || chatState() === 'unreachable' || (chatState() === 'no_channel' && !!(chat && chat.channel))" @click="chatTest()" :disabled="chatBusy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-send"></use></svg>Send test alert</button>
               <button type="button" id="chat-reconnect" x-show="chatState() === 'needs_reconnect' || chatState() === 'identity_changed'" aria-haspopup="dialog" @click="openChatWizard('reconnect')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-plug"></use></svg>Reconnect</button>
-              <button type="button" id="chat-change" x-show="chatState() !== 'needs_reconnect' && chatState() !== 'identity_changed'" aria-haspopup="dialog" @click="openChatWizard('channel')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-chat"></use></svg>Change channel</button>
+              <button type="button" id="chat-change" x-show="chatState() !== 'needs_reconnect' && chatState() !== 'identity_changed' && chatHasChannel()" aria-haspopup="dialog" @click="openChatWizard('channel')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-chat"></use></svg>Change channel</button>
+              <button type="button" id="chat-choose" x-show="chatState() !== 'needs_reconnect' && chatState() !== 'identity_changed' && !chatHasChannel()" aria-haspopup="dialog" @click="openChatWizard('channel')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-chat"></use></svg>Choose a channel</button>
               <button type="button" id="chat-disconnect" class="danger" aria-haspopup="dialog" @click="askDisconnect()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-unplug"></use></svg>Disconnect</button>
             </p>
-            <p class="sub" role="status" id="chat-msg" x-text="chatMsg"></p>
           </div>
+          <div role="status" id="chat-msg"><p x-show="chatMsg" :class="chatMsgKind === 'warn' ? 'alert warn' : chatMsgKind === 'ok' ? 'hs hs-ok' : 'sub'"><svg class="ico" x-show="chatMsgKind === 'ok'" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg> <span x-text="chatMsg"></span></p></div>
         </fieldset>
         <fieldset><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-shield-alert"></use></svg>Ignored conflict MACs</legend>
           <p class="sub" x-show="!draft.ignoredConflictMACs.length">None.</p>
@@ -682,11 +683,12 @@
 </dialog>
 <dialog id="chat-dialog" x-ref="chatDlg" aria-labelledby="chat-h" @cancel.prevent="closeChatWizard()">
   <div class="sform chatwiz">
-    <h2 id="chat-h" tabindex="-1">Connect to team chat</h2>
+    <h2 id="chat-h" tabindex="-1" x-text="wiz.title">Connect to team chat</h2>
     <div class="alert error" role="alert" id="wiz-error" x-show="wiz.error" x-text="wiz.error"></div>
 
     <div id="wiz-find" x-show="wiz.step === 'find'">
-      <p role="status"><span class="spinner" aria-hidden="true"></span> Looking for your team chat on the local network…</p>
+      <p role="status"><span class="spinner" aria-hidden="true"></span> <span x-text="wiz.wait"></span></p>
+      <p class="actions"><button type="button" @click="closeChatWizard()">Cancel</button></p>
     </div>
 
     <div id="wiz-list" x-show="wiz.step === 'list'">
@@ -702,24 +704,27 @@
             <button type="button" @click="wizUse(f)" :disabled="wiz.busy">Use this<span class="sr" x-text="' server: ' + f.name"></span></button></li>
         </template>
       </ul>
-      <p x-show="!wiz.servers.length && !wiz.tray" id="wiz-none">No chat server found automatically. Windows Firewall or a separate Wi-Fi network can hide it.</p>
+      <p x-show="!wiz.servers.length && !wiz.tray" id="wiz-none">No chat server found automatically. A firewall or a separate Wi-Fi network can hide it.</p>
       <p class="chatacts"><span x-show="wiz.servers.length || wiz.tray">Not listed?</span>
         <button type="button" @click="wizGo('address')">Type the address</button>
         <button type="button" @click="wizGo('string')">Paste a connection string</button></p>
+      <p class="actions"><button type="button" @click="closeChatWizard()">Cancel</button></p>
     </div>
 
     <form id="wiz-address" x-show="wiz.step === 'address'" @submit.prevent="wizInspect(wiz.address, 0)">
       <label>Chat server address <input type="text" id="chat-address" x-model="wiz.address" placeholder="192.168.1.20" spellcheck="false" autocomplete="off" aria-describedby="chat-address-help"></label>
-      <p class="sub" id="chat-address-help">Your chat admin can read it in bubbles under Admin &gt; Overview. Add the port only if it is not the usual one, for example 192.168.1.20:28225.</p>
+      <p class="sub" id="chat-address-help">Your chat admin can read it in bubbles under Admin &gt; Overview. Add the port only if your chat admin says it isn't the usual one (28225), for example 192.168.1.20:30000.</p>
       <p class="actions"><button type="submit" class="primary" :disabled="wiz.busy || !wiz.address.trim()">Check this server</button>
-        <button type="button" @click="wizGo('list')">Back</button></p>
+        <button type="button" @click="wizGo('list')">Back</button>
+        <button type="button" @click="closeChatWizard()">Cancel</button></p>
     </form>
 
     <form id="wiz-string" x-show="wiz.step === 'string'" @submit.prevent="wizConnectString()">
       <label>Connection string <input type="text" id="chat-string" x-model="wiz.connString" placeholder="bubbles://…" spellcheck="false" autocomplete="off" aria-describedby="chat-string-help"></label>
       <p class="sub" id="chat-string-help">Your chat admin can make one in bubbles under Admin &gt; Apps. It starts with bubbles:// and works only once.</p>
       <p class="actions"><button type="submit" class="primary" :disabled="wiz.busy || !wiz.connString.trim()">Connect</button>
-        <button type="button" @click="wizGo('list')">Back</button></p>
+        <button type="button" @click="wizGo('list')">Back</button>
+        <button type="button" @click="closeChatWizard()">Cancel</button></p>
     </form>
 
     <div id="wiz-fingerprint" x-show="wiz.step === 'fingerprint'">
@@ -729,9 +734,10 @@
           <p>Ask your chat admin to open <strong>Admin &gt; Overview</strong> in bubbles and read out the start of the server fingerprint. It must match:</p>
           <p class="fpbig mono" id="wiz-fp-start" x-text="wiz.insp.groups.slice(0, 4).join(' ')"></p>
           <p class="fprest mono" id="wiz-fp-rest" x-text="wiz.insp.groups.slice(4).join(' ')"></p>
-          <p class="sub"><span x-show="wiz.insp.serverName" x-text="'Server: ' + wiz.insp.serverName + ' (' + wiz.insp.address + '). '"></span><span x-show="wiz.insp.thisComputer" x-text="'This computer: ' + wiz.insp.thisComputer"></span></p>
+          <p class="sub"><span x-show="wiz.insp.serverName" x-text="'Server: ' + wiz.insp.serverName + ' (' + wizHost(wiz.insp.address) + '). '"></span><span x-show="wiz.insp.thisComputer" x-text="'This computer: ' + wiz.insp.thisComputer"></span></p>
           <p class="actions"><button type="button" class="primary" id="wiz-match" @click="wizMatch()" :disabled="wiz.busy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg>It matches</button>
-            <button type="button" id="wiz-no" @click="wizGo('nomatch')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-x"></use></svg>It doesn't</button></p>
+            <button type="button" id="wiz-no" @click="wizGo('nomatch')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-x"></use></svg>It doesn't</button>
+            <button type="button" @click="closeChatWizard()">Cancel</button></p>
         </div>
       </template>
     </div>
@@ -746,7 +752,8 @@
       <p class="paircode mono" id="wiz-code" x-text="wiz.code"></p>
       <p>They open <strong>Admin &gt; Pairing</strong> in bubbles, check that the code matches, tick a channel for alerts (or <em>Also create a channel for this app</em>), and click <strong>Approve</strong>.<span x-text="wizLeft()"></span></p>
       <p class="sub" role="status"><span class="spinner" aria-hidden="true"></span> Waiting for your chat admin…</p>
-      <p class="actions"><a class="btnlink" id="wiz-admin" x-show="wiz.adminUrl" :href="wiz.adminUrl || null" target="_blank" rel="noopener noreferrer"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-external-link"></use></svg>Open bubbles admin page<span class="sr"> (opens in a new tab)</span></a>
+      <p class="sub" id="wiz-admin-help" x-show="wiz.adminUrl">If the browser warns about the connection, ask your chat admin to approve on their own computer.</p>
+      <p class="actions"><a class="btnlink" id="wiz-admin" x-show="wiz.adminUrl" :href="wiz.adminUrl || null" target="_blank" rel="noopener noreferrer" aria-describedby="wiz-admin-help"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-external-link"></use></svg>Open the approval page (for your chat admin)<span class="sr"> (opens in a new tab)</span></a>
         <button type="button" @click="closeChatWizard()">Cancel</button></p>
     </div>
 
@@ -763,7 +770,7 @@
           <button type="button" @click="closeChatWizard()">Close</button></p>
       </div>
       <form x-show="wiz.channels.length" @submit.prevent="wizPick()">
-        <fieldset class="chanlist"><legend>Which channel should alerts go to?</legend>
+        <fieldset class="chanlist"><legend id="wiz-chan-q">Which channel should alerts go to?</legend>
           <template x-for="c in wiz.channels" :key="c.id">
             <label class="check"><input type="radio" name="chat-channel" :value="c.id" x-model="wiz.channelId"> <span x-text="'#' + c.name"></span></label>
           </template>
@@ -776,13 +783,14 @@
     <div id="wiz-ready" x-show="wiz.step === 'ready'">
       <p>Alerts will go to <strong x-text="'#' + ((wiz.channel && wiz.channel.name) || '')"></strong>.</p>
       <p class="chatacts"><button type="button" class="primary" id="wiz-test" @click="wizTest()" :disabled="wiz.busy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-send"></use></svg>Send test alert</button></p>
-      <p role="status" id="wiz-test-msg" :class="wiz.testOk ? 'hs hs-ok' : 'sub'"><svg class="ico" x-show="wiz.testMsg" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + (wiz.testOk ? 'circle-check' : 'triangle-alert')"></use></svg> <span x-text="wiz.testMsg"></span></p>
+      <div role="status" id="wiz-test-msg"><p x-show="wiz.testMsg" :class="wiz.testKind === 'ok' ? 'hs hs-ok' : wiz.testKind === 'warn' ? 'alert warn' : 'sub'"><svg class="ico" x-show="wiz.testKind === 'ok'" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg> <span x-text="wiz.testMsg"></span></p></div>
       <p class="actions"><button type="button" @click="wizGo('done')">Finish</button></p>
     </div>
 
     <div id="wiz-done" x-show="wiz.step === 'done'">
       <p class="hs hs-ok"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg> <span>Done.</span></p>
-      <p>netdiag sends alerts to <strong x-text="'#' + ((wiz.channel && wiz.channel.name) || '')"></strong> <strong>while it is watching this network</strong>. Leave netdiag open with Live mode ticked.</p>
+      <p x-show="chatSendOn()">netdiag sends alerts to <span x-text="'#' + ((wiz.channel && wiz.channel.name) || '')"></span>. <strong>It sends them only while it is watching this network:</strong> leave netdiag open with Live mode ticked.</p>
+      <p x-show="!chatSendOn()">Alerts will go to <span x-text="'#' + ((wiz.channel && wiz.channel.name) || '')"></span> once you turn on Send alerts to team chat in Settings and click Save. <strong>netdiag sends them only while it is watching this network:</strong> leave netdiag open with Live mode ticked.</p>
       <p class="actions"><button type="button" class="primary" @click="closeChatWizard()">Close</button></p>
     </div>
   </div>

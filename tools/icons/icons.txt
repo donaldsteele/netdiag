@@ -95,6 +95,7 @@ i-type-unknown circle-help
 i-chat messages-square
 i-chat-off message-square-off
 i-chat-warn message-square-warning
+i-chat-paused message-square-dashed
 i-send send
 i-plug plug
 i-unplug unplug

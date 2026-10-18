@@ -24,8 +24,8 @@ document.addEventListener('alpine:init', () => {
     shown: {},
     remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
     sessionOff: false, settingsLocked: false,
-    chat: null, chatMsg: '', chatBusy: false, chatNoteSeen: 0, chatNoteRun: '', wiz: {step: 'closed', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
-      code: '', expiresAt: '', adminUrl: '', channels: [], channelId: '', channel: null, testMsg: '', testOk: false, fresh: false, stopped: '', retry: ''},
+    chat: null, chatMsg: '', chatMsgKind: '', chatBusy: false, chatNoteSeen: 0, chatNoteRun: '', wiz: {step: 'closed', mode: 'connect', wait: '', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
+      code: '', expiresAt: '', adminUrl: '', channels: [], channelId: '', channel: null, testMsg: '', testKind: '', title: 'Connect to team chat', fresh: false, stopped: '', retry: ''},
     problems: null, pnAll: false, pnLimit: 5, pnDismissed: {},
     watching: null, restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: null, focusAt: 0, starting: false,
     log: [], logSeq: 0, logHidden: {}, logStick: true, logSeen: {},
@@ -540,61 +540,93 @@ document.addEventListener('alpine:init', () => {
       }
       this.chatNoteSeen = Math.max(this.chatNoteSeen, top);
     },
-    // "3 waiting alerts", for the words while the server is away.
-    chatWaiting() {
-      const n = (this.chat && this.chat.waiting) || 0;
-      return n === 1 ? 'the waiting alert' : n > 1 ? 'the ' + n + ' waiting alerts' : 'alerts';
-    },
+    // The answer of a team chat button in Settings: kind is busy (muted
+    // progress text), ok (circle-check) or warn (the yellow box), so a
+    // failure is a shape plus words, never small grey text.
+    chatSay(msg, kind) { this.chatMsg = msg; this.chatMsgKind = msg ? kind : ''; },
     // Try now: ask the chat server at once and let what waits go.
     async chatTryNow() {
-      this.chatBusy = true; this.chatMsg = 'Trying the chat server...';
+      this.chatBusy = true; this.chatSay('Trying the chat server...', 'busy');
       try {
         const r = await this.api('POST', '/api/bubbles/retry', {});
         if (r.ok) { this.chat = await r.json(); this.chatNotes(); }
         const s = this.chatState();
-        this.chatMsg = !r.ok ? 'Could not try again (HTTP ' + r.status + ').'
-          : s === 'unreachable' ? "Still can't reach the chat server. netdiag keeps trying."
-          : s === 'connected' ? 'The chat server answers again.' : '';
-      } catch (e) { this.chatMsg = 'Could not try again: ' + e.message; }
+        if (!r.ok) this.chatSay('Could not try again (HTTP ' + r.status + ').', 'warn');
+        else if (s === 'unreachable') this.chatSay("Still can't reach the chat server. netdiag keeps trying.", 'warn');
+        else this.chatSay(s === 'connected' ? 'The chat server answers again.' : '', 'ok');
+      } catch (e) { this.chatSay('Could not try again: ' + e.message, 'warn'); }
       this.chatBusy = false;
       this.$nextTick(() => this.focusShown([document.getElementById(this.chatState() === 'unreachable' ? 'chat-retry' : 'chat-test')]));
     },
     chatState() { return (this.chat && this.chat.state) || 'off'; },
+    // Send alerts to team chat as saved: only then does anything go to
+    // chat. Until the settings are read the page never claims it does.
+    chatSendOn() { return !!(this.settings && this.settings.chat && this.settings.chat.enabled); },
+    // Connected, but Send alerts to team chat is off, so nothing is sent:
+    // its own shape, colour and words, never the green "connected" ones.
+    chatPaused() { return this.chatState() === 'connected' && !this.chatSendOn(); },
     // The header tool shows only once team chat is set up.
     chatShown() { return this.chatState() !== 'off'; },
-    // Each state has its own shape: connected, can't reach, or stopped.
+    // Each state has its own shape: sending, sending off, can't reach, or
+    // stopped.
     chatIcon() {
       const s = this.chatState();
+      if (this.chatPaused()) return 'chat-paused';
       return s === 'connected' ? 'chat' : s === 'unreachable' ? 'chat-warn' : 'chat-off';
     },
     chatSince() { const t = this.clock(this.chat && this.chat.since); return t ? ' since ' + t : ''; },
     chatStateWord() {
+      if (this.chatPaused()) return 'Connected (sending is off)';
       return {off: 'Not connected', connected: 'Connected', unreachable: "Can't reach the server" + this.chatSince(),
         needs_reconnect: 'Needs reconnecting', no_channel: 'No channel', identity_changed: 'Server identity changed'}[this.chatState()] || this.chatState();
     },
     chatTitle() {
+      if (this.chatPaused()) return 'Team chat: connected, sending is off';
       const w = this.chatStateWord();
       return 'Team chat: ' + (this.chatState() === 'unreachable' ? "can't reach the server" + this.chatSince() : w.charAt(0).toLowerCase() + w.slice(1));
     },
+    // The header tool's colour class: cs-paused while sending is off.
+    chatToolClass() { return 'cs-' + (this.chatPaused() ? 'paused' : this.chatState()); },
+    // The status word's level matches its box: yellow for what Reconnect,
+    // Change channel or Try now puts right, red only for the identity
+    // warning (its red box).
     chatStatusClass() {
-      return {off: 'hs-info', connected: 'hs-ok', unreachable: 'hs-warn'}[this.chatState()] || 'hs-fail';
+      if (this.chatPaused()) return 'hs-info';
+      return {off: 'hs-info', connected: 'hs-ok', unreachable: 'hs-warn', needs_reconnect: 'hs-warn', no_channel: 'hs-warn'}[this.chatState()] || 'hs-fail';
     },
-    // "Sending to #netdiag-alerts on Office (192.168.1.20)", in parts. Only
-    // while alerts go there (or wait for the server): not when netdiag
+    // "192.168.1.20", or "192.168.1.20:30000": the usual port (28225) is
+    // left out wherever the page names the chat server.
+    chatHost(host, port) { return host + (port && Number(port) !== 28225 ? ':' + port : ''); },
+    // "Office (192.168.1.20)", the server netdiag is connected to.
+    chatServerName() {
+      const s = (this.chat || {}).server;
+      if (!s) return '';
+      const host = this.chatHost(s.host, s.port);
+      return s.name ? s.name + ' (' + host + ')' : host;
+    },
+    // Where alerts go, in parts: "Sending to #netdiag-alerts on Office
+    // (192.168.1.20)" only while they do (connected, Send alerts on); "Alerts
+    // go to" while the server is away; "Alerts would go to", and how to
+    // start, while Send alerts to team chat is off. Nothing when netdiag
     // stopped, or the channel takes no posts.
     chatWhere() {
-      const c = this.chat || {}, s = c.server, ch = c.channel, st = this.chatState();
-      if (!ch || !s || (st !== 'connected' && st !== 'unreachable')) return {lead: '', channel: '', rest: ''};
-      const host = s.host + (s.port && s.port !== 28225 ? ':' + s.port : '');
-      return {lead: 'Sending to', channel: '#' + ch.name, rest: ' on ' + (s.name ? s.name + ' (' + host + ')' : host)};
+      const c = this.chat || {}, ch = c.channel, st = this.chatState();
+      if (!ch || !c.server || (st !== 'connected' && st !== 'unreachable')) return {lead: '', channel: '', rest: '', next: ''};
+      const rest = ' on ' + this.chatServerName();
+      if (!this.chatSendOn()) return {lead: 'Alerts would go to', channel: '#' + ch.name, rest, next: '. Turn on Send alerts to team chat and click Save.'};
+      return {lead: st === 'connected' ? 'Sending to' : 'Alerts go to', channel: '#' + ch.name, rest, next: ''};
     },
+    chatHasChannel() { return !!(this.chat && this.chat.channel); },
     // What is wrong with the connection, in words; identity changed has its
     // own box. reason tells two causes of the same state apart: a token the
     // server refused or a saved connection this computer can't open, and a
     // channel that refused netdiag's post or was archived.
     chatTrouble() {
       const s = this.chatState(), c = this.chat || {}, ch = c.channel ? '#' + c.channel.name : 'the channel';
-      if (s === 'unreachable') return "Can't reach the chat server" + this.chatSince() + '. netdiag keeps trying and will send ' + this.chatWaiting() + ' when it is back.';
+      // Posts older than an hour are dropped (the outbox's PostTTL), and
+      // Send off drops what waits: only say what really goes.
+      if (s === 'unreachable') return "Can't reach the chat server" + this.chatSince() + '. netdiag keeps trying.' +
+        (this.chatSendOn() ? ' Alerts from the last hour are sent when it is back.' : '');
       if (s === 'needs_reconnect') {
         const why = c.reason === 'unreadable'
           ? "netdiag can't open its saved team chat connection on this computer (it may have been copied from another computer or Windows user), so it has to be connected again."
@@ -604,6 +636,7 @@ document.addEventListener('alpine:init', () => {
       if (s === 'no_channel') {
         if (c.reason === 'not_allowed') return "netdiag isn't allowed to post in " + ch + ' any more. Ask your chat admin to add netdiag to it again, then send a test alert, or click Change channel.';
         if (c.reason === 'archived') return 'The channel ' + ch + ' is archived. Click Change channel to choose another one.';
+        if (!c.channel) return "netdiag isn't posting anywhere yet. Click Choose a channel to pick where alerts go.";
         return "netdiag isn't posting anywhere yet. Click Change channel to choose where alerts go.";
       }
       return '';
@@ -617,26 +650,28 @@ document.addEventListener('alpine:init', () => {
     focusChat() {
       const s = this.chatState();
       const id = s === 'off' ? 'chat-connect' : s === 'needs_reconnect' || s === 'identity_changed' ? 'chat-reconnect'
-        : s === 'no_channel' ? 'chat-change' : s === 'unreachable' ? 'chat-retry' : 'chat-test';
+        : s === 'no_channel' ? (this.chatHasChannel() ? 'chat-change' : 'chat-choose') : s === 'unreachable' ? 'chat-retry' : 'chat-test';
       const el = document.getElementById('set-chat');
       if (el) el.scrollIntoView({block: 'nearest'});
       this.focusShown([document.getElementById(id)]);
     },
     async chatTest() {
-      this.chatBusy = true; this.chatMsg = 'Sending a test alert...';
-      this.chatMsg = await this.sendTest();
+      this.chatBusy = true; this.chatSay('Sending a test alert...', 'busy');
+      const t = await this.sendTest();
+      this.chatSay(t.msg, t.ok ? 'ok' : 'warn');
       this.chatBusy = false;
       this.loadChat();
       this.$nextTick(() => this.focusShown([document.getElementById('chat-test')]));
     },
-    // Posts the test alert and closes it again; the answer in words.
+    // Posts the test alert and closes it again; whether it worked, and the
+    // answer in words.
     async sendTest() {
       try {
         const r = await this.api('POST', '/api/bubbles/test', {});
         const j = await r.json().catch(() => ({}));
-        if (r.ok && j.ok) return 'Test alert sent to #' + j.channel + ' and closed again. Check that it appeared in bubbles.';
-        return j.error || ('Could not send the test alert (HTTP ' + r.status + ').');
-      } catch (e) { return 'Could not send the test alert: ' + e.message; }
+        if (r.ok && j.ok) return {ok: true, msg: 'Test alert sent to #' + j.channel + ' and closed again. Check that it appeared in bubbles.'};
+        return {ok: false, msg: j.error || ('Could not send the test alert (HTTP ' + r.status + ').')};
+      } catch (e) { return {ok: false, msg: 'Could not send the test alert: ' + e.message}; }
     },
     // Disconnect asks first in its own dialog (4.10 Recovery: Disconnect ·
     // Cancel, with Cancel focused). Esc and Cancel leave everything as it is
@@ -654,8 +689,10 @@ document.addEventListener('alpine:init', () => {
       this.closeDisconnect();
       try {
         const r = await this.api('DELETE', '/api/bubbles');
-        this.chatMsg = r.ok ? 'Disconnected from team chat.' : 'Could not disconnect (HTTP ' + r.status + ').';
-      } catch (e) { this.chatMsg = 'Could not disconnect: ' + e.message; }
+        const j = r.ok ? {} : await r.json().catch(() => ({}));
+        if (r.ok) this.chatSay('Disconnected from team chat.', 'ok');
+        else this.chatSay(j.error || 'Could not disconnect (HTTP ' + r.status + ').', 'warn');
+      } catch (e) { this.chatSay('Could not disconnect: ' + e.message, 'warn'); }
       await this.loadChat();
       this.$nextTick(() => this.focusChat());
     },
@@ -670,9 +707,13 @@ document.addEventListener('alpine:init', () => {
     openChatWizard(mode) {
       clearTimeout(pairTimer);
       wizEpoch++;
-      this.chatMsg = '';
-      Object.assign(this.wiz, {step: '', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
-        code: '', expiresAt: '', adminUrl: '', channels: [], channelId: '', channel: null, testMsg: '', testOk: false, fresh: false, stopped: '', retry: ''});
+      this.chatSay('', '');
+      // The heading says what this opening does; Change channel reads
+      // Choose a channel while none was ever chosen.
+      const title = mode === 'reconnect' ? 'Reconnect to team chat'
+        : mode === 'channel' ? (this.chatHasChannel() ? 'Change channel' : 'Choose a channel') : 'Connect to team chat';
+      Object.assign(this.wiz, {step: '', mode: mode, title: title, wait: '', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
+        code: '', expiresAt: '', adminUrl: '', channels: [], channelId: '', channel: null, testMsg: '', testKind: '', fresh: false, stopped: '', retry: ''});
       const s = this.$refs.dlg; if (s && s.open) s.close();
       this.$nextTick(() => { const d = this.$refs.chatDlg; if (d && !d.open) d.showModal(); });
       if (mode === 'channel') return this.wizCheckChannels(true);
@@ -712,8 +753,12 @@ document.addEventListener('alpine:init', () => {
     // A wizard call: the JSON answer, or null with the error shown. An
     // answer that comes after the wizard closed touches nothing on it; the
     // caller checks wizEpoch.
+    // The button pressed is disabled while the call is on its way, so an
+    // error that leaves the wizard on the same step gives focus back: to the
+    // step's text field (to correct it), else to that button, else to the
+    // step's main button. Keyboard and screen reader users keep their place.
     async wizCall(method, url, body, what) {
-      const e = wizEpoch;
+      const e = wizEpoch, step = this.wiz.step, from = document.activeElement;
       this.wiz.busy = true; this.wiz.error = '';
       let out = null, err = '';
       try {
@@ -722,18 +767,39 @@ document.addEventListener('alpine:init', () => {
         if (r.ok) out = j;
         else err = j.error || (what + ' (HTTP ' + r.status + ').');
       } catch (ex) { err = what + ': ' + ex.message; }
-      if (e === wizEpoch) { this.wiz.busy = false; this.wiz.error = err; }
+      if (e === wizEpoch) {
+        this.wiz.busy = false; this.wiz.error = err;
+        if (err) this.$nextTick(() => {
+          if (e !== wizEpoch || this.wiz.step !== step) return;
+          const box = document.getElementById('wiz-' + step);
+          if (!box) return;
+          this.focusShown([box.querySelector('input[type=text]'), box.contains(from) ? from : null, box.querySelector('button.primary')]);
+        });
+      }
       return out;
     },
     async wizFind() {
       const e = wizEpoch;
+      this.wiz.wait = 'Looking for your team chat on the local network…';
       this.wizGo('find');
       const j = await this.wizCall('POST', '/api/bubbles/discover', {interface: this.ifaceName}, 'Could not look for chat servers');
       if (e !== wizEpoch || this.wiz.step !== 'find') return;
       const err = this.wiz.error;
-      if (j) { this.wiz.servers = j.servers || []; this.wiz.tray = j.trayServer || null; }
+      if (j) {
+        // The server this computer's bubbles tray uses has its own card:
+        // the same server found on the local network is not listed again.
+        const t = j.trayServer || null;
+        this.wiz.tray = t;
+        this.wiz.servers = (j.servers || []).filter(f => !(t && f.address === t.address && f.port === t.port));
+      }
       this.wizGo('list');
       this.wiz.error = err;
+    },
+    // "192.168.1.20" for the inspected "192.168.1.20:28225", as Settings
+    // and the list name the server.
+    wizHost(address) {
+      const m = String(address || '').match(/^\[?(.*?)\]?:(\d+)$/);
+      return m ? this.chatHost(m[1], Number(m[2])) : String(address || '');
     },
     wizUse(f) { return this.wizInspect(f.address + ':' + f.port, f.onboardPort); },
     async wizInspect(address, onboardPort) {
@@ -764,13 +830,16 @@ document.addEventListener('alpine:init', () => {
     async wizReconnect() {
       const e = wizEpoch;
       const s = (this.chat && this.chat.server) || null;
+      const who = this.chatServerName() || 'the chat server';
       if (this.chatState() === 'identity_changed' && s) {
+        this.wiz.wait = 'Asking ' + who + ' for its fingerprint…';
         this.wizGo('find');
         await this.wizInspect(s.host + ':' + s.port, s.onboardPort);
         if (e !== wizEpoch) return;
         if (this.wiz.step === 'find') { const err = this.wiz.error; this.wizGo('address'); this.wiz.address = s.host + ':' + s.port; this.wiz.error = err; }
         return;
       }
+      this.wiz.wait = 'Asking ' + who + ' to let netdiag in again…';
       this.wizGo('find');
       return this.wizPair({reconnect: true}, 'reconnect');
     },
@@ -834,7 +903,7 @@ document.addEventListener('alpine:init', () => {
     },
     async wizCheckChannels(choose) {
       const e = wizEpoch;
-      if (!this.wiz.step) this.wizGo('find');
+      if (!this.wiz.step) { this.wiz.wait = 'Checking which channels netdiag is in…'; this.wizGo('find'); }
       const j = await this.wizCall('POST', '/api/bubbles/channel', {}, 'Could not list the channels');
       if (e !== wizEpoch) return;
       if (j) this.wizChannels(j, choose);
@@ -859,11 +928,11 @@ document.addEventListener('alpine:init', () => {
     },
     async wizTest() {
       const e = wizEpoch;
-      this.wiz.busy = true; this.wiz.testMsg = 'Sending a test alert...'; this.wiz.testOk = false;
-      const msg = await this.sendTest();
+      this.wiz.busy = true; this.wiz.testMsg = 'Sending a test alert...'; this.wiz.testKind = 'busy';
+      const t = await this.sendTest();
       if (e !== wizEpoch) return;
-      this.wiz.testOk = msg.startsWith('Test alert sent');
-      this.wiz.testMsg = msg; this.wiz.busy = false;
+      this.wiz.testKind = t.ok ? 'ok' : 'warn';
+      this.wiz.testMsg = t.msg; this.wiz.busy = false;
       this.loadChat();
       // The button was disabled while the alert went out: give it focus back.
       this.$nextTick(() => this.focusShown([document.getElementById('wiz-test')]));
@@ -1315,7 +1384,7 @@ document.addEventListener('alpine:init', () => {
     // Focuses the first of els that is shown, trying for a few frames while
     // x-show catches up.
     focusShown(els, tries) {
-      const el = els.find(e => e && e.isConnected && e.offsetParent !== null);
+      const el = els.find(e => e && e.isConnected && e.offsetParent !== null && !e.disabled);
       if (el) { el.focus(); return; }
       if ((tries || 0) < 10) requestAnimationFrame(() => this.focusShown(els, (tries || 0) + 1));
     },

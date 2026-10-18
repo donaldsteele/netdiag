@@ -672,6 +672,8 @@ export const CHAT_FP = 'sha256:' + CHAT_GROUPS.join('').toLowerCase();
 export const CHAT_SINCE = '2026-10-10T08:40:00Z';
 // The run of netdiag the status's activity note ids count in (they start again with a new one).
 export const CHAT_RUN = '5f0c2a9d41e6b873';
+// The status's unsaved words (chat.unsavedMsg): no OS error, no path.
+export const CHAT_UNSAVED = "netdiag couldn't save the team chat connection in its data folder. It works until netdiag closes, and netdiag keeps trying to save it. Check that the data folder isn't read-only or full.";
 
 // GET /api/bubbles in each state the status tool shows. extra adds or
 // overrides fields: reason (needs_reconnect: refused or unreadable;
