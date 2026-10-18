@@ -78,18 +78,27 @@ func DefaultConfig() Config {
 // open-problem ledger (v0.6 F2b) keeps these across restarts.
 type OpenFault struct {
 	Key, Trigger, Severity, IP, MAC, Name, Title string
-	OpenedAt                                     time.Time
+	// Detail is what the OK message names: a printer alert's or a low
+	// supply's description ("" for the other triggers).
+	Detail   string
+	OpenedAt time.Time
 }
 
 // fault is an open problem plus its progress toward the OK notice.
 type fault struct {
 	OpenFault
-	detail string // what the OK message names (a printer alert's or supply's description)
-	seen   string // offline: the host's LastSeen when last observed
-	good   int    // good observations in a row
+	seen string // offline: the host's LastSeen when last observed
+	good int    // good observations in a row
 	// folded holds the printer's general alerts (see general) that came
 	// with this printer alert, by alertID: they are part of this problem.
 	folded map[string]bool
+	// seeded marks a problem adopted from the ledger (Seed) that this run
+	// has not reported itself; Reconcile checks whether it is still there.
+	seeded bool
+	// again marks a problem this run reported while deferred that the
+	// ledger already had open: its notice was given before, so Reconcile
+	// drops the one held back.
+	again bool
 }
 
 // Engine produces Notices from transitions.
@@ -111,6 +120,10 @@ type Engine struct {
 	at map[string]string
 	// held is the storm guard (SetHold).
 	held bool
+	// deferred holds fault notices back until Reconcile (see Defer);
+	// waiting has them, in order.
+	deferred bool
+	waiting  []model.Notice
 }
 
 // New creates an engine. A nil clock uses time.Now.
@@ -183,9 +196,13 @@ func (e *Engine) emit(out []model.Notice, n model.Notice, detail string) []model
 	e.last[n.Key] = now
 	n.ID, n.At = e.next(now)
 	if n.Trigger != model.TriggerNewDevice {
-		e.open[n.Key] = &fault{detail: detail, OpenFault: OpenFault{
+		e.open[n.Key] = &fault{OpenFault: OpenFault{
 			Key: n.Key, Trigger: n.Trigger, Severity: n.Severity, IP: n.IP, MAC: n.MAC,
-			Name: n.Name, Title: n.Title, OpenedAt: now}}
+			Name: n.Name, Title: n.Title, Detail: detail, OpenedAt: now}}
+	}
+	if e.deferred {
+		e.waiting = append(e.waiting, n)
+		return out
 	}
 	return append(out, n)
 }
@@ -193,11 +210,17 @@ func (e *Engine) emit(out []model.Notice, n model.Notice, detail string) []model
 // emitOK closes the open problem f with an OK notice under the same key. It
 // bypasses the trigger switches and the cooldown, so a problem someone was
 // told about always closes, even after its trigger was switched off, and it
-// forgets the key's cooldown, so a relapse is reported straight away.
+// forgets the key's cooldown, so a relapse is reported straight away. A
+// problem whose fault notice is still held back (Defer) closes without a
+// word: its notice is dropped too, since nobody was told.
 func (e *Engine) emitOK(out []model.Notice, f *fault, title, msg string) []model.Notice {
 	now := e.now()
 	delete(e.open, f.Key)
 	delete(e.last, f.Key)
+	if i := slices.IndexFunc(e.waiting, func(n model.Notice) bool { return n.Key == f.Key && !n.OK }); i >= 0 {
+		e.waiting = slices.Delete(e.waiting, i, i+1)
+		return out
+	}
 	n := model.Notice{Trigger: f.Trigger, Severity: sevInfo, IP: f.IP, MAC: f.MAC, Name: f.Name,
 		Title: title, Message: msg, Key: f.Key, OK: true,
 		OpenedAt: f.OpenedAt.UTC().Format(time.RFC3339)}
@@ -343,6 +366,12 @@ func (e *Engine) Observe(prev, cur model.Host) []model.Notice {
 	}
 
 	if prev.IP == "" {
+		// A device with an open offline problem (seeded from the ledger:
+		// it was offline when netdiag last ran) that turns up in a later
+		// live cycle is back, not new.
+		if f := e.openFor(cur, "", model.TriggerPrinterOffline, model.TriggerDeviceOffline); f != nil && cur.Online {
+			return e.emitOK(out, f, backTitle(f.Trigger), backMessage(f.Trigger, l))
+		}
 		if cur.IsNew {
 			out = e.emit(out, e.hostNotice(model.TriggerNewDevice, cur, devicePart(cur), sevCtx{}, "New device",
 				fmt.Sprintf("%s appeared on the network.", l)), "")
@@ -382,14 +411,25 @@ func (e *Engine) presence(out []model.Notice, prev, cur model.Host, l string) []
 		f.good++
 		f.seen = cur.LastSeen
 		if f.good >= OnlineOKChecks {
-			if f.Trigger == model.TriggerPrinterOffline {
-				out = e.emitOK(out, f, "Printer back online", fmt.Sprintf("Printer %s answers again.", l))
-			} else {
-				out = e.emitOK(out, f, "Device back online", fmt.Sprintf("%s answers again.", l))
-			}
+			out = e.emitOK(out, f, backTitle(f.Trigger), backMessage(f.Trigger, l))
 		}
 	}
 	return out
+}
+
+// backTitle and backMessage are the OK notice of an offline problem.
+func backTitle(trigger string) string {
+	if trigger == model.TriggerPrinterOffline {
+		return "Printer back online"
+	}
+	return "Device back online"
+}
+
+func backMessage(trigger, label string) string {
+	if trigger == model.TriggerPrinterOffline {
+		return fmt.Sprintf("Printer %s answers again.", label)
+	}
+	return fmt.Sprintf("%s answers again.", label)
 }
 
 // supplies reports a supply crossing down to the threshold and closes that
@@ -445,8 +485,8 @@ func (e *Engine) supplies(out []model.Notice, pp *model.PrinterInfo, cur model.H
 			continue
 		}
 		msg := fmt.Sprintf("%s no longer reports the low supply.", l)
-		if f.detail != "" {
-			msg = fmt.Sprintf("%s no longer reports %s.", l, f.detail)
+		if f.Detail != "" {
+			msg = fmt.Sprintf("%s no longer reports %s.", l, f.Detail)
 		}
 		out = e.emitOK(out, f, "Supply OK again", msg)
 	}
@@ -532,8 +572,8 @@ func (e *Engine) printerAlerts(out []model.Notice, pp *model.PrinterInfo, cur mo
 			continue
 		}
 		msg := fmt.Sprintf("%s: the printer alert is cleared.", l)
-		if f.detail != "" {
-			msg = fmt.Sprintf("%s: cleared %s.", l, f.detail)
+		if f.Detail != "" {
+			msg = fmt.Sprintf("%s: cleared %s.", l, f.Detail)
 		}
 		out = e.emitOK(out, f, "Printer alert cleared", msg)
 	}
