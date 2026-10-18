@@ -491,7 +491,7 @@ test('a replayed fault and its OK come back as a Fixed banner, silently', async 
   const fixed = banners.filter({ hasText: 'Fixed: Device back online' });
   await expect(fixed).toHaveCount(1, { timeout: 15_000 });
   await expect(fixed).toHaveClass(/sev-ok/);
-  await expect(fixed).toContainText('(was down 12 min).');
+  await expect(fixed).toContainText('(lasted 12 min).');
   // The fault's banner became the Fixed one; Toner low is still open.
   await expect(banners).toHaveCount(2);
   await expect(banners.filter({ hasText: 'Warning: Toner low' })).toHaveCount(1);

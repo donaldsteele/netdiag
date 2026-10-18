@@ -100,8 +100,10 @@ test('the wizard: find, compare the fingerprint, approve, channel, test alert, d
   await expect(w.locator('#wiz-test-msg')).toHaveText('Test alert sent to #netdiag-alerts and closed again. Check that it appeared in bubbles.');
   await w.getByRole('button', { name: 'Finish' }).click();
 
-  // Step 8 (D10): said plainly, with only the condition in bold.
-  await expect(w.locator('#wiz-done')).toContainText('netdiag sends alerts to #netdiag-alerts. It sends them only while it is watching this network: leave netdiag open with Live mode ticked.');
+  // Step 8 (D10): said plainly, with only the condition in bold, and how
+  // watching starts.
+  await expect(w.locator('#wiz-done-on')).toHaveText('netdiag sends alerts to #netdiag-alerts. It sends them only while it is watching this network: tick Live mode and press Scan, then leave netdiag open.');
+  await expect(w.locator('#wiz-done-off')).toBeHidden();
   await expect(w.locator('#wiz-done p:visible strong')).toHaveText(['It sends them only while it is watching this network:']);
   await w.getByRole('button', { name: 'Close' }).click();
 
@@ -113,7 +115,7 @@ test('the wizard: find, compare the fingerprint, approve, channel, test alert, d
   await expect(s.locator('#chat-where')).toHaveText('Sending to #netdiag-alerts on Office (192.168.2.20)');
   await expect(s.locator('#chat-enabled')).toBeChecked();
   await expect(s.locator('#chat-level')).toHaveValue('warning');
-  await expect(s.locator('#chat-watching')).toHaveText('Alerts go to team chat only while netdiag is watching this network. Leave netdiag open with Live mode ticked.');
+  await expect(s.locator('#chat-watching')).toHaveText('Alerts go to team chat only while netdiag is watching this network. Tick Live mode and press Scan, then leave netdiag open.');
   await expect(s.locator('#chat-test')).toBeFocused();
   await expect(page.locator('#chat-tool')).toBeVisible();
   await expect(page.locator('#chat-tool')).toHaveAttribute('title', 'Team chat: connected');
@@ -153,8 +155,8 @@ test('nothing found: type the address, refused for a server on the internet', as
   const rec = await open(page, { found: { servers: 0 } });
   await startWizard(page);
   const w = wizard(page);
-  // No firewall named by product: netdiag runs on a Mac too.
-  await expect(w.locator('#wiz-none')).toHaveText('No chat server found automatically. A firewall or a separate Wi-Fi network can hide it.');
+  // A firewall on any OS, not only Windows Firewall.
+  await expect(w.locator('#wiz-none')).toHaveText('No chat server found automatically. A firewall on this computer or a separate Wi-Fi network can hide it.');
   await w.getByRole('button', { name: 'Type the address' }).click();
   await expect(w.locator('#chat-address')).toBeFocused();
   // The example port is not the usual one it says to leave out.
@@ -209,18 +211,61 @@ test('the tray server, a connection string, and a choice of channels', async ({ 
   clean(rec, errors);
 });
 
-test('no channel yet: Check again once the admin added netdiag', async ({ page }) => {
+test('no channel yet: Look again once the admin added netdiag', async ({ page }) => {
   const rec = await open(page, { channels: [], pairStates: ['approved'] });
   await startWizard(page);
   const w = wizard(page);
   await w.getByRole('button', { name: 'Use this server: Office' }).click();
   await w.getByRole('button', { name: 'It matches' }).click();
-  await expect(w.getByRole('button', { name: 'Check again' })).toBeVisible({ timeout: 10_000 });
+  await expect(w.getByRole('button', { name: 'Look again' })).toBeVisible({ timeout: 10_000 });
   await expect(w.locator('#wiz-channel')).toContainText("netdiag isn't in any channel yet. Ask your chat admin to add netdiag to a channel, for example #netdiag-alerts.");
-  await expect(w.getByRole('button', { name: 'Check again' })).toBeFocused();
+  await expect(w.getByRole('button', { name: 'Look again' })).toBeFocused();
   rec.channels = [fx.CHAT_CHANNEL];
-  await w.getByRole('button', { name: 'Check again' }).click();
+  await w.getByRole('button', { name: 'Look again' }).click();
   await expect(w.locator('#wiz-ready')).toContainText('Alerts will go to #netdiag-alerts.');
+  expect(rec.unmatched).toEqual([]);
+});
+
+// README step 4 lets the person close the wizard and wait for the chat
+// admin: the new connection already turned Send on, so a channel picked
+// later with Change channel sends, and Done says so truthfully.
+test('no channel yet, Close, then Change channel: Send is on and Done says alerts go', async ({ page }) => {
+  const rec = await open(page, { channels: [], pairStates: ['approved'] });
+  await startWizard(page);
+  const w = wizard(page);
+  await w.getByRole('button', { name: 'Use this server: Office' }).click();
+  await w.getByRole('button', { name: 'It matches' }).click();
+  await expect(w.getByRole('button', { name: 'Look again' })).toBeVisible({ timeout: 10_000 });
+  await expect.poll(() => puts(rec).length).toBe(1);
+  expect(JSON.parse(puts(rec)[0].body).chat).toEqual({ enabled: true, minSeverity: 'warning' });
+  await w.getByRole('button', { name: 'Close' }).click();
+  await expect(w).toHaveJSProperty('open', false);
+
+  rec.channels = [fx.CHAT_CHANNEL];
+  const s = settingsDlg(page);
+  await expect(s).toHaveJSProperty('open', true);
+  await s.locator('#chat-change').click();
+  await expect(w.locator('#wiz-ready')).toContainText('Alerts will go to #netdiag-alerts.', { timeout: 10_000 });
+  await w.getByRole('button', { name: 'Finish' }).click();
+  await expect(w.locator('#wiz-done-on')).toBeVisible();
+  await expect(w.locator('#wiz-done-off')).toBeHidden();
+  expect(puts(rec)).toHaveLength(1);
+  expect(rec.unmatched).toEqual([]);
+});
+
+// Someone who turned Send off and changes the channel keeps it off: Done
+// says nothing is sent yet and how to start, instead of promising alerts.
+test('Change channel with Send off: Done says sending is off and how to turn it on', async ({ page }) => {
+  const rec = await open(page, { chat: 'connected', channels: [fx.CHAT_CHANNEL, { id: 'C2', name: 'front-desk' }] });
+  await openSettings(page);
+  await settingsDlg(page).locator('#chat-change').click();
+  const w = wizard(page);
+  await w.getByRole('radio', { name: '#front-desk' }).check();
+  await w.getByRole('button', { name: 'Use this channel' }).click();
+  await w.getByRole('button', { name: 'Finish' }).click();
+  await expect(w.locator('#wiz-done-off')).toHaveText('Alerts will go to #front-desk once you turn on Send alerts to team chat in Settings and click Save. netdiag sends them only while it is watching this network: tick Live mode and press Scan, then leave netdiag open.');
+  await expect(w.locator('#wiz-done-on')).toBeHidden();
+  expect(puts(rec)).toHaveLength(0);
   expect(rec.unmatched).toEqual([]);
 });
 
@@ -292,15 +337,21 @@ const sendOn = () => ({ ...fx.settings(), chat: { enabled: true, minSeverity: 'w
 
 // The status word's colour matches its box (yellow for what a button puts
 // right, red only with the identity warning), and connected with Send off
-// is neither green nor the sending shape (audit item 1).
+// is neither green nor the sending shape (audit item 1). ctword is the word
+// the header button shows next to its shape: every state but connected and
+// sending says it in words, not only on hover (a status is a shape plus a
+// word).
 const STATES = [
-  { name: 'connected', state: 'connected', send: true, icon: 'chat', title: 'Team chat: connected', word: 'Connected', cls: 'hs-ok', tool: 'cs-connected' },
+  { name: 'connected', state: 'connected', send: true, icon: 'chat', title: 'Team chat: connected', word: 'Connected', cls: 'hs-ok', tool: 'cs-connected', ctword: '' },
   { name: 'connected, sending off', state: 'connected', send: false, icon: 'chat-paused', section: 'info', title: 'Team chat: connected, sending is off',
-    word: 'Connected (sending is off)', cls: 'hs-info', tool: 'cs-paused' },
-  { name: 'unreachable', state: 'unreachable', send: true, icon: 'chat-warn', title: /^Team chat: can't reach the server since \d\d:\d\d$/, word: /Can't reach the server since \d\d:\d\d$/, cls: 'hs-warn', tool: 'cs-unreachable' },
-  { name: 'needs_reconnect', state: 'needs_reconnect', send: true, icon: 'chat-off', title: 'Team chat: needs reconnecting', word: 'Needs reconnecting', cls: 'hs-warn', tool: 'cs-needs_reconnect' },
-  { name: 'no_channel', state: 'no_channel', send: true, icon: 'chat-off', title: 'Team chat: no channel', word: 'No channel', cls: 'hs-warn', tool: 'cs-no_channel' },
-  { name: 'identity_changed', state: 'identity_changed', send: true, icon: 'chat-off', title: 'Team chat: server identity changed', word: 'Server identity changed', cls: 'hs-fail', tool: 'cs-identity_changed' },
+    word: 'Connected (sending is off)', cls: 'hs-info', tool: 'cs-paused', ctword: 'Chat: sending off' },
+  { name: 'unreachable', state: 'unreachable', send: true, icon: 'chat-warn', title: /^Team chat: can't reach the server since \d\d:\d\d$/, word: /Can't reach the server since \d\d:\d\d$/, cls: 'hs-warn', tool: 'cs-unreachable',
+    ctword: "Chat: can't reach" },
+  { name: 'needs_reconnect', state: 'needs_reconnect', send: true, icon: 'chat-off', title: 'Team chat: needs reconnecting', word: 'Needs reconnecting', cls: 'hs-warn', tool: 'cs-needs_reconnect',
+    ctword: 'Chat: reconnect' },
+  { name: 'no_channel', state: 'no_channel', send: true, icon: 'chat-off', title: 'Team chat: no channel', word: 'No channel', cls: 'hs-warn', tool: 'cs-no_channel', ctword: 'Chat: no channel' },
+  { name: 'identity_changed', state: 'identity_changed', send: true, icon: 'chat-off', title: 'Team chat: server identity changed', word: 'Server identity changed', cls: 'hs-fail', tool: 'cs-identity_changed',
+    ctword: 'Chat: stopped' },
 ];
 
 for (const st of STATES) {
@@ -313,7 +364,15 @@ for (const st of STATES) {
     await expect(tool.locator('use')).toHaveAttribute('href', 'icons.svg#i-' + st.icon);
     await expect(tool).toHaveClass(new RegExp('\\b' + st.tool + '\\b'));
     const box = await tool.boundingBox();
-    expect([Math.round(box.width), Math.round(box.height)]).toEqual([34, 34]);
+    if (st.ctword) {
+      await expect(tool.locator('.ctword')).toBeVisible();
+      await expect(tool.locator('.ctword')).toHaveText(st.ctword);
+      expect(Math.round(box.height)).toBe(34);
+      expect(box.width).toBeGreaterThan(34);
+    } else {
+      await expect(tool.locator('.ctword')).toBeHidden();
+      expect([Math.round(box.width), Math.round(box.height)]).toEqual([34, 34]);
+    }
     await tool.click();
     const s = settingsDlg(page);
     await expect(s).toHaveJSProperty('open', true);

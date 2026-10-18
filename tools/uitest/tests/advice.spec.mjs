@@ -32,11 +32,11 @@ for (const theme of THEMES) {
     await expect(cards).toHaveCount(6);
     for (let i = 0; i < 6; i++) await expect(cards.nth(i).locator('.advice .meaning')).toContainText('What this means:');
     const meanings = {
-      'Gateway reachable': "This computer can't reach your router.",
-      'DHCP lease': "This computer didn't get an address from the router",
-      'DNS resolving': "Your local network works, but internet names can't be looked up.",
+      'Router': "This computer can't reach your router.",
+      'Getting an address (DHCP)': "This computer didn't get an address from the router",
+      'Name lookup (DNS)': "Your local network works, but internet names can't be looked up.",
       'Web server': "The web server isn't answering as expected (HTTP 503).",
-      'Internet reachability': "netdiag couldn't reach the internet.",
+      'Internet': "netdiag couldn't reach the internet.",
       'Wi-Fi': 'The Wi-Fi signal is weak (32%).',
     };
     for (const [label, m] of Object.entries(meanings)) await expect(card(page, label)).toContainText(m);
@@ -44,7 +44,7 @@ for (const theme of THEMES) {
     await runAxe(page, `advice-health-${theme}`, testInfo);
 
     // The raw detail waits under Technical details; Esc closes it again.
-    const gw = card(page, 'Gateway reachable');
+    const gw = card(page, 'Router');
     const tech = gw.locator('details.tech');
     const raw = tech.locator('p.hdetail');
     await expect(raw).toBeHidden();
@@ -84,7 +84,7 @@ test('"This network has no internet" makes Everything looks fine reachable, for 
   const rec = await installMocks(page, { health: 'offline', settings: { ...fx.settings(), noInternetNetworks: [OTHER_NETWORK] } });
   await page.goto(HOME);
   await page.locator('#tab-health').click();
-  const dns = card(page, 'DNS resolving');
+  const dns = card(page, 'Name lookup (DNS)');
   await expect(dns.locator('.hs')).toContainText('Warning');
   await expect(dns).toContainText('If this network has no internet on purpose, turn on "This network has no internet" in Settings.');
   await expect(page.locator('#health-fine')).toBeHidden();
@@ -115,7 +115,7 @@ test('"This network has no internet" makes Everything looks fine reachable, for 
   await expect(fine.locator('use')).toHaveAttribute('href', 'icons.svg#i-circle-check');
   await expect(dns.locator('.hs')).toContainText('Info');
   await expect(dns).toContainText('This network is set up without internet');
-  await expect(card(page, 'Internet reachability')).toContainText('This network is set up without internet, so this check is only for information.');
+  await expect(card(page, 'Internet')).toContainText('This network is set up without internet, so this check is only for information.');
 
   // Turning it off again forgets this network only.
   await dns.getByRole('button', { name: /^Open Settings/ }).click();
@@ -182,7 +182,7 @@ test('the Health panel line follows the Problems right now card', async ({ page 
   await expect(page.locator('#health-fine')).toContainText(fineLine);
   // The card's answer changes (Check again reads it once more): so does the line.
   rec.problems = 'some';
-  await page.locator('#health').getByRole('button', { name: 'Recheck', exact: true }).click();
+  await page.locator('#health').getByRole('button', { name: 'Check again', exact: true }).click();
   await expect(page.locator('#health-fine')).toContainText(healthOnlyLine);
   expect(rec.unmatched).toEqual([]);
 });
@@ -213,7 +213,7 @@ test('the health line waits for a check that could not run', async ({ page }) =>
   await initStorage(page, { theme: 'dark', live: false });
   await installMocks(page, { health: 'offline', settings: { ...fx.settings(), noInternetNetworks: [fx.NETWORK] } });
   await healthReport(page, true, (h) => {
-    h.checks[0] = { id: 'gateway', label: 'Gateway reachable', status: 'unavailable', detail: 'no default gateway detected',
+    h.checks[0] = { id: 'gateway', label: 'Router', status: 'unavailable', detail: 'no default gateway detected',
       latencyMs: 0, data: { reason: 'no_gateway' } };
   });
   await page.goto(HOME);

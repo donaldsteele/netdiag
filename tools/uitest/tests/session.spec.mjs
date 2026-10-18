@@ -102,6 +102,9 @@ test('a page with an old token shows the buttons-off banner and keeps the view; 
   // differently worded error: the banner already says what to do.
   const scan = page.getByRole('button', { name: 'Scan', exact: true });
   await expect(scan).toHaveAttribute('aria-disabled', 'true');
+  // Quit and the Health view's Check again look off the same way.
+  await expect(page.getByRole('button', { name: 'Quit', exact: true })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.locator('#health-run')).toHaveAttribute('aria-disabled', 'true');
   await scan.click({ force: true });
   await expect.poll(() => rec.unauthorized.some((u) => u.startsWith('POST /api/scans'))).toBe(true);
   await expect(banner).toBeVisible();
@@ -111,6 +114,18 @@ test('a page with an old token shows the buttons-off banner and keeps the view; 
   await expect.poll(() => rec.unauthorized.some((u) => u.startsWith('POST /api/quit'))).toBe(true);
   await expect(page.getByText('netdiag has stopped. You can close this tab.')).toBeHidden();
   await expect(banner).toBeVisible();
+  // Settings say why they are off and show no form: blank fields would
+  // look as if the settings were wiped. Close (and Esc) give focus back.
+  const settingsBtn = page.getByRole('button', { name: 'Settings', exact: true });
+  await settingsBtn.click();
+  const locked = page.locator('#settings-dialog');
+  await expect(locked.getByRole('alert')).toHaveText('Settings are turned off on this page for safety. Double-click netdiag to open a fresh page.');
+  await expect(locked.locator('fieldset')).toHaveCount(0);
+  await expect(locked.locator('input')).toHaveCount(0);
+  await expect(locked.getByRole('button', { name: 'Save', exact: true })).toBeHidden();
+  await locked.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(locked).toHaveJSProperty('open', false);
+  await expect(settingsBtn).toBeFocused();
 
   // A second launch opens a fresh page with the current token; this tab
   // picks it up from storage and its buttons work again. It also reads the
@@ -123,6 +138,9 @@ test('a page with an old token shows the buttons-off banner and keeps the view; 
   await expect(fresh.locator('#session-off')).toBeHidden();
   expect(recFresh.unauthorized).toEqual([]);
   await expect(banner).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Quit', exact: true })).toBeEnabled();
+  await expect(scan).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(page.locator('#health-run')).not.toHaveAttribute('aria-disabled', 'true');
   await expect.poll(() => app(page, (a) => a.settings && a.settings.community)).toBe('site-c0mm');
   expect(await app(page, (a) => [a.settingsLocked, a.community])).toEqual([false, 'site-c0mm']);
   await expect(page.getByRole('button', { name: 'Mute alerts' })).toBeEnabled();
@@ -134,6 +152,7 @@ test('a page with an old token shows the buttons-off banner and keeps the view; 
   const dlg = page.locator('#settings-dialog');
   await expect(dlg.getByRole('alert')).toBeHidden();
   await expect(dlg.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await expect(dlg.getByLabel('SNMP community')).toHaveValue('site-c0mm');
   await page.keyboard.press('Escape');
   await expect(dlg).toHaveJSProperty('open', false);
   expect(rec.unmatched).toEqual([]);

@@ -599,7 +599,7 @@ func TestTeamChatUI(t *testing.T) {
 		`<h2 id="chat-h" tabindex="-1" x-text="wiz.title">`, `id="chat-choose"`, "Choose a channel",
 		// Done tells the truth when Send alerts to team chat is off, and
 		// watching takes Scan, not only the Live mode tick.
-		`id="wiz-done-on" x-show="chatSending()"`, `id="wiz-done-off" x-show="!chatSending()"`,
+		`id="wiz-done-on" x-show="chatSendOn()"`, `id="wiz-done-off" x-show="!chatSendOn()"`, "tick Live mode and press Scan, then leave netdiag open.",
 		"Tick Live mode and press Scan, then leave netdiag open.",
 		"Alerts go to team chat only while netdiag is watching this network.", `id="chat-enabled"`, `role="switch"`,
 		`<option value="warning">Problems and warnings</option>`, `<option value="critical">Only urgent problems</option>`,

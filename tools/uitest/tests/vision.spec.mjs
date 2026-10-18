@@ -72,9 +72,9 @@ for (const type of DEFICIENCIES) {
 }
 
 // The Problems right now card (v0.6 #1): each severity has its own shape
-// next to its word (Problem, Warning, Note, Fixed), and the shapes stay
+// next to its word (Urgent, Warning, Note, Fixed), and the shapes stay
 // apart under each deficiency, in both themes.
-const CARD_SHAPE = { Problem: 'icons.svg#i-circle-x', Warning: 'icons.svg#i-triangle-alert', Note: 'icons.svg#i-info', Fixed: 'icons.svg#i-circle-check' };
+const CARD_SHAPE = { Urgent: 'icons.svg#i-circle-x', Warning: 'icons.svg#i-triangle-alert', Note: 'icons.svg#i-info', Fixed: 'icons.svg#i-circle-check' };
 for (const type of DEFICIENCIES) {
   for (const theme of THEMES) {
     const config = `vision-${type}-${theme}-problems`;

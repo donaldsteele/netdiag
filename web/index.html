@@ -61,10 +61,10 @@
     </form>
     <div class="hdrtools">
       <span class="livepill" :class="{held: liveStatus && liveStatus.held}" x-show="state === 'live' && !gone()" :title="liveText()"><template x-if="liveStatus && liveStatus.held"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-triangle-alert"></use></svg></template><span x-text="liveText()"></span></span>
-      <button type="button" class="chipbtn" :class="'h-' + (healthSummary().includes('fail') ? 'fail' : healthSummary().includes('warn') ? 'warn' : 'ok')"
-              @click="showView('health'); $nextTick(() => $refs.healthPanel && $refs.healthPanel.focus())" ><svg class="ico" :class="healthSummary().includes('fail') ? 's-bad' : healthSummary().includes('warn') ? 's-warn' : 's-ok'" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + (healthSummary().includes('fail') ? 'circle-x' : healthSummary().includes('warn') ? 'triangle-alert' : 'circle-check')"></use></svg><span x-text="healthSummary()"></span></button>
-      <button type="button" class="iconbtn tool chattool" id="chat-tool" x-show="chatShown()" :class="chatToolClass()" @click="openSettings('chat')" :title="chatTitle()">
-        <svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + chatIcon()"></use></svg><span class="sr" x-text="chatTitle()"></span></button>
+      <button type="button" class="chipbtn" :class="'h-' + healthLevel()"
+              @click="showView('health'); $nextTick(() => $refs.healthPanel && $refs.healthPanel.focus())" ><svg class="ico" :class="{fail: 's-bad', note: 's-info', ok: 's-ok'}[healthLevel()]" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + {fail: 'circle-x', note: 'info', ok: 'circle-check'}[healthLevel()]"></use></svg><span x-text="healthSummary()"></span></button>
+      <button type="button" class="iconbtn tool chattool" id="chat-tool" x-show="chatShown()" :class="[chatToolClass(), chatToolWord() ? 'worded' : '']" @click="openSettings('chat')" :title="chatTitle()">
+        <svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + chatIcon()"></use></svg><span class="ctword" aria-hidden="true" x-show="chatToolWord()" x-text="chatToolWord()"></span><span class="sr" x-text="chatTitle()"></span></button>
       <button type="button" class="iconbtn tool" :aria-pressed="!soundOn()" @click="toggleSound()" :disabled="!settings" title="Mute alerts">
         <svg class="ico" aria-hidden="true" focusable="false"><use :href="soundOn() ? 'icons.svg#i-bell' : 'icons.svg#i-bell-off'"></use></svg><span class="sr">Mute alerts</span></button>
       <button type="button" class="iconbtn tool" @click="enableDesktop()" x-show="desktopState() !== 'granted'" title="Enable desktop alerts">
@@ -235,9 +235,9 @@
             </li>
           </template>
         </ul>
-        <p class="empty" x-show="!health || !(health.checks || []).length">&gt; no health report yet - press Recheck</p>
+        <p class="empty" x-show="!health || !(health.checks || []).length">&gt; no health report yet - press Check again</p>
         <p>
-          <button type="button" @click="recheck()" :disabled="healthBusy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Recheck</button>
+          <button type="button" id="health-run" @click="recheck()" :disabled="healthBusy" :aria-disabled="sessionOff ? 'true' : null"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Check again</button>
           <a href="#" @click.prevent="openSettings()">Settings</a>
           <span class="sub" role="status" x-text="healthMsg"></span>
         </p>
@@ -592,7 +592,7 @@
           <p class="sub" id="trusted-pending" x-show="settings && settings.webServer && settings.webServer.trustedCert && !draft.webServer.trustedCert">The certificate is forgotten when you click Save.</p>
           <label>Internet check URL <input type="text" id="set-internet" x-model="draft.internetCheckURL" spellcheck="false" autocomplete="off"></label>
           <label class="check"><input type="checkbox" role="switch" id="set-nointernet" x-model="noInternetHere" :disabled="!healthNetwork()" aria-describedby="nointernet-help"> This network has no internet</label>
-          <p class="sub" id="nointernet-help"><span x-show="healthNetwork()">Turn this on for a local network that has no internet on purpose. It counts only on this network, the one the health checks last looked at; on other networks the checks stay as they are. Here the internet check then stays a note, and names that need the internet are not a warning.</span><span x-show="!healthNetwork()">netdiag doesn't know which network this is yet. Run the health checks first (Health, then Recheck).</span></p>
+          <p class="sub" id="nointernet-help"><span x-show="healthNetwork()">Turn this on for a local network that has no internet on purpose. It counts only on this network, the one the health checks last looked at; on other networks the checks stay as they are. Here the internet check then stays a note, and names that need the internet are not a warning.</span><span x-show="!healthNetwork()">netdiag doesn't know which network this is yet. Run the health checks first (Health, then Check again).</span></p>
         </fieldset>
         <fieldset><legend><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-bell"></use></svg>Alerts</legend>
           <label class="check"><input type="checkbox" x-model="draft.alerts.sound"> Play a sound</label>
@@ -629,7 +629,7 @@
                 <p class="sub" id="chat-pending" x-show="chatPending()">Takes effect when you click Save.</p>
               </div>
             </template>
-            <p class="sub" id="chat-watching">Alerts go to team chat only while netdiag is watching this network. Leave netdiag open with Live mode ticked.</p>
+            <p class="sub" id="chat-watching">Alerts go to team chat only while netdiag is watching this network. Tick Live mode and press Scan, then leave netdiag open.</p>
             <p class="chatacts">
               <button type="button" id="chat-retry" x-show="chatState() === 'unreachable'" @click="chatTryNow()" :disabled="chatBusy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Try now</button>
               <button type="button" id="chat-test" x-show="chatState() === 'connected' || chatState() === 'unreachable' || (chatState() === 'no_channel' && !!(chat && chat.channel))" @click="chatTest()" :disabled="chatBusy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-send"></use></svg>Send test alert</button>
@@ -661,7 +661,7 @@
     </template>
     <p class="actions">
       <button type="submit" class="primary" x-show="draftLoaded" :disabled="!settings">Save</button>
-      <button type="button" @click="closeSettings()" x-text="draftLoaded ? 'Cancel' : 'Close'"></button>
+      <button type="button" id="settings-close" @click="closeSettings()" x-text="draftLoaded ? 'Cancel' : 'Close'"></button>
     </p>
   </form>
 </dialog>
@@ -709,7 +709,7 @@
             <button type="button" @click="wizUse(f)" :disabled="wiz.busy">Use this<span class="sr" x-text="' server: ' + f.name"></span></button></li>
         </template>
       </ul>
-      <p x-show="!wiz.servers.length && !wiz.tray" id="wiz-none">No chat server found automatically. A firewall or a separate Wi-Fi network can hide it.</p>
+      <p x-show="!wiz.servers.length && !wiz.tray" id="wiz-none">No chat server found automatically. A firewall on this computer or a separate Wi-Fi network can hide it.</p>
       <p class="chatacts"><span x-show="wiz.servers.length || wiz.tray">Not listed?</span>
         <button type="button" @click="wizGo('address')">Type the address</button>
         <button type="button" @click="wizGo('string')">Paste a connection string</button></p>
@@ -771,7 +771,7 @@
     <div id="wiz-channel" x-show="wiz.step === 'channel'">
       <div x-show="!wiz.channels.length">
         <p x-show="!wiz.error">netdiag isn't in any channel yet. Ask your chat admin to add netdiag to a channel, for example #netdiag-alerts.</p>
-        <p class="actions"><button type="button" class="primary" @click="wizCheckChannels(false)" :disabled="wiz.busy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Check again</button>
+        <p class="actions"><button type="button" class="primary" @click="wizCheckChannels(false)" :disabled="wiz.busy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Look again</button>
           <button type="button" @click="closeChatWizard()">Close</button></p>
       </div>
       <form x-show="wiz.channels.length" @submit.prevent="wizPick()">
@@ -794,8 +794,8 @@
 
     <div id="wiz-done" x-show="wiz.step === 'done'">
       <p class="hs hs-ok"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-circle-check"></use></svg> <span>Done.</span></p>
-      <p x-show="chatSendOn()">netdiag sends alerts to <span x-text="'#' + ((wiz.channel && wiz.channel.name) || '')"></span>. <strong>It sends them only while it is watching this network:</strong> leave netdiag open with Live mode ticked.</p>
-      <p x-show="!chatSendOn()">Alerts will go to <span x-text="'#' + ((wiz.channel && wiz.channel.name) || '')"></span> once you turn on Send alerts to team chat in Settings and click Save. <strong>netdiag sends them only while it is watching this network:</strong> leave netdiag open with Live mode ticked.</p>
+      <p id="wiz-done-on" x-show="chatSendOn()">netdiag sends alerts to <span x-text="'#' + ((wiz.channel && wiz.channel.name) || '')"></span>. <strong>It sends them only while it is watching this network:</strong> tick Live mode and press Scan, then leave netdiag open.</p>
+      <p id="wiz-done-off" x-show="!chatSendOn()">Alerts will go to <span x-text="'#' + ((wiz.channel && wiz.channel.name) || '')"></span> once you turn on Send alerts to team chat in Settings and click Save. <strong>netdiag sends them only while it is watching this network:</strong> tick Live mode and press Scan, then leave netdiag open.</p>
       <p class="actions"><button type="button" class="primary" @click="closeChatWizard()">Close</button></p>
     </div>
   </div>

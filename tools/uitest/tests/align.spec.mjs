@@ -143,8 +143,8 @@ for (const [vpName, vp] of Object.entries(VIEWPORTS)) for (const theme of ['dark
     await page.keyboard.press('Escape');
     await expect(page.locator('#drawer')).toBeHidden();
     await page.evaluate(() => document.querySelector('#tab-health')?.click());
-    // The scan's own report has advice on two checks; a recheck gets six.
-    await page.getByRole('button', { name: 'Recheck', exact: true }).click();
+    // The scan's own report has advice on two checks; Check again gets six.
+    await page.getByRole('button', { name: 'Check again', exact: true }).click();
     await expect(page.locator('.hcard .advice')).toHaveCount(6);
     await page.locator('.hcard details.tech summary').first().click();
     all.push(...await measure(page, 'health-advice'));

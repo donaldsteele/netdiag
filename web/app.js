@@ -93,7 +93,7 @@ document.addEventListener('alpine:init', () => {
     healthStrip() {
       const by = {};
       for (const c of ((this.health || {}).checks || [])) by[c.id] = c;
-      const ids = [['gateway', 'Gateway'], ['dhcp', 'DHCP'], ['dns', 'DNS'], ['internet', 'Internet'], ['wifi', 'Wi-Fi'], ['webserver', 'Web server']];
+      const ids = [['gateway', 'Router'], ['dhcp', 'DHCP'], ['dns', 'DNS'], ['internet', 'Internet'], ['wifi', 'Wi-Fi'], ['webserver', 'Web server']];
       return ids.map(([id, label]) => {
         const c = by[id];
         if (!c) return {id, label, icon: this.checkIcon(id), status: 'unavailable', value: 'not checked'};
@@ -170,12 +170,18 @@ document.addEventListener('alpine:init', () => {
     },
     healthIcon(s) { return {ok: '✔', warn: '▲', fail: '✖', info: 'ℹ'}[s] || '–'; },
     healthStatusText(s) { return {ok: 'OK', warn: 'Warning', fail: 'Failed', info: 'Info', unavailable: 'Unavailable'}[s] || s; },
+    // The header chip says what the Problems right now card says of the
+    // checks: a failed check is a problem, a warning one only a note.
     healthSummary() {
       if (!this.health) return 'Health: not checked';
       const c = this.health.checks || [];
       const f = c.filter(x => x.status === 'fail').length, w = c.filter(x => x.status === 'warn').length;
       if (!f && !w) return 'Health: OK';
-      return 'Health: ' + [f ? f + ' fail' : '', w ? w + ' warn' : ''].filter(Boolean).join(', ');
+      return 'Health: ' + [f ? f + ' failing' : '', w ? w + (w === 1 ? ' note' : ' notes') : ''].filter(Boolean).join(', ');
+    },
+    healthLevel() {
+      const c = (this.health && this.health.checks) || [];
+      return c.some(x => x.status === 'fail') ? 'fail' : c.some(x => x.status === 'warn') ? 'note' : 'ok';
     },
     healthLatency(c) { return c.latencyMs > 0 ? c.latencyMs.toFixed(1) + ' ms' : ''; },
     // Every health check came back fine: none failed or warned, and none
@@ -273,22 +279,23 @@ document.addEventListener('alpine:init', () => {
         {id: 'fixed', heading: 'Fixed in the last day', label: 'Fixed in the last day', items: shown.filter(x => x.fixedAt)},
       ].filter(g => g.items.length);
     },
-    // Every item is a shape plus a word: Problem (critical), Warning, Note, Fixed.
+    // Every item is a shape plus a word: Urgent (critical), Warning, Note,
+    // Fixed: the words the banners and Settings > Send use too.
     pnSev(p) { return p.fixedAt ? 'ok' : p.severity === 'critical' || p.severity === 'warning' ? p.severity : 'info'; },
     pnIcon(p) { return {critical: 'circle-x', warning: 'triangle-alert', info: 'info', ok: 'circle-check'}[this.pnSev(p)]; },
     pnClass(p) { return {critical: 's-bad', warning: 's-warn', info: 's-info', ok: 's-ok'}[this.pnSev(p)]; },
-    pnWord(p) { return {critical: 'Problem', warning: 'Warning', info: 'Note', ok: 'Fixed'}[this.pnSev(p)]; },
-    // A fixed item reads "Fixed at 10:42 (was down 12 min): Printer back online"
+    pnWord(p) { return {critical: 'Urgent', warning: 'Warning', info: 'Note', ok: 'Fixed'}[this.pnSev(p)]; },
+    // A fixed item reads "Fixed at 10:42 (lasted 12 min): Printer back online"
     // ("at Fri 15:00" for a fix of an earlier day).
     pnTitle(p) {
       return p.fixedAt ? this.fixedText({at: p.fixedAt, openedAt: p.openedAt}, this.pnClock(p.fixedAt)).replace(/\.$/, '') + ': ' + p.title : p.title;
     },
     // Which one, the device and since when: "Black Toner at 15% · Front Desk (192.168.1.50) · since 10:12".
+    // A fixed item says which one too: "Router", "Door or cover open".
     pnWhere(p) {
       const d = p.device || {};
       const dev = d.ip ? (d.name ? d.name + ' (' + d.ip + ')' : d.ip) : '';
       const since = !p.fixedAt && this.pnClock(p.since) ? 'since ' + this.pnClock(p.since) : '';
-      // A fixed item names what was fixed too: "Health check OK again · DNS".
       const detail = p.detail || '';
       // A conflict's addresses already name its device.
       return [detail, d.ip && detail.split(', ').includes(d.ip) ? '' : dev, since].filter(Boolean).join(' · ');
@@ -671,6 +678,15 @@ document.addEventListener('alpine:init', () => {
     },
     // The header tool's colour class: cs-paused while sending is off.
     chatToolClass() { return 'cs-' + (this.chatPaused() ? 'paused' : this.chatState()); },
+    // The word the header's chat button shows next to its shape whenever
+    // alerts are not getting through (sending off too); connected and
+    // sending is the shape alone (its word is in the title and for screen
+    // readers).
+    chatToolWord() {
+      if (this.chatPaused()) return 'Chat: sending off';
+      return {unreachable: "Chat: can't reach", no_channel: 'Chat: no channel', needs_reconnect: 'Chat: reconnect',
+        identity_changed: 'Chat: stopped'}[this.chatState()] || '';
+    },
     // The status word's level matches its box: yellow for what Reconnect,
     // Change channel or Try now puts right, red only for the identity
     // warning (its red box).
@@ -987,6 +1003,10 @@ document.addEventListener('alpine:init', () => {
       this.wiz.channels = j.channels || [];
       this.wiz.channelId = (j.channel && j.channel.id) || '';
       if (j.error) { this.wizGo('channel'); this.wiz.error = j.error; return; }
+      // A new connection turns Send on even before it has a channel, so
+      // closing at "isn't in any channel yet" and picking one later with
+      // Change channel still sends.
+      if (this.wiz.fresh) this.wizSendOn();
       if (j.channel && !(choose && this.wiz.channels.length > 1)) return this.wizReady(j.channel);
       this.wizGo('channel');
     },
@@ -1004,16 +1024,21 @@ document.addEventListener('alpine:init', () => {
       if (j && j.channel && e === wizEpoch) this.wizReady(j.channel);
     },
     // Alerts have a channel. A new connection turns Send alerts to team chat
-    // on, so the Done screen tells the truth (v0.6-D38).
-    async wizReady(ch) {
+    // on (v0.6-D38), if wizChannels has not yet; Change channel leaves it as
+    // the person set it, and the Done screen says which it is.
+    wizReady(ch) {
       this.wiz.channel = ch;
       this.wizGo('ready');
-      if (this.wiz.fresh && this.settings && !this.chatSendOn()) {
-        const doc = JSON.parse(JSON.stringify(this.settings));
-        doc.chat = Object.assign({minSeverity: 'warning'}, doc.chat || {}, {enabled: true});
-        if (await this.putSettings(doc, false) && this.draft) this.draft.chat = Object.assign({}, this.draft.chat || {}, {enabled: true});
-      }
+      if (this.wiz.fresh) this.wizSendOn();
       this.loadChat();
+    },
+    // Once per new connection: a person who turns Send off later keeps it off.
+    async wizSendOn() {
+      this.wiz.fresh = false;
+      if (!this.settings || this.chatSendOn()) return;
+      const doc = JSON.parse(JSON.stringify(this.settings));
+      doc.chat = Object.assign({minSeverity: 'warning'}, doc.chat || {}, {enabled: true});
+      if (await this.putSettings(doc, false) && this.draft) this.draft.chat = Object.assign({}, this.draft.chat || {}, {enabled: true});
     },
     async wizTest() {
       const e = wizEpoch;
@@ -1108,13 +1133,13 @@ document.addEventListener('alpine:init', () => {
       if (!b.ok) return b.message;
       return this.fixedText(b) + (b.message ? ' ' + b.message : '');
     },
-    // "at 10:42 (was down 12 min)." for an OK notice (local time; when
+    // "at 10:42 (lasted 12 min)." for an OK notice (local time; when
     // names the time another way, such as "Fri 10:42").
     fixedText(n, when) {
       const at = new Date(n.at), from = new Date(n.openedAt);
       const end = isNaN(at) ? new Date() : at;
       let s = 'at ' + (when || end.toTimeString().slice(0, 5));
-      if (!isNaN(from) && end >= from) s += ' (was down ' + this.downFor(Math.floor((end - from) / 60000)) + ')';
+      if (!isNaN(from) && end >= from) s += ' (lasted ' + this.downFor(Math.floor((end - from) / 60000)) + ')';
       return s + '.';
     },
     // m minutes in words: "12 min", "2 h 5 min", and from a day on "1 day",
@@ -1127,9 +1152,9 @@ document.addEventListener('alpine:init', () => {
       const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
       return (d === 1 ? '1 day' : d + ' days') + (h ? ' ' + h + ' h' : '');
     },
-    // The card's words for the severities (pnWord): Problem, Warning, Note.
+    // The card's words for the severities (pnWord): Urgent, Warning, Note.
     bannerLead(b) {
-      return (b.ok ? 'Fixed: ' : b.severity === 'critical' ? 'Problem: ' : b.severity === 'warn' ? 'Warning: ' : 'Note: ') + b.title;
+      return (b.ok ? 'Fixed: ' : b.severity === 'critical' ? 'Urgent: ' : b.severity === 'warn' ? 'Warning: ' : 'Note: ') + b.title;
     },
     // Show device next to Dismiss: for a fault whose advice points at a
     // device this page lists.

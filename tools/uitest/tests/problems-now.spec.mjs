@@ -113,14 +113,14 @@ for (const theme of THEMES) {
     await expect(items(page)).toHaveCount(5);
     await expect(card(page).locator('#pn-fine')).toBeHidden();
     const words = await card(page).locator('.psev').allTextContents();
-    expect(words).toEqual(['Problem', 'Warning', 'Warning', 'Warning', 'Warning']);
+    expect(words).toEqual(['Urgent', 'Warning', 'Warning', 'Warning', 'Warning']);
     const icons = await card(page).locator('.psev use').evaluateAll((els) => els.map((e) => e.getAttribute('href')));
     expect(icons[0]).toBe('icons.svg#i-circle-x');
     expect(icons[1]).toBe('icons.svg#i-triangle-alert');
     await expect(items(page).first()).toContainText('Health check failed');
-    // The check's short name, as the health strip says it: "Gateway
+    // The check's plain name, as the health strip says it: "Gateway
     // reachable" next to "Health check failed" reads as if it answered.
-    await expect(items(page).first().locator('.pline .sub')).toHaveText('Gateway');
+    await expect(items(page).first().locator('.pline .sub')).toHaveText('Router');
     await expect(items(page).nth(2)).toContainText('Black Toner at 15% · BRW001BA9123456 (192.168.2.10)');
     const all = card(page).locator('#pn-all');
     await expect(all).toHaveText('Show all 6');
@@ -206,12 +206,12 @@ test('an OK notice brings a Fixed item; Dismiss removes it', async ({ page }) =>
   await expect(first.locator('.psev')).toHaveText('Fixed');
   await expect(first.locator('.psev use')).toHaveAttribute('href', 'icons.svg#i-circle-check');
   // A minute ago: today, or yesterday just after midnight.
-  await expect(first).toContainText(/Fixed\s+at (?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) )?\d\d:\d\d \(was down 12 min\): Device back online/);
+  await expect(first).toContainText(/Fixed\s+at (?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) )?\d\d:\d\d \(lasted 12 min\): Device back online/);
   await expect(first).toContainText('192.168.2.200');
-  // A fixed check says which one it was.
+  // A fixed health check says which check it was, as an open one does.
   const dns = fixed.locator('.pitem').nth(1);
-  await expect(dns.locator('.ptitle')).toHaveText(/: Health check OK again$/);
-  await expect(dns.locator('.pline .sub')).toHaveText('DNS');
+  await expect(dns.locator('.ptitle')).toHaveText(/\(lasted 7 min\): Health check OK again$/);
+  await expect(dns.locator('.pline .sub')).toHaveText('Name lookup (DNS)');
   // netdiag is watching: no "isn't watching" line.
   await expect(card(page).locator('#pn-watch')).toBeHidden();
   await page.waitForTimeout(2500);
@@ -252,7 +252,7 @@ for (const theme of THEMES) {
     await expect(card(page).locator('#pn-watch')).toBeHidden();
     await expect(items(page)).toHaveCount(1);
     await expect(items(page).first().locator('.psev')).toHaveText('Problem');
-    await expect(items(page).first().locator('.pline .sub')).toHaveText('Gateway');
+    await expect(items(page).first().locator('.pline .sub')).toHaveText('Router');
     await runAxe(page, `problems-health-${theme}`, testInfo);
     expect(rec.unmatched).toEqual([]);
   });
@@ -366,7 +366,7 @@ test('times of an earlier day name the day', async ({ page }) => {
   await expect(items(page).first()).toContainText('since ' + want.yesterday);
   const fixedGroup = card(page).locator('#pn-fixed');
   await expect(fixedGroup.getByRole('heading', { name: 'Fixed in the last day' })).toBeVisible();
-  await expect(fixedGroup.locator('.pitem')).toContainText('Fixed at ' + want.yesterday + ' (was down 12 min): Device back online');
+  await expect(fixedGroup.locator('.pitem')).toContainText('Fixed at ' + want.yesterday + ' (lasted 12 min): Device back online');
 });
 
 // Ignore this MAC: the card reads again, so a conflict the person ignored

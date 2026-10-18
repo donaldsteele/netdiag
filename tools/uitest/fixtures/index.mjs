@@ -173,10 +173,10 @@ export function flapConflict(alternations = 2) {
   const detail = `${FLAP_IP} keeps alternating between 2 MAC addresses (${FLAP_MACS.join(', ')}); two devices likely share this IP.`;
   const a = alternations >= 2
     ? advice("Two devices are taking turns using 192.168.2.44, so both work badly.",
-      ["Compare the two devices netdiag shows for this address (Device A and Device B).", "Restart one of them so it gets a new address.",
+      ["Open this address in netdiag and compare the two devices it shows (Device A and Device B).", "Restart one of them so it gets a new address.",
         "If it keeps happening, ask whoever looks after the router to reserve an address for one of them."], [showDevice(FLAP_IP)], detail)
     : advice("Possible conflict: the device answering at 192.168.2.44 changed.",
-      ["If you just replaced a device, this is expected.", "If it happens again, netdiag will show both devices here."], [], detail);
+      ["If you just replaced a device, this is expected.", "If it happens again, open this address in netdiag to see both devices."], [], detail);
   return { id: FLAP_ID, kind: 'mac_flap', severity: 'fail', ips: [FLAP_IP], macs: [...FLAP_MACS], name: '',
     firstSeen: T0, lastSeen: T1, detail, vendors: { ...FLAP_VENDORS }, advice: a };
 }
@@ -281,9 +281,9 @@ export function health({ web = 'unset', webURL = WEB_URL, state = 'default', noI
   return {
     checkedAt: T1, network: NETWORK,
     checks: [
-      { id: 'gateway', label: 'Default gateway', status: 'ok', detail: `Reachable at ${GATEWAY}`, latencyMs: 1.4 },
-      { id: 'dhcp', label: 'DHCP', status: 'ok', detail: 'Lease active, 23h remaining', latencyMs: 0 },
-      { id: 'dns', label: 'DNS', status: 'ok', detail: 'Resolved in 18 ms', latencyMs: 18.2 },
+      { id: 'gateway', label: 'Router', status: 'ok', detail: `Reachable at ${GATEWAY}`, latencyMs: 1.4 },
+      { id: 'dhcp', label: 'Getting an address (DHCP)', status: 'ok', detail: 'Lease active, 23h remaining', latencyMs: 0 },
+      { id: 'dns', label: 'Name lookup (DNS)', status: 'ok', detail: 'Resolved in 18 ms', latencyMs: 18.2 },
       webCheck(web, webURL),
       { id: 'internet', label: 'Internet', status: 'ok', detail: 'Reachable', latencyMs: 42.7 },
       wifiWeak(),
@@ -300,17 +300,17 @@ export function healthAll() {
   return {
     checkedAt: T1, network: NETWORK,
     checks: [
-      { id: 'gateway', label: 'Gateway reachable', status: 'fail', detail: gw, latencyMs: 0, data: { reason: 'no_reply' },
+      { id: 'gateway', label: 'Router', status: 'fail', detail: gw, latencyMs: 0, data: { reason: 'no_reply' },
         advice: advice("This computer can't reach your router.",
           ["Check that the router is switched on and its lights look normal.", "Check this computer's network cable or Wi-Fi.",
             "If both look fine, restart the router."], [RECHECK], gw) },
-      { id: 'dhcp', label: 'DHCP lease', status: 'fail', detail: dhcp, latencyMs: 0, data: { enabled: false, apipa: true, reason: 'apipa' },
+      { id: 'dhcp', label: 'Getting an address (DHCP)', status: 'fail', detail: dhcp, latencyMs: 0, data: { enabled: false, apipa: true, reason: 'apipa' },
         advice: advice("This computer didn't get an address from the router, so it can't talk to other devices.",
           ["Turn Wi-Fi off and on again, or unplug the network cable and plug it back in.", "If that doesn't help, restart the router."],
           [RECHECK], dhcp) },
       dnsNoInternet(false, dns),
       webCheck('down'),
-      { id: 'internet', label: 'Internet reachability', status: 'info', detail: inet, latencyMs: 0, data: { reason: 'no_response' },
+      { id: 'internet', label: 'Internet', status: 'info', detail: inet, latencyMs: 0, data: { reason: 'no_response' },
         advice: advice("netdiag couldn't reach the internet. Devices on the local network still work.",
           ["If this network should have internet, restart the router or modem."], [RECHECK], inet) },
       wifiWeak(32),
@@ -320,11 +320,11 @@ export function healthAll() {
 
 function dnsNoInternet(noInternet, detail = 'could not resolve connectivitycheck.gstatic.com, but DNS server 192.168.2.1 answers: no internet connection, or the DNS server cannot reach the internet (i/o timeout)') {
   if (noInternet) {
-    return { id: 'dns', label: 'DNS resolving', status: 'info', detail, latencyMs: 0, data: { reason: 'no_internet', noInternet: true },
+    return { id: 'dns', label: 'Name lookup (DNS)', status: 'info', detail, latencyMs: 0, data: { reason: 'no_internet', noInternet: true },
       advice: advice("This network is set up without internet, so internet names can't be looked up. That is expected.",
         ["If this network has internet now, turn off \"This network has no internet\" in Settings."], [settingsAction('noInternet')], detail) };
   }
-  return { id: 'dns', label: 'DNS resolving', status: 'warn', detail, latencyMs: 0, data: { reason: 'no_internet' },
+  return { id: 'dns', label: 'Name lookup (DNS)', status: 'warn', detail, latencyMs: 0, data: { reason: 'no_internet' },
     advice: advice("Your local network works, but internet names can't be looked up. Usually this means there is no internet connection right now.",
       ["If this network should have internet, restart the router or modem.",
         "If this network has no internet on purpose, turn on \"This network has no internet\" in Settings."],
@@ -336,16 +336,16 @@ function dnsNoInternet(noInternet, detail = 'could not resolve connectivitycheck
 export function healthOffline(noInternet = false) {
   const inet = 'internet check got no response (local checks are unaffected)';
   const internet = noInternet
-    ? { id: 'internet', label: 'Internet reachability', status: 'info', detail: inet, latencyMs: 0, data: { reason: 'no_response', noInternet: true },
+    ? { id: 'internet', label: 'Internet', status: 'info', detail: inet, latencyMs: 0, data: { reason: 'no_response', noInternet: true },
       advice: advice("This network is set up without internet, so this check is only for information.", [], [settingsAction('noInternet')], inet) }
-    : { id: 'internet', label: 'Internet reachability', status: 'info', detail: inet, latencyMs: 0, data: { reason: 'no_response' },
+    : { id: 'internet', label: 'Internet', status: 'info', detail: inet, latencyMs: 0, data: { reason: 'no_response' },
       advice: advice("netdiag couldn't reach the internet. Devices on the local network still work.",
         ["If this network should have internet, restart the router or modem."], [RECHECK], inet) };
   return {
     checkedAt: T1, network: NETWORK,
     checks: [
-      { id: 'gateway', label: 'Gateway reachable', status: 'ok', detail: `${GATEWAY} replied in 2 ms`, latencyMs: 1.9 },
-      { id: 'dhcp', label: 'DHCP lease', status: 'ok', detail: 'address obtained by DHCP from 192.168.2.1', latencyMs: 0 },
+      { id: 'gateway', label: 'Router', status: 'ok', detail: `${GATEWAY} replied in 2 ms`, latencyMs: 1.9 },
+      { id: 'dhcp', label: 'Getting an address (DHCP)', status: 'ok', detail: 'address obtained by DHCP from 192.168.2.1', latencyMs: 0 },
       dnsNoInternet(noInternet),
       webCheck('unset'),
       internet,
@@ -402,8 +402,8 @@ export function problemItems() {
       detail: `${ip(30)}, ${ip(31)}`, device: { ip: ip(30), mac: '00:1B:A9:AA:00:30' }, advice: conflict().advice },
   ];
 }
-// The card names a check by its short name (problems.CheckNames).
-const CHECK_NAMES = { gateway: 'Gateway', dhcp: 'DHCP', dns: 'DNS', internet: 'Internet', wifi: 'Wi-Fi', webserver: 'Web server' };
+// The card names a check by its plain name (model.HealthLabel).
+const CHECK_NAMES = { gateway: 'Router', dhcp: 'Getting an address (DHCP)', dns: 'Name lookup (DNS)', internet: 'Internet', wifi: 'Wi-Fi', webserver: 'Web server' };
 export function healthProblems(report) {
   const out = [];
   for (const c of (report && report.checks) || []) {
@@ -427,7 +427,7 @@ export function fixedItems() {
   return [
     { key: 'deviceOffline|00:50:56:AB:CD:EF|', kind: 'deviceOffline', title: 'Device back online', device: { ip: ip(200) },
       openedAt: new Date(at - 12 * 60000).toISOString(), fixedAt: new Date(at).toISOString(), downForSec: 720 },
-    { key: 'healthFailed||dns', kind: 'healthFailed', title: 'Health check OK again', detail: 'DNS',
+    { key: 'healthFailed||dns', kind: 'healthFailed', title: 'Health check OK again', detail: 'Name lookup (DNS)',
       openedAt: new Date(at - 47 * 60000).toISOString(), fixedAt: new Date(at - 40 * 60000).toISOString(), downForSec: 420 },
   ];
 }
@@ -476,11 +476,10 @@ export function linkNotice(reason = 'link') {
     const message = 'The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline.';
     return { id: 'n-33', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'The router stopped answering',
       message, at: HELD_SINCE, key, code: reason,
-      advice: advice("The router and most devices stopped answering at once, so netdiag paused its checks instead of reporting every device offline.",
-        ["Check that the router is switched on and its lights look normal.", "Check this computer's network cable or Wi-Fi."], [], message) };
+      advice: advice(message, ["Check that the router is switched on and its lights look normal.", "Check this computer's network cable or Wi-Fi."], [], message) };
   }
   const message = 'This computer lost the local network, so netdiag paused its checks. They start again by themselves when the network is back.';
-  return { id: 'n-30', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'netdiag lost the network',
+  return { id: 'n-30', trigger: 'netdiagLink', severity: 'warn', ip: '', title: 'This computer lost the network',
     message, at: HELD_SINCE, key, code: reason,
     advice: advice("This computer lost the local network, so netdiag paused its checks instead of reporting every device offline.",
       ["Check this computer's network cable or Wi-Fi."], [], message) };

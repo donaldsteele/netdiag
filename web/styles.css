@@ -346,6 +346,10 @@ details.btry .advice{margin-top:var(--s1)}
 .chattool.cs-connected{color:var(--ok)}.chattool.cs-paused{color:var(--fg-muted);border-style:dashed}
 .chattool.cs-unreachable,.chattool.cs-no_channel,.chattool.cs-needs_reconnect{color:var(--warn);border-color:var(--warn)}
 .chattool.cs-identity_changed{color:var(--bad);border-color:var(--bad)}
+.iconbtn.tool.chattool.worded{width:auto;padding:0 8px;gap:4px}
+.chattool .ctword{font-size:12px;font-weight:600;white-space:nowrap}
+.chipbtn.h-note{border-color:var(--info);color:var(--fg)}
+@media (max-width:559px){.hdrtools{flex-wrap:wrap}}
 .chatacts{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin:var(--s2) 0}
 #set-chat p{margin:var(--s2) 0;overflow-wrap:anywhere}
 #chat-dialog{max-width:560px}
@@ -390,7 +394,7 @@ details.ptry .advice{margin-top:var(--s1)}
    triangle icon, inside the text (never a glyph alone on its own line); buttons a stale page turned off look off */
 .alert.iconalert::before{content:none}
 .alert.iconalert .ico{vertical-align:-0.2em}
-.controls button[aria-disabled=true],.pacts button[aria-disabled=true],.bacts button[aria-disabled=true]{opacity:.55;cursor:not-allowed}
+.controls button[aria-disabled=true],.pacts button[aria-disabled=true],.bacts button[aria-disabled=true],#health-run[aria-disabled=true]{opacity:.55;cursor:not-allowed}
 /* Phones: the alert banners scroll with the page (three pinned banners with What to try covered half the screen),
    and the live pill gets a row of its own, so its whole text wraps across the width */
 @media (max-width:759px){

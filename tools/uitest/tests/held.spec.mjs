@@ -33,7 +33,7 @@ test('checks paused: the pill and one banner say this computer lost the network'
   await expect(pill).toHaveText(`Live · checks paused: this computer lost the network (since ${since(fx.HELD_SINCE)})`);
   await expect(pill).toHaveClass(/held/);
   await expect(pill.locator('svg.ico use')).toHaveAttribute('href', 'icons.svg#i-triangle-alert');
-  const b = banners(page).filter({ hasText: 'netdiag lost the network' });
+  const b = banners(page).filter({ hasText: 'This computer lost the network' });
   await expect(b).toHaveCount(1);
   await expect(b).toHaveClass(/sev-warn/);
   await expect(b.getByRole('button', { name: 'Restart watching' })).toBeHidden();
@@ -42,6 +42,9 @@ test('checks paused: the pill and one banner say this computer lost the network'
   expect(rec.unmatched, 'unmatched requests').toEqual([]);
 });
 
+// The banner under the pill blames the router, as the pill does, never this
+// computer or netdiag: someone reading it checks the router, not this
+// computer's cable.
 test('the router going quiet reads as paused checks too, and its banner blames the router', async ({ page }) => {
   await liveWith(page, held('gateway'));
   await expect(page.locator('.livepill')).toHaveText(`Live · checks paused: the router stopped answering (since ${since(fx.HELD_SINCE)})`);
@@ -49,7 +52,9 @@ test('the router going quiet reads as paused checks too, and its banner blames t
   const b = banners(page).filter({ hasText: 'The router stopped answering' });
   await expect(b).toHaveCount(1);
   await expect(b.locator('.btext > strong')).toHaveText('Warning: The router stopped answering');
-  await expect(banners(page).filter({ hasText: 'netdiag lost the network' })).toHaveCount(0);
+  await expect(banners(page).filter({ hasText: 'lost the network' })).toHaveCount(0);
+  await b.getByText('What to try').click();
+  await expect(b).toContainText('Check that the router is switched on and its lights look normal.');
 });
 
 // The day of a hold that began on another day is in the pill as on the
@@ -70,7 +75,7 @@ test('back on the network: the banner turns Fixed and the pill is the usual one'
   await expect(pill.locator('svg.ico')).toHaveCount(0);
   const fixed = banners(page).filter({ hasText: 'Fixed: netdiag is back on the network' });
   await expect(fixed).toHaveCount(1);
-  await expect(banners(page).filter({ hasText: 'netdiag lost the network' })).toHaveCount(0);
+  await expect(banners(page).filter({ hasText: 'This computer lost the network' })).toHaveCount(0);
 });
 
 test('another network: alerts stopped, and the banner offers Restart watching (Esc returns focus)', async ({ page }) => {
@@ -103,7 +108,7 @@ test('lost the network, then another network: one banner, which now offers Resta
   await expect(page.locator('.livepill')).toHaveText('Live · alerts stopped: this computer is on a different network now');
   const b = banners(page).filter({ hasText: 'This computer is on a different network' });
   await expect(b).toHaveCount(1);
-  await expect(banners(page).filter({ hasText: 'netdiag lost the network' })).toHaveCount(0);
+  await expect(banners(page).filter({ hasText: 'This computer lost the network' })).toHaveCount(0);
   await expect(b.getByRole('button', { name: 'Restart watching' })).toBeVisible();
   await b.getByText('What to try').click();
   await expect(b).toContainText('press Restart watching to watch the network it is on now');

@@ -58,7 +58,7 @@ test('an OK notice flips its banner to Fixed in place, silently', async ({ page 
   // A fixed problem has nothing to try, and no Show device.
   await expect(fixed.locator('details.btry')).toBeHidden();
   await expect(fixed.getByRole('button', { name: /^Show device/ })).toBeHidden();
-  await expect(fixed).toContainText(/at \d\d:\d\d \(was down 12 min\)\./);
+  await expect(fixed).toContainText(/at \d\d:\d\d \(lasted 12 min\)\./);
   // The OK message stays: it says what was fixed.
   await expect(fixed).toContainText(fx.fixedNotice(2).message);
   await expect(fixed).toContainText('192.168.2.200');
@@ -75,13 +75,13 @@ test('an OK notice flips its banner to Fixed in place, silently', async ({ page 
   expect(notes[0].silent).toBeFalsy();
   expect(notes[1]).toMatchObject({ title: 'Fixed: Device back online', tag: fx.notice(2).key, silent: true });
   expect(notes[1].body.startsWith(fx.fixedNotice(2).message + ' Fixed at ')).toBe(true);
-  expect(notes[1].body).toMatch(/ Fixed at \d\d:\d\d \(was down 12 min\)\.$/);
+  expect(notes[1].body).toMatch(/ Fixed at \d\d:\d\d \(lasted 12 min\)\.$/);
 
   // Activity: the Fixed line sits under the Notice chip; still 8 chips.
   await page.locator('#tab-activity').click();
   const log = page.getByRole('log', { name: 'Activity log' });
   await expect(log).toContainText('Fixed: Device back online at');
-  await expect(log).toContainText('(was down 12 min).');
+  await expect(log).toContainText('(lasted 12 min).');
   await expect(page.locator('[id^="lf-"]')).toHaveCount(8);
   await page.locator('#lf-notice').click();
   await expect(log).not.toContainText('Fixed: Device back online');
@@ -97,7 +97,7 @@ test('an OK for a dismissed or unseen banner adds a compact Fixed banner', async
   await expect(banners(page)).toHaveCount(2);
   const fixed = banners(page).filter({ hasText: 'Fixed: Supply OK again' });
   await expect(fixed).toHaveCount(1);
-  await expect(fixed).toContainText('(was down 12 min).');
+  await expect(fixed).toContainText('(lasted 12 min).');
   await expect(banners(page).filter({ hasText: 'Note: Device offline' })).toHaveCount(1);
 
   // Dismiss the fault, then its OK arrives: a new Fixed banner, still no beep.
@@ -116,7 +116,7 @@ test('an OK for a dismissed or unseen banner adds a compact Fixed banner', async
 // banners and desktop notifications apart.
 test('Fixed banners for several health checks say which check was fixed', async ({ page }) => {
   const opened = new Date(Date.now() - 5 * 60000).toISOString();
-  const checks = [['gateway', 'Default gateway'], ['dhcp', 'DHCP'], ['dns', 'DNS']];
+  const checks = [['gateway', 'Router'], ['dhcp', 'Getting an address (DHCP)'], ['dns', 'Name lookup (DNS)']];
   const oks = checks.map(([id, label], i) => ({ type: 'notice', data: {
     id: `n-${30 + i}`, trigger: 'healthFailed', severity: 'info', title: 'Health check OK again',
     message: `${label} check is OK again.`, at: new Date().toISOString(), key: `healthFailed||${id}`,
@@ -132,15 +132,15 @@ test('Fixed banners for several health checks say which check was fixed', async 
 });
 
 // A long outage reads in days, in the banner, the desktop notification and
-// the card's fixed items alike, not "(was down 193 h 52 min)".
+// the card's fixed items alike, not "(lasted 193 h 52 min)".
 test('a long outage says days', async ({ page }) => {
   const at = Date.now();
   const long = { ...fx.fixedNotice(2), openedAt: new Date(at - (193 * 60 + 52) * 60000).toISOString(), at: new Date(at).toISOString() };
   await liveWith(page, [...fx.liveFrames(), { type: 'notice', data: long }]);
   const fixed = banners(page).filter({ hasText: 'Fixed:' });
-  await expect(fixed).toContainText('(was down 8 days 1 h).');
+  await expect(fixed).toContainText('(lasted 8 days 1 h).');
   const notes = await page.evaluate(() => window.__notes);
-  expect(notes.at(-1).body).toMatch(/\(was down 8 days 1 h\)\.$/);
+  expect(notes.at(-1).body).toMatch(/\(lasted 8 days 1 h\)\.$/);
   const words = await page.evaluate(() => {
     const a = window.Alpine.$data(document.querySelector('.shell'));
     return [30, 59, 60, 125, 1439, 1440, 1499, 1500, 2880, 11632].map((m) => a.downFor(m));
@@ -149,19 +149,19 @@ test('a long outage says days', async ({ page }) => {
 });
 
 // One set of words for the severities on one screen: the banners say
-// Problem, Warning and Note, as the Problems right now card does.
+// Urgent, Warning and Note, as the Problems right now card and Settings > Send do.
 test('banners name the severities as the card does', async ({ page }) => {
   await liveWith(page, fx.liveFrames());
   const lead = await page.evaluate(() => {
     const a = window.Alpine.$data(document.querySelector('.shell'));
     return ['critical', 'warn', 'info'].map((severity) => a.bannerLead({ severity, title: 'X' }));
   });
-  expect(lead).toEqual(['Problem: X', 'Warning: X', 'Note: X']);
+  expect(lead).toEqual(['Urgent: X', 'Warning: X', 'Note: X']);
   const card = await page.evaluate(() => {
     const a = window.Alpine.$data(document.querySelector('.shell'));
     return ['critical', 'warning', 'info'].map((severity) => a.pnWord({ severity }));
   });
-  expect(card).toEqual(['Problem', 'Warning', 'Note']);
+  expect(card).toEqual(['Urgent', 'Warning', 'Note']);
 });
 
 for (const theme of ['dark', 'light']) {
