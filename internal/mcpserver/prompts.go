@@ -360,7 +360,8 @@ var runbooks = []runbook{
 				"9. For at most 5 problems (then say \"and N more\"), give the title, the device name, advice.meaning (lightly reworded, keep the facts) and up to 3 advice.steps. " +
 				"Name each advice.actions button by its label in bold, such as **Open router page**, **Check again**, **Open Settings** or **Show device**.\n" +
 				"10. If the gateway or Wi-Fi check is failing and several devices went offline together, say there is one likely cause (this computer's connection or the router) instead of listing every device.\n" +
-				"11. List fixed items as \"Fixed at 10:42 (was down 12 min)\", from fixedAt and downForSec.\n" +
+				"11. List fixed items as the netdiag window does, \"Fixed at 10:42 (was down 12 min): Health check failed · DNS\": fixedAt in local time, " +
+				"downForSec as \"12 min\", \"2 h 5 min\", or from a day on in days and hours (\"1 day\", \"8 days 1 h\"), then the title and its detail, which says which check or supply was fixed.\n" +
 				"12. If checkedAt is more than 10 minutes old and nothing is watching (get_status watching is null), offer run_health_check, or probe_host for one device. Ask first."
 		}},
 

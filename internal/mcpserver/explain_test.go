@@ -221,6 +221,41 @@ func TestExplainProblemsHealthOnly(t *testing.T) {
 	}
 }
 
+// A fixed item as explain_problems step 11 asks Claude to say it, the way
+// the card and team chat do: it names what was fixed (detail), and an
+// outage of a day or more reads in days. list_problems carries both: the
+// check's short name, and downForSec from the ledger's start of the fault.
+func TestExplainProblemsFixedItems(t *testing.T) {
+	e := setupWindow(t, fakePinger{}, nil)
+	txt := promptText(t, e, "explain_problems", nil)
+	step := txt[strings.Index(txt, "\n11. ")+1:]
+	step = step[:strings.Index(step, "\n")]
+	for _, m := range []string{"fixedAt", "downForSec", `"8 days 1 h"`, `"1 day"`, "detail", "Health check failed · DNS"} {
+		if !strings.Contains(step, m) {
+			t.Fatalf("step 11 misses %q: %s", m, step)
+		}
+	}
+
+	if err := e.st.SaveScan(fineFixture()); err != nil {
+		t.Fatal(err)
+	}
+	fixedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	opened := fixedAt.Add(-(193*time.Hour + 52*time.Minute))
+	e.ledger.Apply(testNetwork, []model.Notice{{Trigger: model.TriggerHealthFailed, Key: "healthFailed||dns", Severity: "warn",
+		Title: "Health check failed", At: opened.Format(time.RFC3339)}})
+	e.ledger.Apply(testNetwork, []model.Notice{{Trigger: model.TriggerHealthFailed, Key: "healthFailed||dns", Severity: "info", OK: true,
+		Title: "Health check OK again", OpenedAt: opened.Format(time.RFC3339), At: fixedAt.Format(time.RFC3339)}})
+	var out ProblemsOut
+	e.ok(t, "list_problems", nil, &out)
+	if len(out.Fixed) != 1 {
+		t.Fatalf("fixed: %+v", out.Fixed)
+	}
+	// 193 h 52 min, which step 11 says as "8 days 1 h".
+	if f := out.Fixed[0]; f.Title != "Health check failed" || f.Detail != "DNS" || f.DownForSec != (193*60+52)*60 {
+		t.Fatalf("fixed item: %+v", f)
+	}
+}
+
 // The explain_problems acceptance check over the window's own MCP address
 // (Claude Code over HTTP): this process; a saved scan, with the key, start
 // and chat state from the window's in-memory ledger; a first pass still

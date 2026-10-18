@@ -123,6 +123,7 @@ const (
 	NoteOtherProcess = "The netdiag window is open, but this connection runs its own netdiag and cannot see what the window is watching. It reads the saved results; connect to the window's MCP address (Settings > Agent access), or start this connection with netdiag mcp --attach, to see the live view."
 	NoteNotWatching  = "netdiag isn't watching the network right now: problems are from the last check. The person can tick Live mode and press Scan in the netdiag window to start watching."
 	NoteNotChecked   = "netdiag has not checked this network yet. The person can tick Live mode and press Scan in the netdiag window to start watching."
+	NoteHealthOnly   = "netdiag has run only the health checks: it has not looked at the devices on this network yet. The person can tick Live mode and press Scan in the netdiag window to start watching."
 )
 
 // SetWindow tells the service it serves the netdiag window, whose port
@@ -197,8 +198,15 @@ func (s *Service) Status(ctx context.Context) Status {
 	if port != nil && st.Watching == nil {
 		st.Note = NoteNotWatching
 	}
-	if v.Source == problems.SourceNone && port != nil {
-		st.Note = NoteNotChecked
+	// Not checked yet: nothing at all, or only a Check again (source
+	// health), which looked at no device, as explain_problems says.
+	if port != nil {
+		switch v.Source {
+		case problems.SourceNone:
+			st.Note = NoteNotChecked
+		case problems.SourceHealth:
+			st.Note = NoteHealthOnly
+		}
 	}
 	return st
 }

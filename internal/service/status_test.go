@@ -121,6 +121,23 @@ func TestStatusWatching(t *testing.T) {
 	}
 }
 
+// The window's note after a Check again with no scan (source health): the
+// health checks ran but no device was looked at, so it says so, as
+// explain_problems does, never that netdiag isn't watching with problems
+// from the last check, nor that it checked nothing.
+func TestStatusHealthRunOnly(t *testing.T) {
+	s, _ := newSvc(t, true, failDNS{})
+	s.SetWindow(func() int { return 8787 })
+	if got := s.Status(context.Background()); got.Note != NoteNotChecked || got.Problems.Source != problems.SourceNone {
+		t.Fatalf("nothing yet: %+v", got)
+	}
+	s.RunHealth(context.Background(), "")
+	got := s.Status(context.Background())
+	if got.Note != NoteHealthOnly || got.Problems.Source != problems.SourceHealth || got.Problems.Open != 1 || got.Problems.EverythingFine {
+		t.Fatalf("health checks only: %+v", got)
+	}
+}
+
 // Without a ledger of its own (stdio), Problems reads the window's
 // open-problems.json for the start of each problem and the fixed list, and
 // leaves the file as it is.
