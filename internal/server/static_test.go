@@ -599,6 +599,8 @@ func TestTeamChatUI(t *testing.T) {
 		`<dialog id="chat-off-dialog"`, `@cancel.prevent="keepChat()"`, "Disconnect from team chat?",
 		"Your chat admin should also remove netdiag in bubbles under <strong>Admin &gt; Apps</strong>.",
 		`id="chat-off-go" class="danger"`, `id="chat-off-cancel" class="primary"`,
+		// M11: Try now while the server is away (4.10 Recovery).
+		`id="chat-retry"`, `@click="chatTryNow()"`, "Try now",
 	} {
 		if !strings.Contains(string(html), want) {
 			t.Errorf("index.html missing %q", want)
@@ -613,6 +615,7 @@ func TestTeamChatUI(t *testing.T) {
 		"wizEpoch++", "if (this.wiz.step === 'approve' || pairAsking)",
 		"s === 'connected' ? 'chat' : s === 'unreachable' ? 'chat-warn' : 'chat-off'",
 		"setInterval(() => this.loadChat(), 30000)", "}, 2000);",
+		"this.api('POST', '/api/bubbles/retry', {})", "netdiag keeps trying and will send ", "this.logPush('notice', n.text)",
 	} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("app.js missing %q", want)

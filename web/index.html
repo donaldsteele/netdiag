@@ -626,6 +626,7 @@
             </template>
             <p class="sub" id="chat-watching">Alerts go to team chat only while netdiag is watching this network. Leave netdiag open with Live mode ticked.</p>
             <p class="chatacts">
+              <button type="button" id="chat-retry" x-show="chatState() === 'unreachable'" @click="chatTryNow()" :disabled="chatBusy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Try now</button>
               <button type="button" id="chat-test" x-show="chatState() === 'connected' || chatState() === 'unreachable' || (chatState() === 'no_channel' && !!(chat && chat.channel))" @click="chatTest()" :disabled="chatBusy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-send"></use></svg>Send test alert</button>
               <button type="button" id="chat-reconnect" x-show="chatState() === 'needs_reconnect' || chatState() === 'identity_changed'" aria-haspopup="dialog" @click="openChatWizard('reconnect')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-plug"></use></svg>Reconnect</button>
               <button type="button" id="chat-change" x-show="chatState() !== 'needs_reconnect' && chatState() !== 'identity_changed'" aria-haspopup="dialog" @click="openChatWizard('channel')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-chat"></use></svg>Change channel</button>

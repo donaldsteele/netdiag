@@ -71,8 +71,9 @@ const matchId = (re, p) => {
 // approved pairing carries (the channels could not be listed, or the
 // connection could not be saved). testResult: the POST
 // /api/bubbles/test answer (sent alert by default). Specs may change
-// rec.chat, rec.channels, rec.pairStates and rec.testResult while the page
-// runs; rec.chatCalls lists the team chat actions in order.
+// rec.chat, rec.channels, rec.pairStates, rec.testResult and rec.retryTo
+// (what POST /api/bubbles/retry, Try now, finds) while the page runs;
+// rec.chatCalls lists the team chat actions in order.
 // problems: GET /api/problems (the Problems right now card). By default it
 // follows the mocked health report (fx.healthProblems, while the "Health
 // check fails" alert is on) plus, once a scan was started or one is
@@ -294,6 +295,12 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     }
     if (method === 'POST' && p === '/api/bubbles/test') {
       return json(route, 200, rec.testResult || { ok: true, transition: 'created', channel: (rec.chat.channel || {}).name });
+    }
+    if (method === 'POST' && p === '/api/bubbles/retry') {
+      // Try now answers the status; rec.retryTo is the state the server is
+      // found in (unchanged when unset).
+      if (rec.retryTo) rec.chat = fx.bubblesStatus(rec.retryTo, rec.retryExtra || {});
+      return json(route, 200, rec.chat);
     }
     rec.unmatched.push(`${method} ${p}`);
     return json(route, 404, { error: 'mock: no route' });

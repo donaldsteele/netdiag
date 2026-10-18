@@ -470,6 +470,62 @@ test('a page with an old token reads no team chat state', async ({ page }) => {
   await expect(page.locator('#chat-tool')).toBeHidden();
 });
 
+// M11 (4.10 Recovery): while the server is away the section says how many
+// alerts wait and offers Try now, which asks the server at once.
+test('unreachable: the waiting alerts and Try now', async ({ page }) => {
+  const errors = watchErrors(page);
+  const rec = await open(page, { chat: 'unreachable' });
+  await page.locator('#chat-tool').click();
+  const s = settingsDlg(page);
+  await expect(s.locator('#chat-trouble')).toHaveText(/^Can't reach the chat server since \d\d:\d\d\. netdiag keeps trying and will send the 3 waiting alerts when it is back\.$/);
+  const retry = s.locator('#chat-retry');
+  await expect(retry).toBeVisible();
+  await expect(retry).toBeFocused(); // the header tool's target while the server is away
+  await expect(retry.locator('use')).toHaveAttribute('href', 'icons.svg#i-refresh-cw');
+
+  await retry.click(); // still away
+  await expect(s.locator('#chat-msg')).toHaveText("Still can't reach the chat server. netdiag keeps trying.");
+  await expect(retry).toBeFocused();
+  rec.retryTo = 'connected';
+  await retry.click();
+  await expect(s.locator('#chat-msg')).toHaveText('The chat server answers again.');
+  await expect(s.locator('#chat-status .hs')).toHaveText('Connected');
+  await expect(retry).toBeHidden();
+  await expect(s.locator('#chat-test')).toBeFocused();
+  await expect(page.locator('#chat-tool use')).toHaveAttribute('href', 'icons.svg#i-chat');
+  expect(rec.chatCalls.filter((c) => c === 'POST /api/bubbles/retry')).toHaveLength(2);
+  clean(rec, errors);
+});
+
+test('one waiting alert is said in the singular, and none without a count', async ({ page }) => {
+  const rec = await open(page, { chat: 'unreachable', chatExtra: { waiting: 1 } });
+  await page.locator('#chat-tool').click();
+  await expect(settingsDlg(page).locator('#chat-trouble')).toContainText('will send the waiting alert when it is back.');
+  rec.chat = fx.bubblesStatus('unreachable', { waiting: 0 });
+  await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).loadChat());
+  await expect(settingsDlg(page).locator('#chat-trouble')).toContainText('will send alerts when it is back.');
+});
+
+// What the outbox and the polling say ("Team chat server moved to…",
+// "Team chat refused an alert: …") reaches the Activity log under Notice,
+// once each, also when the status is read again.
+test("team chat's notes reach the Activity log once", async ({ page }) => {
+  const errors = watchErrors(page);
+  const notes = [{ id: 1, at: '2026-10-17T10:40:00Z', text: 'Team chat server moved to 192.168.1.27.' }];
+  const rec = await open(page, { chat: 'connected', chatExtra: { activity: notes } });
+  await page.locator('#tab-activity').click();
+  const log = page.getByRole('log', { name: 'Activity log' });
+  await expect(log).toContainText('Team chat server moved to 192.168.1.27.');
+  rec.chat = fx.bubblesStatus('connected', { activity: [...notes, { id: 2, at: '2026-10-17T10:41:00Z', text: 'Team chat refused an alert: title: title is required' }] });
+  await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).loadChat());
+  await expect(log).toContainText('Team chat refused an alert: title: title is required');
+  await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).loadChat());
+  await expect(log.getByText('Team chat server moved to 192.168.1.27.')).toHaveCount(1);
+  await page.locator('#lf-notice').click(); // the Notice chip hides them
+  await expect(log).not.toContainText('Team chat server moved');
+  clean(rec, errors);
+});
+
 for (const theme of THEMES) {
   test(`team chat is accessible ${theme}`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: theme });
@@ -477,6 +533,10 @@ for (const theme of THEMES) {
     await openSettings(page);
     await expect(settingsDlg(page).locator('#chat-identity')).toBeVisible();
     await runAxe(page, `chat-settings-identity-${theme}`, testInfo);
+    rec.chat = fx.bubblesStatus('unreachable');
+    await page.evaluate(() => window.Alpine.$data(document.querySelector('.shell')).loadChat());
+    await expect(settingsDlg(page).locator('#chat-retry')).toBeVisible();
+    await runAxe(page, `chat-settings-unreachable-${theme}`, testInfo);
     await settingsDlg(page).locator('#chat-disconnect').click();
     await expect(page.locator('#chat-off-dialog')).toHaveJSProperty('open', true);
     await runAxe(page, `chat-disconnect-${theme}`, testInfo);

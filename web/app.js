@@ -24,7 +24,7 @@ document.addEventListener('alpine:init', () => {
     shown: {},
     remoteCaps: {platform: '', rdp: false, vnc: false}, remoteMsg: {}, remoteShort: {}, remoteBusy: {},
     sessionOff: false, settingsLocked: false,
-    chat: null, chatMsg: '', chatBusy: false, wiz: {step: 'closed', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
+    chat: null, chatMsg: '', chatBusy: false, chatNoteSeen: 0, wiz: {step: 'closed', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
       code: '', expiresAt: '', adminUrl: '', channels: [], channelId: '', channel: null, testMsg: '', testOk: false, fresh: false, stopped: '', retry: ''},
     problems: null, pnAll: false, pnLimit: 5, pnDismissed: {},
     watching: null, restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: null, focusAt: 0, starting: false,
@@ -519,8 +519,42 @@ document.addEventListener('alpine:init', () => {
     async loadChat() {
       try {
         const r = await this.api('GET', '/api/bubbles');
-        if (r.ok) this.chat = await r.json();
+        if (r.ok) { this.chat = await r.json(); this.chatNotes(); }
       } catch (e) {}
+    },
+    // What the outbox and the polling had to say ("Team chat server moved
+    // to 192.168.1.27.") goes to the Activity log under Notice, once each.
+    // Ids start again when netdiag does.
+    chatNotes() {
+      const notes = (this.chat && this.chat.activity) || [];
+      const top = notes.reduce((m, n) => Math.max(m, n.id), 0);
+      if (top < this.chatNoteSeen) this.chatNoteSeen = 0;
+      for (const n of notes) {
+        if (n.id <= this.chatNoteSeen) continue;
+        this.logPush('notice', n.text);
+        const e = this.log[this.log.length - 1];
+        if (n.at && !isNaN(new Date(n.at))) e.t = n.at;
+      }
+      this.chatNoteSeen = Math.max(this.chatNoteSeen, top);
+    },
+    // "3 waiting alerts", for the words while the server is away.
+    chatWaiting() {
+      const n = (this.chat && this.chat.waiting) || 0;
+      return n === 1 ? 'the waiting alert' : n > 1 ? 'the ' + n + ' waiting alerts' : 'alerts';
+    },
+    // Try now: ask the chat server at once and let what waits go.
+    async chatTryNow() {
+      this.chatBusy = true; this.chatMsg = 'Trying the chat server...';
+      try {
+        const r = await this.api('POST', '/api/bubbles/retry', {});
+        if (r.ok) { this.chat = await r.json(); this.chatNotes(); }
+        const s = this.chatState();
+        this.chatMsg = !r.ok ? 'Could not try again (HTTP ' + r.status + ').'
+          : s === 'unreachable' ? "Still can't reach the chat server. netdiag keeps trying."
+          : s === 'connected' ? 'The chat server answers again.' : '';
+      } catch (e) { this.chatMsg = 'Could not try again: ' + e.message; }
+      this.chatBusy = false;
+      this.$nextTick(() => this.focusShown([document.getElementById(this.chatState() === 'unreachable' ? 'chat-retry' : 'chat-test')]));
     },
     chatState() { return (this.chat && this.chat.state) || 'off'; },
     // The header tool shows only once team chat is set up.
@@ -557,7 +591,7 @@ document.addEventListener('alpine:init', () => {
     // channel that refused netdiag's post or was archived.
     chatTrouble() {
       const s = this.chatState(), c = this.chat || {}, ch = c.channel ? '#' + c.channel.name : 'the channel';
-      if (s === 'unreachable') return "Can't reach the chat server" + this.chatSince() + '. Check that it is running, then send a test alert.';
+      if (s === 'unreachable') return "Can't reach the chat server" + this.chatSince() + '. netdiag keeps trying and will send ' + this.chatWaiting() + ' when it is back.';
       if (s === 'needs_reconnect') {
         const why = c.reason === 'unreadable'
           ? "netdiag can't open its saved team chat connection on this computer (it may have been copied from another computer or Windows user), so it has to be connected again."
@@ -580,7 +614,7 @@ document.addEventListener('alpine:init', () => {
     focusChat() {
       const s = this.chatState();
       const id = s === 'off' ? 'chat-connect' : s === 'needs_reconnect' || s === 'identity_changed' ? 'chat-reconnect'
-        : s === 'no_channel' ? 'chat-change' : 'chat-test';
+        : s === 'no_channel' ? 'chat-change' : s === 'unreachable' ? 'chat-retry' : 'chat-test';
       const el = document.getElementById('set-chat');
       if (el) el.scrollIntoView({block: 'nearest'});
       this.focusShown([document.getElementById(id)]);
