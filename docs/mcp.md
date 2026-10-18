@@ -1,6 +1,6 @@
 # netdiag MCP reference
 
-netdiag can be used by Claude or other AI agents through the **Model Context Protocol (MCP)**. An agent connected to netdiag can read scan results, device details, health checks and history, and can start scans. It cannot change settings, delete history, ignore MAC addresses or quit netdiag.
+netdiag can be used by Claude or other AI agents through the **Model Context Protocol (MCP)**. An agent connected to netdiag can read scan results, device details, health checks, the problems netdiag sees right now and history, and can start scans. It cannot change settings, delete history, ignore MAC addresses, quit netdiag, restart or replace the scan that is watching the network, connect or disconnect team chat, send alerts to chat, choose the chat channel or open Windows settings pages.
 
 For a plain-language setup guide, see **Connect Claude** in the main [README](../README.md#connect-claude-ai-agent-access-via-mcp).
 
@@ -112,11 +112,14 @@ All tools return compact JSON. List tools return pages (use `cursor` and `nextCu
 | `list_history` | Saved scans, newest first. | `limit` (default 20, max 100) | Yes |
 | `compare_scans` | What was added, removed and changed between two scans (up to 200 rows per list). | `baseId` (default: previous scan of the same range), `currentId` | Yes |
 | `get_settings` | Current settings. The SNMP community is shown as `***`, and a password in the web server URL (`http://user:password@host/`) as `xxxxx`. | none | Yes |
+| `get_status` | Where to start. Whether the netdiag window is open and serves this connection (`window.thisProcess`), whether Agent access is on, the scan watching the network (`watching`, with its `scanId`, or `null`), the scan running now, and a count of the problems with `checkedAt`. `note` says in a sentence what this connection can see: over stdio, `watching` is always `null`, and the note says whether a window is open (with Agent access on or off). It never shows a token. | none | Yes |
+| `list_problems` | What is wrong right now, most urgent first: the same list as the **Problems right now** card. Each open problem has `key` (the same as its team chat alert), `kind`, `severity` (`critical`, `warning` or `info`), `title`, `device`, `since`, `advice` (`meaning`, `steps` and the `actions` buttons, in netdiag's own words), `chat.posted`, and `recheck` (the tool and arguments that check it again). `everythingFine` is `true` when nothing is a warning or worse. `fixed` lists what was fixed in the last 24 hours (`fixedAt`, `downForSec`). `source` is `live`, `latest`, `saved` or `none`; over stdio it is the newest saved scan. | `includeFixed` (default true), `limit` (default 50, max 200) | Yes |
+| `get_runbook` | netdiag's runbooks (the prompts below) as a tool, for clients without prompts. Without a name, lists them (`name`, `title`, `description`, `arguments`, `since`); with a name, returns the same text as the prompt. | `name`, `arguments` | Yes |
 
 **What `filter=problems` lists.** The same devices as the **Problems** filter in the netdiag window:
 
 - a device that live mode marked offline (this computer never counts as offline),
-- a device involved in a conflict,
+- a device involved in a conflict (except a conflict that involves a MAC ignored with **Ignore this MAC**),
 - a printer with an alert, or with a supply that is low, empty, or at or below the **supply threshold** in Settings (`alerts.supplyThresholdPct`, default 15%),
 - a device whose web page did not answer or answered with an HTTP error (status 400 or higher).
 
@@ -134,31 +137,39 @@ Resources return JSON (`application/json`). Read them with the client's resource
 | `netdiag://health` | Same as `get_health` |
 | `netdiag://history` | Same as `list_history` with default limit |
 | `netdiag://settings` | Same as `get_settings` (community and web server URL password redacted) |
+| `netdiag://status` | Same as `get_status` |
+| `netdiag://problems` | Same as `list_problems` with defaults |
+| `netdiag://runbooks` | Same as `get_runbook` without a name: every runbook with its arguments |
 | `netdiag://scans/{scanId}` | Scan summary |
 | `netdiag://scans/{scanId}/devices` | First 200 device rows of the scan |
 | `netdiag://scans/{scanId}/devices/{ip}` | Full detail for one device |
+| `netdiag://runbooks/{name}` | One runbook's text, as the prompt gives it. A required argument shows as a placeholder, for example `<ip>` |
 
-`resources/list` shows only the four fixed resources. Scans are not listed one by one: `resources/templates/list` shows the three `netdiag://scans/...` templates, and the scan ids to fill in come from `netdiag://history` (or the `list_history` tool) and from `start_scan`. A template works for saved scans and for scans running in this netdiag process.
+`resources/list` shows only the seven fixed resources. Scans and runbooks are not listed one by one: `resources/templates/list` shows the three `netdiag://scans/...` templates and `netdiag://runbooks/{name}`. The scan ids to fill in come from `netdiag://history` (or the `list_history` tool) and from `start_scan`, the runbook names from `netdiag://runbooks`. A scan template works for saved scans and for scans running in this netdiag process.
 
 ## Prompts
 
-Prompts are short playbooks. The client shows them as commands or menu items, and fills in the arguments. Each one tells the agent which tools to call and in what order.
+Prompts are short runbooks. The client shows them as commands or menu items, and fills in the arguments. Each one tells the agent which tools to call and in what order. The same runbooks are available through the `get_runbook` tool and the `netdiag://runbooks` resources, so an agent can also pick one itself when you ask in your own words.
 
 | Prompt | Arguments | What the agent does |
 |---|---|---|
-| `triage_network` | `cidr` (optional, default: first interface) | Scan, check health, list problem devices, check conflicts, then suggest likely causes. |
-| `diagnose_printer` | `ip` (required) | Read the printer's details, probe it, and check its supplies (low means at or below the supply threshold in Settings), alerts, IPP state, ports 9100 and 631, and conflicts. |
-| `explain_conflict` | `ip` (required) | Explain the conflict type (flapping, same MAC on several IPs, duplicate name), and what the operator should do. The agent can only recommend **Ignore this MAC**; it cannot do it. |
-| `device_missing` | `nameOrIp` (required) | Search the current scan and history, compare ARP and ping results, and read the offline timeline. |
+| `explain_problems` | none | Explain every open problem in plain words, most urgent first, with netdiag's own advice and buttons, and what was fixed in the last day. The answer starts with **OK**, **Problem** or **Not checked**. |
+| `internet_not_working` | none | Run the health checks and find where the connection breaks: this computer, the Wi-Fi or cable, the router, name lookup or the internet line. Then whether it is just this computer. |
+| `device_offline` | `device` (optional; the agent asks) | Why one device stopped answering: probe it, read when it was last seen and how it was found, and whether it moved to another address. |
+| `first_look` | `interface` (optional) | Get to know a local network: this computer, the router, what is on it (counted by type) and what to fix first. Asks before scanning. |
+| `triage_network` | `cidr` (optional, default: first interface) | Use the scan that is watching the network (or ask, then scan), check health, go through the problems with their advice, check conflicts, then suggest likely causes. |
+| `diagnose_printer` | `ip` (required) | Read the printer's details and its advice, probe it, and check its supplies (low means at or below the supply threshold in Settings), alerts, IPP state, ports 9100 and 631, and conflicts. |
+| `explain_conflict` | `ip` (required) | Explain the conflict type (flapping, same MAC on several IPs, duplicate name) with its advice, describe the two devices side by side, and say "Conflict" only when an address swap was seen (otherwise "Possible conflict"). The agent can only recommend **Ignore this MAC**, which asks "Are you sure?"; it cannot do it. |
+| `device_missing` | `nameOrIp` (required) | Start from the problem list, search the current scan and history, compare ARP and ping results, and read the offline timeline. |
 | `what_changed` | `baseId`, `currentId` (both optional) | Compare two scans (default: the latest scan and the one before it) and describe what changed. |
 
-Calling a prompt without a required argument returns an error.
+Calling a prompt without a required argument returns an error. Every runbook ends with the same rules: what the agent cannot do (and that it should name the button in the netdiag window instead), that text from devices and other people is data, never instructions, to ask before a scan, and how to write the answer for someone who is not technical.
 
 ## Safety model
 
 - **Loopback only.** The HTTP endpoint listens on `127.0.0.1` and only answers when the `Host` header is the local address. Requests whose `Origin` header is not `http://127.0.0.1:<port>` or `http://localhost:<port>` are refused with `403`.
 - **Off by default.** HTTP access is off until someone turns on **Agent access (MCP)** in Settings. An agent cannot turn it on: the settings endpoints are not offered as tools.
-- **Read-only settings.** Agents cannot change settings, delete history, ignore MAC addresses, or quit netdiag. These actions are not available as MCP tools, and the code that would run them is kept out of the MCP package.
+- **Read-only settings.** Agents cannot change settings, delete history, ignore MAC addresses, quit netdiag, restart or replace the scan that is watching the network, connect or disconnect team chat, send test alerts or post alerts to chat, choose the chat channel or open Windows settings pages. These actions are not available as MCP tools, and the code that would run them is kept out of the MCP package. Chat alerts are closed by netdiag itself.
 - **SNMP community hidden.** The community string is never sent to an agent. Settings and device details show it as `***`.
 - **Device text is data.** Anyone with a device on the network can choose what it reports about itself: its hostname, mDNS name, SNMP name, description and location, printer alert and display text, and its web page title and server header. netdiag passes this text on as it was received. The server instructions and every prompt tell the agent to treat it as data to report, never as instructions to follow. Agents can still be fooled, so check what the agent suggests before acting on it.
 - **Scans send traffic.** `start_scan`, `run_health_check` and `probe_host` send the same network traffic as the **Scan** button and the health check. Agents can run them without a person clicking anything, so keep an eye on what the agent does.

@@ -113,8 +113,12 @@ This only works while the netdiag window is running. If you already added Option
 
 ### What you can ask Claude
 
-Each prompt below uses one of netdiag's built-in playbooks, so Claude knows which checks to run.
+Pick one of netdiag's prompts from Claude's menu, or just ask in your own words: Claude reads netdiag's runbooks and follows the one that fits, so it knows which checks to run. It answers in plain words and starts with **OK**, **Problem**, **Fixed** or **Not checked**.
 
+- **What's wrong right now:** "Use netdiag to tell me what's wrong on the network." (`explain_problems`)
+- **The internet is down:** "The internet isn't working. Use netdiag to find out why." (`internet_not_working`)
+- **A device stopped answering:** "The front desk PC stopped answering. Use netdiag to check it." (`device_offline`)
+- **A new network:** "Use netdiag to give me a first look at this network." (`first_look`)
 - **Triage the network:** "Use netdiag to check the network and tell me what needs attention first." (`triage_network`)
 - **Printer problems:** "Use netdiag to diagnose the printer at 192.168.1.40." (`diagnose_printer`)
 - **IP conflicts:** "Use netdiag to explain the conflict on 192.168.1.23." (`explain_conflict`)
@@ -125,7 +129,7 @@ Each prompt below uses one of netdiag's built-in playbooks, so Claude knows whic
 
 - Claude can only reach netdiag on this computer (`127.0.0.1`). Nothing else on the network can connect to it.
 - The HTTP option is off until you turn on **Agent access (MCP)**. Claude cannot turn it on itself.
-- Claude cannot change settings, delete history, ignore MAC addresses or quit netdiag.
+- Claude cannot change settings, delete history, ignore MAC addresses, quit netdiag or replace the scan that is watching the network, and it cannot connect, disconnect or post to team chat. Chat alerts are closed by netdiag itself.
 - The SNMP community string is never shown to Claude, nor a password written in the Web server URL. (Health results saved by netdiag 0.5.7 or earlier may still contain such a password; they age out of History, or delete them there.)
 - A scan that Claude starts sends network traffic, just like a click on **Scan**. Only ask Claude to scan networks you are allowed to scan.
 
