@@ -243,7 +243,7 @@ func registerTools(s *mcp.Server, svc *service.Service, opts Options) {
 		Annotations: readAnn("Get settings")}, t.getSettings)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_status", Title: "Get netdiag status",
-		Description: "Start here. Whether the netdiag window is open and serves this connection (window.thisProcess), the scan watching the network (watching, with its scanId; null when nothing watches), the scan running now, and a count of the problems with when they were last checked. The note says in a sentence what this connection can and cannot see.",
+		Description: "Start here. Whether the netdiag window is open and serves this connection (window.thisProcess), the scan watching the network (watching, with its scanId; null when nothing watches), the scan running now, a count of the problems with when they were last checked, and team chat (chat: its state, server, channel, the app netdiag posts as, whether Send alerts is on, and how many alerts still wait to go; state is unknown when this connection is not the netdiag window's). The note says in a sentence what this connection can and cannot see.",
 		Annotations: readAnn("Get netdiag status")}, t.getStatus)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "list_problems", Title: "List problems right now",

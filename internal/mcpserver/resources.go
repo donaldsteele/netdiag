@@ -71,7 +71,7 @@ func registerResources(s *mcp.Server, svc *service.Service, opts Options) {
 			_, out, err := t.getSettings(ctx, nil, noInput{})
 			return out, err
 		})
-	static(URIStatus, "status", "netdiag status", "The netdiag window, the scan watching the network and a count of the problems (same as get_status).",
+	static(URIStatus, "status", "netdiag status", "The netdiag window, the scan watching the network, a count of the problems and team chat (same as get_status).",
 		func(ctx context.Context) (any, error) {
 			return t.status(ctx), nil
 		})

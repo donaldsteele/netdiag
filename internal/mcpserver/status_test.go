@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,9 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"netdiag/internal/chat"
 	"netdiag/internal/model"
 	"netdiag/internal/problems"
 	"netdiag/internal/service"
+	"netdiag/internal/store"
 )
 
 // get_status over HTTP speaks for the window: this process, with the scan
@@ -42,7 +47,7 @@ func TestGetStatusStdioNoWindow(t *testing.T) {
 	e := setup(t, "stdio", true, fakePinger{})
 	var st StatusOut
 	res := e.ok(t, "get_status", nil, &st)
-	if st.Transport != "stdio" || st.Window.Open || st.Watching != nil || st.Note != service.NoteNoWindow {
+	if st.Transport != "stdio" || st.Window.Open || st.Watching != nil || st.Note != service.NoteNoWindow || st.Chat.State != service.ChatUnknown {
 		t.Fatalf("stdio: %+v", st)
 	}
 	var raw map[string]any
@@ -58,6 +63,64 @@ func TestGetStatusStdioNoWindow(t *testing.T) {
 	e2.ok(t, "get_status", nil, &st)
 	if st.Window.Open || st.Problems.Source != problems.SourceNone {
 		t.Fatalf("no store: %+v", st)
+	}
+}
+
+// get_status.chat over the window's MCP address is the window's team chat:
+// state, server, channel and app, whether Send alerts is on and what still
+// waits; never the chat token or its start (tokenPrefix).
+func TestGetStatusChat(t *testing.T) {
+	const token = "bub_0123456789abcdefSECRET"
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := chat.NewConnection(chat.Server{Name: "Front office chat", BaseURL: "https://127.0.0.1:9443", OnboardingURL: "http://127.0.0.1:9080",
+		CAFingerprint: "sha256:" + strings.Repeat("ab", 32)}, "netdiag", []string{"alerts:write"}, token, time.Now())
+	c.Channel = chat.Channel{ID: "C1", Name: "netdiag-alerts"}
+	if err := chat.SaveConnection(st, c); err != nil {
+		t.Fatal(err)
+	}
+	m := chat.NewManager(chat.Options{Files: st, PollEvery: time.Hour})
+	t.Cleanup(m.Close)
+	svc := service.New(service.Config{Store: st, Chat: m})
+	svc.SetWindow(func() int { return 8787 })
+	ctx := context.Background()
+	ct, sst := mcp.NewInMemoryTransports()
+	ss, err := New(svc, Options{Transport: "http", Version: "test"}).Connect(ctx, sst, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ss.Close() })
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil).Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	e := &env{cs: cs, svc: svc, st: st}
+	var out StatusOut
+	res := e.ok(t, "get_status", nil, &out)
+	ch := out.Chat
+	if ch.State != "connected" || ch.Server == nil || ch.Server.Host != "127.0.0.1" || ch.Channel != "netdiag-alerts" || ch.AppName != "netdiag" ||
+		ch.SendAlerts || ch.MinSeverity != model.ChatSeverityWarning || ch.Waiting != 0 {
+		t.Fatalf("chat: %+v", ch)
+	}
+	b, _ := json.Marshal(res)
+	if strings.Contains(string(b), "bub_") || strings.Contains(strings.ToLower(string(b)), "token") {
+		t.Fatalf("get_status holds the chat token: %s", b)
+	}
+	var raw struct {
+		Chat map[string]any `json:"chat"`
+	}
+	b, _ = json.Marshal(res.StructuredContent)
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatal(err)
+	}
+	// The plan's fields (v0.6 4.14) under their names.
+	for _, k := range []string{"state", "server", "channel", "appName", "waiting", "sendAlerts"} {
+		if _, ok := raw.Chat[k]; !ok {
+			t.Errorf("chat has no %s: %s", k, b)
+		}
 	}
 }
 
