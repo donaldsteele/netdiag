@@ -103,6 +103,8 @@ type fault struct {
 	// does not cover its devices, so its absence from the scan's conflict
 	// analyses does not close it.
 	outside bool
+	// code is the storm guard's reason (netdiagLink only, see LinkLost).
+	code string
 }
 
 // Engine produces Notices from transitions.
@@ -124,10 +126,12 @@ type Engine struct {
 	at map[string]string
 	// held is the storm guard (SetHold).
 	held bool
-	// deferred holds fault notices back until Reconcile (see Defer);
+	// deferred holds notices back until Reconcile or Release (see Defer);
 	// waiting has them, in order.
 	deferred bool
 	waiting  []model.Notice
+	// stopped drops every notice from now on (see Stop).
+	stopped bool
 }
 
 // New creates an engine. A nil clock uses time.Now.
@@ -182,11 +186,12 @@ func holdable(trigger string) bool {
 	return false
 }
 
-// emit appends the fault notice n unless its trigger is off, the storm guard
-// holds it, its problem is already open or its key is inside the cooldown.
-// A reported fault opens its problem (new devices have nothing to fix).
+// emit appends the fault notice n unless the engine is stopped, its trigger
+// is off, the storm guard holds it, its problem is already open or its key
+// is inside the cooldown. A reported fault opens its problem (new devices
+// have nothing to fix).
 func (e *Engine) emit(out []model.Notice, n model.Notice, detail string) []model.Notice {
-	if !e.cfg.Triggers[n.Trigger] || (e.held && holdable(n.Trigger)) {
+	if e.stopped || !e.cfg.Triggers[n.Trigger] || (e.held && holdable(n.Trigger)) {
 		return out
 	}
 	if _, ok := e.open[n.Key]; ok {
@@ -216,8 +221,13 @@ func (e *Engine) emit(out []model.Notice, n model.Notice, detail string) []model
 // told about always closes, even after its trigger was switched off, and it
 // forgets the key's cooldown, so a relapse is reported straight away. A
 // problem whose fault notice is still held back (Defer) closes without a
-// word: its notice is dropped too, since nobody was told.
+// word: its notice is dropped too, since nobody was told. While deferred,
+// the OK of a problem reported before waits with the held-back notices. A
+// stopped engine closes nothing.
 func (e *Engine) emitOK(out []model.Notice, f *fault, title, msg string) []model.Notice {
+	if e.stopped {
+		return out
+	}
 	now := e.now()
 	delete(e.open, f.Key)
 	delete(e.last, f.Key)
@@ -229,6 +239,10 @@ func (e *Engine) emitOK(out []model.Notice, f *fault, title, msg string) []model
 		Title: title, Message: msg, Key: f.Key, OK: true,
 		OpenedAt: f.OpenedAt.UTC().Format(time.RFC3339)}
 	n.ID, n.At = e.next(now)
+	if e.deferred {
+		e.waiting = append(e.waiting, n)
+		return out
+	}
 	return append(out, n)
 }
 
@@ -289,6 +303,32 @@ func (e *Engine) openFor(h model.Host, part string, triggers ...string) *fault {
 		}
 	}
 	return nil
+}
+
+// offlineAt returns the open offline problem of a device that turns up at
+// h's IP: one under h's keys (openFor), or one that opened at h's IP under
+// any key while h's MAC is not known yet or is the problem's. A live cycle
+// finds a device by ping or mDNS first and learns its MAC from the ARP read
+// after, so a problem kept under the MAC is matched by its IP until then.
+// nil when there is none.
+func (e *Engine) offlineAt(h model.Host) *fault {
+	if f := e.openFor(h, "", model.TriggerPrinterOffline, model.TriggerDeviceOffline); f != nil {
+		return f
+	}
+	m := macOf(h)
+	var best *fault
+	for k, f := range e.open {
+		if (f.Trigger != model.TriggerPrinterOffline && f.Trigger != model.TriggerDeviceOffline) || f.IP != h.IP {
+			continue
+		}
+		if m != "" && f.MAC != "" && !strings.EqualFold(m, f.MAC) {
+			continue // another device took the address
+		}
+		if best == nil || k < best.Key {
+			best = f
+		}
+	}
+	return best
 }
 
 // openOf returns the open problems of trigger whose key starts with one of
@@ -373,7 +413,7 @@ func (e *Engine) Observe(prev, cur model.Host) []model.Notice {
 		// A device with an open offline problem (seeded from the ledger:
 		// it was offline when netdiag last ran) that turns up in a later
 		// live cycle is back, not new.
-		if f := e.openFor(cur, "", model.TriggerPrinterOffline, model.TriggerDeviceOffline); f != nil && cur.Online {
+		if f := e.offlineAt(cur); f != nil && cur.Online {
 			return e.emitOK(out, f, backTitle(f.Trigger), backMessage(f.Trigger, l))
 		}
 		if cur.IsNew {

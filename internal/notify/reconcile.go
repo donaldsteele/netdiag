@@ -16,13 +16,33 @@ import (
 // gone now gets its OK, one that is still there stays open without a second
 // notice, and the held-back notices of new problems go out.
 
-// Defer holds fault notices back until Reconcile or Release, for the first
-// pass of a scan with a ledger. A problem that opens and closes while
-// deferred is never reported at all.
+// Defer holds notices back until Reconcile or Release (or drops them, see
+// Stop): for the first pass of a scan with a ledger, and while the storm
+// guard is not sure this computer is still on the network it watches. A
+// problem that opens and closes while deferred is never reported at all.
 func (e *Engine) Defer() {
 	e.mu.Lock()
 	e.deferred = true
 	e.mu.Unlock()
+}
+
+// Stop drops every notice from now on, fault or OK, and the notices held
+// back (Defer) with the problems they opened, since nobody was told about
+// them: this computer is on another network (the storm guard's
+// network_changed), so nothing netdiag sees is about the network it was
+// watching. The problems already reported stay open as they were. Stop does
+// not end; a new scan has a new engine. The storm guard's own notices
+// (LinkLost) still go out.
+func (e *Engine) Stop() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, n := range e.waiting {
+		if !n.OK {
+			delete(e.open, n.Key)
+			delete(e.last, n.Key)
+		}
+	}
+	e.waiting, e.deferred, e.stopped = nil, false, true
 }
 
 // Seed adopts the ledger's open problems for this network. A problem this
@@ -65,6 +85,7 @@ func (e *Engine) Reconcile(hosts []model.Host, cs []model.Conflict, h *model.Hea
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	var out []model.Notice
+	e.deferred = false // the OKs below go out first
 	for _, f := range e.sorted() {
 		if !f.seeded {
 			continue
@@ -278,22 +299,30 @@ func LinkKey(network string) string {
 }
 
 // LinkLost opens the storm guard's problem for network and returns its
-// notice, which carries reason (model.Held*) as its Code, or nothing when it
-// is already open. It is local only and needs no trigger switch: it says why
-// netdiag reports nothing while it holds.
+// notice, which carries reason (model.Held*) as its Code. When the problem
+// is already open for another reason (the guard found a stronger one), the
+// notice says the new reason under the same key and the problem keeps its
+// OpenedAt, so the banner that showed the old reason shows the new one;
+// for the same reason it returns nothing. It is local only, needs no
+// trigger switch and is never held back or stopped: it says why netdiag
+// reports nothing while it holds.
 func (e *Engine) LinkLost(network, reason, title, msg string) []model.Notice {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	key := LinkKey(network)
-	if _, ok := e.open[key]; ok {
+	f := e.open[key]
+	if f != nil && f.code == reason {
 		return nil
 	}
 	now := e.now()
 	n := model.Notice{Trigger: model.TriggerNetdiagLink, Severity: severityFor(model.TriggerNetdiagLink, sevCtx{}),
 		Title: title, Message: msg, Key: key, Code: reason}
 	n.ID, n.At = e.next(now)
-	e.open[key] = &fault{OpenFault: OpenFault{Key: key, Trigger: n.Trigger, Severity: n.Severity,
-		Title: title, OpenedAt: now}}
+	if f == nil {
+		f = &fault{OpenFault: OpenFault{Key: key, Trigger: n.Trigger, Severity: n.Severity, OpenedAt: now}}
+		e.open[key] = f
+	}
+	f.Title, f.code = title, reason
 	return []model.Notice{n}
 }
 

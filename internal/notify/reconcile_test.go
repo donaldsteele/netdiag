@@ -158,6 +158,36 @@ func TestPrevEmptyOK(t *testing.T) {
 	}
 }
 
+// A live cycle finds a device by ping before the ARP read gives its MAC, so
+// a problem kept under the MAC is matched by its IP: the printer that was
+// offline when netdiag last ran gets its OK and no "New device". Another
+// device at that address (another MAC) is new, and the problem stays open.
+func TestPrevEmptyOKByIP(t *testing.T) {
+	const key = "printerOffline|3C:52:82:11:22:33|"
+	seed := []OpenFault{{Key: key, Trigger: model.TriggerPrinterOffline, IP: "10.0.0.10", MAC: "3C:52:82:11:22:33", Name: "ZD621"}}
+	for _, tc := range []struct {
+		name string
+		mac  string
+		ok   bool
+	}{
+		{"no MAC yet", "", true},
+		{"its MAC", "3c:52:82:11:22:33", true},
+		{"another MAC", "AA:00:00:00:00:10", false},
+	} {
+		e, _ := newEng()
+		e.Defer()
+		e.Seed(seed)
+		e.Reconcile(nil, nil, nil)
+		n := e.Observe(model.Host{}, model.Host{IP: "10.0.0.10", MAC: tc.mac, Alive: true, Online: true, IsNew: true})
+		if tc.ok && (len(n) != 1 || !n[0].OK || n[0].Key != key || n[0].Title != "Printer back online") {
+			t.Fatalf("%s: %v", tc.name, n)
+		}
+		if !tc.ok && (len(n) != 1 || n[0].Trigger != model.TriggerNewDevice || len(e.Open()) != 1) {
+			t.Fatalf("%s: %v, open %v", tc.name, n, e.Open())
+		}
+	}
+}
+
 // While deferred, notices wait for Reconcile; a problem that opens and
 // closes while deferred is never reported.
 func TestDeferHoldsNotices(t *testing.T) {
@@ -242,6 +272,65 @@ func TestReconcileSupply(t *testing.T) {
 	}
 }
 
+// While the storm guard is unsure of the network (Defer after the first
+// pass), OKs wait with the faults; Release lets both out in order.
+func TestDeferHoldsOKs(t *testing.T) {
+	e, c := newEng()
+	h := printer(true, 50, door)
+	if n := firstPass(e, h); len(n) != 1 {
+		t.Fatalf("reported: %v", n)
+	}
+	e.Defer()
+	c.t = c.t.Add(time.Second)
+	if n := e.Observe(h, printer(true, 50)); len(n) != 0 {
+		t.Fatalf("deferred OK: %v", n)
+	}
+	n := e.ObserveConflicts([]model.Conflict{{ID: "c-1", Kind: model.ConflictMACFlap, IPs: []string{"10.0.0.7"}, Detail: "x"}}, true)
+	if len(n) != 0 {
+		t.Fatalf("deferred conflict: %v", n)
+	}
+	n = e.Release()
+	if len(n) != 2 || !n[0].OK || n[0].Trigger != model.TriggerPrinterAlert || n[1].Trigger != model.TriggerIPConflict || n[1].OK {
+		t.Fatalf("released: %v", n)
+	}
+}
+
+// Stop (this computer is on another network): the held-back notices go
+// with the problems they opened, nothing is reported or closed after, and
+// the problems reported before stay open. The storm guard's own notice
+// still goes out.
+func TestStop(t *testing.T) {
+	e, c := newEng()
+	h := printer(true, 50, door)
+	firstPass(e, h)
+	e.Defer()
+	other := model.Host{IP: "10.0.0.6", MAC: "AA:00:00:00:00:06", IsPrinter: true, Online: true, IsNew: true}
+	if n := e.Observe(model.Host{}, other); len(n) != 0 {
+		t.Fatalf("deferred: %v", n)
+	}
+	withAlert := other
+	withAlert.Printer = &model.PrinterInfo{Alerts: []model.Alert{door}}
+	e.Observe(other, withAlert)
+	e.Stop()
+	c.t = c.t.Add(time.Hour)
+	n := e.Observe(h, printer(true, 50))
+	n = append(n, e.Observe(model.Host{}, model.Host{IP: "10.0.0.8", Online: true, IsNew: true})...)
+	n = append(n, e.ObserveHealth(report(model.HealthFail))...)
+	n = append(n, e.ObserveHealth(report(model.HealthFail))...)
+	if len(n) != 0 {
+		t.Fatalf("after Stop: %v", n)
+	}
+	if open := e.Open(); len(open) != 1 || open[0].IP != h.IP {
+		t.Fatalf("open after Stop: %v", open)
+	}
+	if n := e.Release(); len(n) != 0 {
+		t.Fatalf("released after Stop: %v", n)
+	}
+	if n := e.LinkLost("n-0123456789ab", model.HeldNetworkChanged, "This computer is on a different network", "x"); len(n) != 1 {
+		t.Fatalf("link notice after Stop: %v", n)
+	}
+}
+
 // The storm guard's problem: one notice when it opens, one OK when it
 // closes, whatever the trigger switches say.
 func TestLinkNotices(t *testing.T) {
@@ -255,6 +344,14 @@ func TestLinkNotices(t *testing.T) {
 	}
 	if n := e.LinkLost("n-0123456789ab", model.HeldLink, "netdiag lost the network", "x"); len(n) != 0 {
 		t.Fatalf("again: %v", n)
+	}
+	// A stronger reason: a second notice under the same key, the problem
+	// keeps its OpenedAt.
+	opened := e.Open()[0].OpenedAt
+	n2 := e.LinkLost("n-0123456789ab", model.HeldNetworkChanged, "This computer is on a different network", "y")
+	if len(n2) != 1 || n2[0].Key != n[0].Key || n2[0].ID == n[0].ID || n2[0].Code != model.HeldNetworkChanged || n2[0].OK ||
+		len(e.Open()) != 1 || e.Open()[0].Title != "This computer is on a different network" || !e.Open()[0].OpenedAt.Equal(opened) {
+		t.Fatalf("raised: %v, open %v", n2, e.Open())
 	}
 	n = e.LinkBack("n-0123456789ab")
 	if len(n) != 1 || !n[0].OK || n[0].Key != "netdiagLink||n-0123456789ab" || n[0].Title != "netdiag is back on the network" {
