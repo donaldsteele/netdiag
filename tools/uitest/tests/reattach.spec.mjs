@@ -157,8 +157,10 @@ test('Restart watching asks first; Esc keeps watching and returns focus; Restart
   const rec = await installMocks(page, { scenario: 'live', running: true, frames: fx.replayFrames() });
   await page.goto(HOME);
   const btn = page.getByRole('button', { name: 'Restart watching', exact: true });
-  await expect(btn).toBeVisible();
-  await expect(page.locator('#hosts tbody tr.host')).toHaveCount(fx.TOTAL_HOSTS);
+  // The page draws the whole replayed scan first: 2 to 6 s when several
+  // workers run at once (as in align.spec).
+  await expect(btn).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('#hosts tbody tr.host')).toHaveCount(fx.TOTAL_HOSTS, { timeout: 20_000 });
 
   await btn.click();
   const dlg = restartDialog(page);
@@ -178,7 +180,8 @@ test('Restart watching asks first; Esc keeps watching and returns focus; Restart
   await expect.poll(() => posts(rec).length).toBe(1);
   expect(JSON.parse(posts(rec)[0].body)).toMatchObject({ cidr: fx.CIDR, live: true, replaceLive: true });
   await expect(page.locator('.livepill')).toBeVisible();
-  expect(await app(page, (a) => a.log.some((e) => e.text.startsWith('Watching restarted: ')))).toBe(true);
+  // The Activity line follows the new scan's answer: wait for it.
+  await expect.poll(() => app(page, (a) => a.log.some((e) => e.text.startsWith('Watching restarted: ')))).toBe(true);
 
   expect(errors, 'page errors').toEqual([]);
   expect(rec.unmatched, 'unmatched requests').toEqual([]);
