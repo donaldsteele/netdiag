@@ -417,7 +417,9 @@ var runbooks = []runbook{
 			return "Check netdiag's alerts in team chat (bubbles): re-check each one that is still open, and close only what netdiag confirms is fixed. " +
 				"netdiag posts its own alerts and closes them itself when the problem is fixed; you help the person see where things stand. Follow these steps:\n" +
 				"1. Call get_status and read chat. If chat.state is not \"connected\", explain it in the netdiag window's own words below, and go on with netdiag only:\n" +
-				"   - \"unreachable\": \"netdiag can't reach the chat server since <chat.since, in local time>. It keeps trying. Alerts from the last hour are sent when it is back.\" (older ones are dropped, so never promise to send all of chat.waiting) " +
+				"   - \"unreachable\": \"netdiag can't reach the chat server since <chat.since, in local time>. It keeps trying.\" " +
+				"Only if chat.sendAlerts is true, add \"Alerts from the last hour are sent when it is back.\" (older ones are dropped, so never promise to send all of chat.waiting); " +
+				"if it is false, nothing waits to be sent, so promise nothing about sending. " +
 				"Suggest **Try now** in **Settings > Team chat (bubbles)**.\n" +
 				"   - \"needs_reconnect\": if chat.reason is \"unreadable\", \"netdiag can't open its saved team chat connection on this computer (it may have been copied from another computer or Windows user), so it has to be connected again.\" " +
 				"Otherwise, \"The chat server no longer accepts netdiag (your chat admin may have removed it).\" " +
