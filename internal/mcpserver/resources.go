@@ -19,23 +19,28 @@ const (
 	uriPrefix      = "netdiag://"
 )
 
-// Resource URIs and templates. resources/list shows the four static
-// resources; individual scans are exposed through the templates (the SDK only
-// enumerates statically registered resources, and scan ids are discoverable
-// via the list_history tool and the netdiag://history resource).
+// Resource URIs and templates. resources/list shows the seven static
+// resources; individual scans and runbooks are exposed through the templates
+// (the SDK only enumerates statically registered resources; scan ids are
+// discoverable via the list_history tool and the netdiag://history resource,
+// runbook names via netdiag://runbooks).
 const (
 	URIInterfaces = "netdiag://interfaces"
 	URIHealth     = "netdiag://health"
 	URIHistory    = "netdiag://history"
 	URISettings   = "netdiag://settings"
+	URIStatus     = "netdiag://status"
+	URIProblems   = "netdiag://problems"
+	URIRunbooks   = "netdiag://runbooks"
 
 	TmplScan    = "netdiag://scans/{scanId}"
 	TmplDevices = "netdiag://scans/{scanId}/devices"
 	TmplDevice  = "netdiag://scans/{scanId}/devices/{ip}"
+	TmplRunbook = "netdiag://runbooks/{name}"
 )
 
-func registerResources(s *mcp.Server, svc *service.Service) {
-	t := &tools{svc: svc}
+func registerResources(s *mcp.Server, svc *service.Service, opts Options) {
+	t := &tools{svc: svc, opts: opts}
 	static := func(uri, name, title, desc string, fn func(ctx context.Context) (any, error)) {
 		s.AddResource(&mcp.Resource{URI: uri, Name: name, Title: title, Description: desc, MIMEType: resMIME},
 			func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
@@ -65,6 +70,25 @@ func registerResources(s *mcp.Server, svc *service.Service) {
 		func(ctx context.Context) (any, error) {
 			_, out, err := t.getSettings(ctx, nil, noInput{})
 			return out, err
+		})
+	static(URIStatus, "status", "netdiag status", "The netdiag window, the scan watching the network and a count of the problems (same as get_status).",
+		func(ctx context.Context) (any, error) {
+			return t.status(ctx), nil
+		})
+	static(URIProblems, "problems", "Problems right now", "What is wrong right now, with advice, and what was fixed in the last 24 hours (same as list_problems with defaults).",
+		func(ctx context.Context) (any, error) {
+			_, out, err := t.listProblems(ctx, nil, listProblemsIn{})
+			return out, err
+		})
+	static(URIRunbooks, "runbooks", "Runbooks", "Every runbook (the same as the prompts) with its arguments (same as get_runbook without a name).",
+		func(context.Context) (any, error) {
+			return getRunbookOut{Runbooks: runbookIndex()}, nil
+		})
+	s.AddResourceTemplate(&mcp.ResourceTemplate{URITemplate: TmplRunbook, Name: "runbook", Title: "Runbook",
+		Description: "One runbook's steps (same as get_runbook with that name). A required argument it has no value for shows as <name>, for example <ip>.",
+		MIMEType:    resMIME},
+		func(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+			return readRunbookResource(svc, req.Params.URI)
 		})
 
 	tmpl := func(tp, name, title, desc string) {
@@ -113,6 +137,35 @@ func parseScanURI(uri string) (scanID string, devices bool, ip string, ok bool) 
 		return id, true, addr, g1 && g2
 	}
 	return "", false, "", false
+}
+
+// readRunbookResource reads netdiag://runbooks/<name>: the runbook's text
+// with every required argument shown as a placeholder (<ip>), since a
+// resource read carries no arguments.
+func readRunbookResource(svc *service.Service, uri string) (*mcp.ReadResourceResult, error) {
+	rest, found := strings.CutPrefix(uri, URIRunbooks+"/")
+	if i := strings.IndexAny(rest, "?#"); i >= 0 {
+		rest = rest[:i]
+	}
+	name, err := url.PathUnescape(rest)
+	if !found || err != nil {
+		return nil, mcp.ResourceNotFoundError(uri)
+	}
+	rb, ok := findRunbook(name)
+	if !ok {
+		return nil, mcp.ResourceNotFoundError(uri)
+	}
+	a := map[string]string{}
+	for _, ar := range rb.Args {
+		if ar.Required {
+			a[ar.Name] = "<" + ar.Name + ">"
+		}
+	}
+	txt, err := runbookText(rb, svc, a)
+	if err != nil {
+		return nil, err
+	}
+	return jsonResource(uri, RunbookDoc{Name: rb.Name, Title: rb.Title, Text: txt})
 }
 
 func readScanResource(svc *service.Service, uri string) (*mcp.ReadResourceResult, error) {

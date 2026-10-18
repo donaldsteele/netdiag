@@ -209,10 +209,13 @@ func TestSecretCommunityAppearsNowhere(t *testing.T) {
 	call("list_history", nil)
 	call("compare_scans", map[string]any{"baseId": live, "currentId": cur})
 	call("get_settings", nil)
+	call("get_status", nil)
+	call("list_problems", nil)
+	call("get_runbook", map[string]any{"name": "explain_problems"})
 
 	list, err := cs.ListResources(ctx, &mcp.ListResourcesParams{})
 	mcpOut("resources/list", list, err)
-	uris := []string{mcpserver.URISettings, mcpserver.URIHistory, mcpserver.URIHealth}
+	uris := []string{mcpserver.URISettings, mcpserver.URIHistory, mcpserver.URIHealth, mcpserver.URIStatus, mcpserver.URIProblems}
 	for _, id := range []string{live, cur, sum.ScanID, "old1"} {
 		uris = append(uris, "netdiag://scans/"+id, "netdiag://scans/"+id+"/devices", "netdiag://scans/"+id+"/devices/10.0.0.10")
 	}

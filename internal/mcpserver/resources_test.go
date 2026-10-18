@@ -39,14 +39,14 @@ func TestListResourcesAndTemplates(t *testing.T) {
 	for _, r := range rl.Resources {
 		got = append(got, r.URI)
 	}
-	for _, w := range []string{URIInterfaces, URIHealth, URIHistory, URISettings} {
+	for _, w := range []string{URIInterfaces, URIHealth, URIHistory, URISettings, URIStatus, URIProblems, URIRunbooks} {
 		if !slices.Contains(got, w) {
 			t.Errorf("resource %s missing from %v", w, got)
 		}
 	}
-	// docs/mcp.md says resources/list shows only the four fixed resources.
-	if len(got) != 4 {
-		t.Errorf("resources/list = %v, want only the four fixed resources", got)
+	// docs/mcp.md says resources/list shows only the seven fixed resources.
+	if len(got) != 7 {
+		t.Errorf("resources/list = %v, want only the seven fixed resources", got)
 	}
 	tl, err := e.cs.ListResourceTemplates(context.Background(), nil)
 	if err != nil {
@@ -56,9 +56,61 @@ func TestListResourcesAndTemplates(t *testing.T) {
 	for _, r := range tl.ResourceTemplates {
 		tg = append(tg, r.URITemplate)
 	}
-	for _, w := range []string{TmplScan, TmplDevices, TmplDevice} {
+	for _, w := range []string{TmplScan, TmplDevices, TmplDevice, TmplRunbook} {
 		if !slices.Contains(tg, w) {
 			t.Errorf("template %s missing from %v", w, tg)
+		}
+	}
+	if len(tg) != 4 {
+		t.Errorf("templates = %v, want four", tg)
+	}
+}
+
+// TestRunbookResources: netdiag://runbooks is get_runbook's index, and
+// netdiag://runbooks/{name} the runbook's text (the prompt's), with a
+// placeholder for a required argument; status and problems are the tools'.
+func TestRunbookResources(t *testing.T) {
+	e := setup(t, "http", true, fakePinger{})
+	txt, err := e.read(t, URIRunbooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var idx getRunbookOut
+	if err := json.Unmarshal([]byte(txt), &idx); err != nil || len(idx.Runbooks) != len(PromptNames) {
+		t.Fatalf("index = %s err=%v", txt, err)
+	}
+	txt, err = e.read(t, "netdiag://runbooks/explain_problems")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc RunbookDoc
+	if err := json.Unmarshal([]byte(txt), &doc); err != nil || doc.Name != "explain_problems" || doc.Text != promptText(t, e, "explain_problems", nil) {
+		t.Fatalf("runbook resource = %+v err=%v", doc, err)
+	}
+	txt, err = e.read(t, "netdiag://runbooks/diagnose_printer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(txt), &doc); err != nil || !strings.Contains(doc.Text, "Diagnose the printer at <ip>") {
+		t.Fatalf("placeholder missing: %s", txt)
+	}
+	if _, err := e.read(t, "netdiag://runbooks/nope"); err == nil || !strings.Contains(strings.ToLower(err.Error()), "not found") {
+		t.Fatalf("unknown runbook: %v", err)
+	}
+	for _, uri := range []string{URIStatus, URIProblems} {
+		txt, err := e.read(t, uri)
+		if err != nil {
+			t.Fatalf("%s: %v", uri, err)
+		}
+		var v map[string]any
+		if err := json.Unmarshal([]byte(txt), &v); err != nil {
+			t.Fatalf("%s: %v", uri, err)
+		}
+		if _, ok := v["source"]; uri == URIProblems && !ok {
+			t.Errorf("%s has no source: %s", uri, txt)
+		}
+		if _, ok := v["window"]; uri == URIStatus && !ok {
+			t.Errorf("%s has no window: %s", uri, txt)
 		}
 	}
 }

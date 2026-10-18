@@ -31,11 +31,26 @@ func TestPrompts(t *testing.T) {
 		args map[string]string
 		must []string
 	}{
-		{"triage_network", map[string]string{"cidr": "10.0.0.0/24"}, []string{"start_scan", "10.0.0.0/24", "list_devices", "get_device", "get_health", "mac_flap", "ARP"}},
-		{"diagnose_printer", map[string]string{"ip": "10.0.0.50"}, []string{"get_device", "10.0.0.50", "9100", "631", "supplies", "probe_host", "get_events"}},
-		{"explain_conflict", map[string]string{"ip": "10.0.0.50"}, []string{"mac_flap", "mac_multi_ip", "duplicate_name", "compare_scans", "extender"}},
-		{"device_missing", map[string]string{"nameOrIp": "printer-2"}, []string{"printer-2", "list_devices", "compare_scans", "probe_host"}},
+		{"triage_network", map[string]string{"cidr": "10.0.0.0/24"}, []string{"start_scan", "10.0.0.0/24", "list_devices", "get_device", "get_health", "mac_flap", "ARP",
+			"get_status", "alreadyWatching", "list_problems", "advice"}},
+		{"diagnose_printer", map[string]string{"ip": "10.0.0.50"}, []string{"get_device", "10.0.0.50", "9100", "631", "supplies", "probe_host", "get_events",
+			"list_problems", "advice"}},
+		{"explain_conflict", map[string]string{"ip": "10.0.0.50"}, []string{"mac_flap", "mac_multi_ip", "duplicate_name", "compare_scans", "extender",
+			"macHistory", "Possible conflict", "advice", `**Ignore this MAC** now asks "Are you sure?"`}},
+		{"device_missing", map[string]string{"nameOrIp": "printer-2"}, []string{"printer-2", "list_devices", "compare_scans", "probe_host",
+			"list_problems", "device_offline"}},
 		{"what_changed", map[string]string{"baseId": "a1", "currentId": "b2"}, []string{"compare_scans", "a1", "b2"}},
+		{"explain_problems", nil, []string{"get_status", "list_problems", "advice.meaning", "advice.steps", "everything looks fine", "Fixed at",
+			`"OK: everything looks fine`, `"Problem:"`, `"Not checked:"`}},
+		{"internet_not_working", nil, []string{"run_health_check", "wifi", "dhcp", "gateway", "dns", "internet", "Recheck", "Health"}},
+		{"device_offline", nil, []string{"list_devices", "get_device", "probe_host", "foundBy", "conflict", "Fixed", "filter=offline"}},
+		{"device_offline", map[string]string{"device": "Front desk PC"}, []string{`query="Front desk PC"`, "get_device", "probe_host"}},
+		{"first_look", nil, []string{"list_interfaces", "start_scan", "waitSec=60", "alreadyWatching", "get_health", "list_devices", "list_problems",
+			"allowed to check", "_bubbles._tcp"}},
+		{"first_look", map[string]string{"interface": "Ethernet 2"}, []string{`"Ethernet 2"`}},
+	}
+	if len(PromptNames) != 9 {
+		t.Fatalf("v0.6 M9 has 9 prompts (check_chat_alerts comes with M12): %v", PromptNames)
 	}
 	for _, c := range cases {
 		res, err := e.cs.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: c.name, Arguments: c.args})
@@ -57,7 +72,7 @@ func TestPrompts(t *testing.T) {
 		checkDeviceTextRule(t, c.name, txt)
 	}
 	// optional args may be omitted
-	for _, n := range []string{"triage_network", "what_changed"} {
+	for _, n := range []string{"triage_network", "what_changed", "explain_problems", "internet_not_working", "device_offline", "first_look"} {
 		if _, err := e.cs.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: n}); err != nil {
 			t.Errorf("%s without args: %v", n, err)
 		}

@@ -23,6 +23,7 @@ var ToolNames = []string{
 	"list_interfaces", "start_scan", "get_scan", "cancel_scan", "list_devices",
 	"get_device", "get_events", "get_health", "run_health_check", "probe_host",
 	"list_history", "compare_scans", "get_settings",
+	"get_status", "list_problems", "get_runbook",
 }
 
 const (
@@ -206,7 +207,7 @@ func registerTools(s *mcp.Server, svc *service.Service, opts Options) {
 			OpenWorldHint: ptr(false), IdempotentHint: true}}, t.cancelScan)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "list_devices", Title: "List devices in a scan",
-		Description: "Paginated compact device rows for a scan, with optional filter, deviceType and query. Use filter=problems to see what needs attention; it matches the Problems tab in the netdiag UI: devices that are offline or in a conflict, printers with alerts or a supply that is low, empty or at or below the supply threshold in Settings, and web pages that failed or returned an HTTP error.",
+		Description: "Paginated compact device rows for a scan, with optional filter, deviceType and query. Use filter=problems to see what needs attention; it matches the Problems tab in the netdiag UI: devices that are offline or in a conflict (other than one that involves a MAC ignored in Settings), printers with alerts or a supply that is low, empty or at or below the supply threshold in Settings, and web pages that failed or returned an HTTP error.",
 		Annotations: readAnn("List devices in a scan")}, t.listDevices)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_device", Title: "Get device details",
@@ -240,6 +241,18 @@ func registerTools(s *mcp.Server, svc *service.Service, opts Options) {
 	mcp.AddTool(s, &mcp.Tool{Name: "get_settings", Title: "Get settings",
 		Description: "Read netdiag settings (read-only; the SNMP community and any password in the web server URL are redacted). Agents cannot change settings.",
 		Annotations: readAnn("Get settings")}, t.getSettings)
+
+	mcp.AddTool(s, &mcp.Tool{Name: "get_status", Title: "Get netdiag status",
+		Description: "Start here. Whether the netdiag window is open and serves this connection (window.thisProcess), the scan watching the network (watching, with its scanId; null when nothing watches), the scan running now, and a count of the problems with when they were last checked. The note says in a sentence what this connection can and cannot see.",
+		Annotations: readAnn("Get netdiag status")}, t.getStatus)
+
+	mcp.AddTool(s, &mcp.Tool{Name: "list_problems", Title: "List problems right now",
+		Description: "What is wrong on the local network right now, most urgent first, as the Problems right now card in the netdiag window shows it: failing health checks, offline printers, printer alerts, low supplies and conflicts (each follows its Alerts setting), with plain-words advice (advice.meaning, advice.steps and the advice.actions buttons), when it began, and which tool re-checks it. everythingFine is true when nothing is a warning or worse. Also lists the problems fixed in the last 24 hours.",
+		Annotations: readAnn("List problems right now")}, t.listProblems)
+
+	mcp.AddTool(s, &mcp.Tool{Name: "get_runbook", Title: "Get a runbook",
+		Description: "netdiag's runbooks, the same as its prompts. Without a name it lists them; with a name (and its arguments) it returns the steps to follow. When the person describes a problem in their own words, pick the best match and follow it.",
+		Annotations: readAnn("Get a runbook")}, t.getRunbook)
 }
 
 // ---- handlers ----
@@ -405,9 +418,20 @@ func (t *tools) listDevices(_ context.Context, _ *mcp.CallToolRequest, in listDe
 	}
 	page, err := ListDevices(r, ListOptions{
 		Filter: in.Filter, DeviceType: in.DeviceType, Query: in.Query,
-		Limit: in.Limit, Cursor: in.Cursor, SupplyPct: supplyThreshold(t.svc),
+		Limit: in.Limit, Cursor: in.Cursor, SupplyPct: supplyThreshold(t.svc), IgnoredMACs: ignoredMACs(t.svc),
 	})
 	return nil, page, err
+}
+
+// ignoredMACs are the conflict MACs the person ignored in Settings (none
+// when settings cannot be read).
+func ignoredMACs(svc *service.Service) []string {
+	if svc != nil {
+		if set, err := svc.LoadSettings(); err == nil {
+			return set.IgnoredConflictMACs
+		}
+	}
+	return nil
 }
 
 // supplyThreshold is the low-supply percentage from Settings

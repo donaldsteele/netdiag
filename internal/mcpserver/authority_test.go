@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,6 +22,7 @@ var allowList = []string{
 	"list_interfaces", "start_scan", "get_scan", "cancel_scan", "list_devices",
 	"get_device", "get_events", "get_health", "run_health_check", "probe_host",
 	"list_history", "compare_scans", "get_settings",
+	"get_status", "list_problems", "get_runbook", // v0.6: reads
 }
 
 func TestToolSetMatchesAllowList(t *testing.T) {
@@ -44,19 +46,57 @@ func TestToolSetMatchesAllowList(t *testing.T) {
 	}
 }
 
+// uiOnlyForbidden maps each footer phrase of what agents can never do
+// (prompts.go uiOnlyWords) to the calls that would do it, which no non-test
+// file of this package may contain (master roadmap §8.11). The phrases live
+// only in prompts.go and the calls only here, so a call named in prompts.go
+// cannot trip the scan; TestUIOnlyTableComplete keeps the two sides equal.
+var uiOnlyForbidden = map[string][]string{
+	"change settings":                    {"SaveSettings("},
+	"delete saved scans":                 {"DeleteScan("},
+	"ignore a device in conflict checks": {"IgnoreMAC("},
+	"quit netdiag":                       {"Quit(", "handleQuit"},
+	// Only the window's Restart watching replaces a scan that is watching
+	// the network (F9).
+	"restart or replace watching": {"ReplaceLive"},
+	// chat.Manager's pairing, connection string and Disconnect (v0.6 M10).
+	"connect or disconnect team chat": {"StartPairing(", "ConnectString(", "Disconnect("},
+	// The test alert (M10) and Try now's push of the chat outbox (M11).
+	// Agents cannot post to team chat themselves: the outbox's Post,
+	// Resolve and Message are methods of a type internal/chat does not
+	// export, and this package may not import internal/chat at all
+	// (TestMCPImportsNoActionPackages; v0.6-D43).
+	"send test alerts or post netdiag alerts to chat": {"SendTest(", "TryNow("},
+	"choose the chat channel":                         {"SetChannel("},
+	// POST /api/os/open (v0.6 M7).
+	"open Windows settings pages": {"OpenOSPage("},
+}
+
+func TestUIOnlyTableComplete(t *testing.T) {
+	got := slices.Sorted(maps.Keys(uiOnlyForbidden))
+	want := slices.Sorted(slices.Values(uiOnlyWords))
+	if !slices.Equal(got, want) {
+		t.Fatalf("uiOnlyForbidden phrases %q != prompts.go uiOnlyWords %q", got, want)
+	}
+	for w, calls := range uiOnlyForbidden {
+		if len(calls) == 0 {
+			t.Errorf("%q forbids no call", w)
+		}
+	}
+	// Every phrase is in the footer of every runbook and in the
+	// instructions.
+	for _, w := range uiOnlyWords {
+		if !strings.Contains(runbookFooter, w) || !strings.Contains(instructions, w) {
+			t.Errorf("%q is missing from the footer or the instructions", w)
+		}
+	}
+}
+
 func TestNoMutatingCallsInMCPLayer(t *testing.T) {
-	// OpenOSPage( (v0.6 M7): agents never open this computer's settings pages.
-	// ReplaceLive: agents never replace a scan that is watching the network
-	// (F9); only the window's Restart watching does. The team chat actions
-	// (v0.6 M10): agents never connect or disconnect team chat, choose its
-	// channel or send test alerts (chat.Manager's StartPairing,
-	// ConnectString, SetChannel, SendTest and Disconnect), nor push its
-	// outbox (Try now's TryNow). Nor do they post to team chat themselves:
-	// the outbox's Post, Resolve and Message are methods of a type
-	// internal/chat does not export, and this package may not import
-	// internal/chat at all (TestMCPImportsNoActionPackages; v0.6-D43).
-	forbidden := []string{"SaveSettings(", "DeleteScan(", "IgnoreMAC(", "handleQuit", "Quit(", "OpenOSPage(", "ReplaceLive",
-		"StartPairing(", "ConnectString(", "Disconnect(", "SendTest(", "SetChannel(", "TryNow("}
+	var forbidden []string
+	for _, calls := range uiOnlyForbidden {
+		forbidden = append(forbidden, calls...)
+	}
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)

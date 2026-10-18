@@ -17,11 +17,14 @@ type Options struct {
 	Logger *slog.Logger
 }
 
-const instructions = "netdiag discovers devices on a local network (ICMP, ARP, ports, SNMP, mDNS, IPP), runs network health checks (" + healthChecksText + "), detects IP/MAC/name conflicts and keeps scan history. " +
-	"Typical flow: call start_scan (it waits up to waitSec and returns a compact summary; if it is still running, poll get_scan), then list_devices with filter=problems, then get_device for details on one host; " +
+var instructions = "netdiag discovers devices on a local network (ICMP, ARP, ports, SNMP, mDNS, IPP), runs network health checks (" + healthChecksText + "), detects IP/MAC/name conflicts and keeps scan history. " +
+	"Start with get_status and use its watching scanId. When the person describes a problem in their own words, call get_runbook and follow the best match. " +
+	"list_problems says what is wrong right now, with netdiag's own plain-words advice. " +
+	"Typical flow without a scan: call start_scan (it waits up to waitSec and returns a compact summary; if it is still running, poll get_scan), then list_problems, list_devices with filter=problems, and get_device for details on one host; " +
 	"use get_events with the returned nextSeq to follow live changes, and compare_scans to see what changed since a previous scan. " +
+	"start_scan never replaces a scan that is watching the network. Chat alerts are closed by netdiag itself. " +
 	"List results are paginated: pass nextCursor back as cursor. Scans and probes send real network traffic like the Scan button in the UI. " +
-	"Agents cannot change settings, delete history, ignore conflicting MACs or quit netdiag: direct the operator to the netdiag UI for those actions. " +
+	"Agents cannot " + cannotText() + ": direct the person to the netdiag UI for those actions. " +
 	"SNMP community strings are always shown as \"***\". " + deviceTextRule
 
 // deviceTextRule warns agents that device-supplied strings are untrusted. It
@@ -40,7 +43,7 @@ func New(svc *service.Service, opts Options) *mcp.Server {
 		&mcp.ServerOptions{Instructions: instructions, Logger: opts.Logger},
 	)
 	registerTools(s, svc, opts)
-	registerResources(s, svc)
+	registerResources(s, svc, opts)
 	registerPrompts(s, svc)
 	return s
 }

@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -80,12 +82,26 @@ func TestMCPEnableAndUse(t *testing.T) {
 	}
 	cs := mcpConnect(t, base)
 	tl, err := cs.ListTools(context.Background(), &mcp.ListToolsParams{})
-	if err != nil || len(tl.Tools) != 13 {
+	if err != nil || len(tl.Tools) != 16 {
 		t.Fatalf("tools %v %v", tl, err)
 	}
 	gs := callJSON(t, cs, "get_settings", nil)
 	if s := gs["community"]; s != nil && s != "***" {
 		t.Fatalf("community not redacted: %v", gs)
+	}
+	// get_status over the window's /mcp speaks for the window itself, on
+	// the port the page is on, with Agent access on.
+	st := callJSON(t, cs, "get_status", nil)
+	w, _ := st["window"].(map[string]any)
+	u, _ := url.Parse(base)
+	if w["open"] != true || w["thisProcess"] != true || w["agentAccess"] != true || fmt.Sprint(w["port"]) != u.Port() || st["transport"] != "http" {
+		t.Fatalf("get_status = %v", st)
+	}
+	if b, _ := json.Marshal(st); strings.Contains(string(b), "bub_") {
+		t.Fatalf("get_status holds a chat token: %s", b)
+	}
+	if lp := callJSON(t, cs, "list_problems", nil); lp["source"] == nil {
+		t.Fatalf("list_problems = %v", lp)
 	}
 }
 

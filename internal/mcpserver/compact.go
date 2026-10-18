@@ -4,12 +4,16 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
+	"netdiag/internal/advice"
 	"netdiag/internal/model"
 	"netdiag/internal/notify"
+	"netdiag/internal/problems"
 	"netdiag/internal/report"
 )
 
@@ -19,9 +23,12 @@ const (
 	maxSummaryPrinters  = 20
 	maxSummaryWarnings  = 10
 	maxSummaryFailing   = 10
-	maxPrinterAlerts    = 3
-	maxPrinterSupplies  = 4
-	maxDetailChars      = 100
+	// maxSummaryAdvice is how many of a summary's conflicts carry their
+	// advice; get_device and list_problems give every conflict's.
+	maxSummaryAdvice   = 5
+	maxPrinterAlerts   = 3
+	maxPrinterSupplies = 4
+	maxDetailChars     = 100
 
 	DefaultDeviceLimit = 50
 	MaxDeviceLimit     = 200
@@ -50,6 +57,8 @@ type FailingCheck struct {
 	Check  string `json:"check"`
 	Status string `json:"status"`
 	Detail string `json:"detail"`
+	// Advice is what it means and what to try, in netdiag's words.
+	Advice *model.Advice `json:"advice,omitempty"`
 }
 
 // SummaryHealth condenses a HealthReport.
@@ -66,6 +75,8 @@ type SummaryConflict struct {
 	MACs     []string `json:"macs"`
 	Name     string   `json:"name,omitempty"`
 	Detail   string   `json:"detail"`
+	// Advice is what it means and what to try, in netdiag's words.
+	Advice *model.Advice `json:"advice,omitempty"`
 }
 
 // PrinterAlert is a printer with a problem.
@@ -144,12 +155,53 @@ func nonNil(s []string) []string {
 	return s
 }
 
+// lazyAdviceCtx returns the advice context of scan r, built on first use
+// (only advice missing from a scan needs it).
+func lazyAdviceCtx(r model.ScanResult) func() advice.Ctx {
+	return sync.OnceValue(func() advice.Ctx {
+		hosts := make(map[string]model.Host, len(r.Hosts))
+		for _, h := range r.Hosts {
+			hosts[h.IP] = h
+		}
+		return advice.Ctx{GOOS: runtime.GOOS, Gateway: r.Gateway, Hosts: hosts}
+	})
+}
+
+// healthAdvice is the advice of check c: the scan's own, or, for a scan
+// saved before netdiag gave advice, built now from the same rules.
+func healthAdvice(c model.HealthCheck, x func() advice.Ctx) *model.Advice {
+	if c.Advice != nil {
+		return c.Advice
+	}
+	return advice.Health(c, x())
+}
+
+// conflictAdvice is the advice of conflict c, as healthAdvice.
+func conflictAdvice(c model.Conflict, x func() advice.Ctx) *model.Advice {
+	if c.Advice != nil {
+		return c.Advice
+	}
+	return advice.Conflict(c, x())
+}
+
+// briefAdvice is advice a for a summary: without Technical, which repeats
+// the detail the summary already clips.
+func briefAdvice(a *model.Advice) *model.Advice {
+	if a == nil {
+		return nil
+	}
+	b := *a
+	b.Technical = ""
+	return &b
+}
+
 // Summarize builds a bounded ScanSummary. supplyPct is the low-supply
 // threshold (alerts.supplyThresholdPct; <= 0 means the default): the
 // printer alerts are the printers list_devices filter=problems lists for
 // their alerts or supplies, like the Problems tab.
 func Summarize(r model.ScanResult, supplyPct int) ScanSummary {
-	fc := newFilterCtx(r, supplyPct)
+	fc := newFilterCtx(r, supplyPct, nil)
+	x := lazyAdviceCtx(r)
 	s := ScanSummary{
 		ScanID: r.ID, State: r.State,
 		Request:    SummaryRequest{CIDR: r.Request.CIDR, Interface: r.Request.Interface, Live: r.Request.Live},
@@ -181,7 +233,8 @@ func Summarize(r model.ScanResult, supplyPct int) ScanSummary {
 				warn++
 			}
 			if len(s.Health.Failing) < maxSummaryFailing {
-				s.Health.Failing = append(s.Health.Failing, FailingCheck{Check: c.ID, Status: c.Status, Detail: clip(c.Detail, maxDetailChars)})
+				s.Health.Failing = append(s.Health.Failing, FailingCheck{Check: c.ID, Status: c.Status, Detail: clip(c.Detail, maxDetailChars),
+					Advice: briefAdvice(healthAdvice(c, x))})
 			}
 		}
 		if fail == 0 && warn == 0 {
@@ -202,10 +255,14 @@ func Summarize(r model.ScanResult, supplyPct int) ScanSummary {
 		if len(macs) > 4 {
 			macs = macs[:4]
 		}
-		s.Conflicts = append(s.Conflicts, SummaryConflict{
+		sc := SummaryConflict{
 			Kind: c.Kind, Severity: c.Severity, IPs: nonNil(ips), MACs: nonNil(macs),
 			Name: c.Name, Detail: clip(c.Detail, maxDetailChars),
-		})
+		}
+		if len(s.Conflicts) < maxSummaryAdvice {
+			sc.Advice = briefAdvice(conflictAdvice(c, x))
+		}
+		s.Conflicts = append(s.Conflicts, sc)
 	}
 	for _, h := range report.SortHosts(r.Hosts) {
 		if !fc.printerProblem(h) {
@@ -281,13 +338,21 @@ var deviceFilters = []string{"all", "printers", "web", "offline", "conflicts", "
 type filterCtx struct {
 	supplyPct   int             // low-supply threshold for "problems"
 	conflictIPs map[string]bool // IPs named by a conflict of the scan
+	// set holds what problems.HostIssues reads: the supply threshold and
+	// the ignored conflict MACs.
+	set       model.Settings
+	conflicts []model.Conflict
 }
 
-func newFilterCtx(r model.ScanResult, supplyPct int) filterCtx {
+// newFilterCtx is the filter context of r for the supply threshold
+// supplyPct (<= 0: the default) and the conflict MACs the person ignored.
+func newFilterCtx(r model.ScanResult, supplyPct int, ignored []string) filterCtx {
 	if supplyPct <= 0 {
 		supplyPct = notify.DefaultSupplyThresholdPct
 	}
-	fc := filterCtx{supplyPct: supplyPct, conflictIPs: map[string]bool{}}
+	fc := filterCtx{supplyPct: supplyPct, conflictIPs: map[string]bool{}, conflicts: r.Conflicts}
+	fc.set.Alerts.SupplyThresholdPct = supplyPct
+	fc.set.IgnoredConflictMACs = ignored
 	for _, c := range r.Conflicts {
 		for _, ip := range c.IPs {
 			fc.conflictIPs[ip] = true
@@ -306,20 +371,13 @@ func (fc filterCtx) hasConflict(h model.Host) bool {
 	return len(h.Conflicts) > 0 || fc.conflictIPs[h.IP]
 }
 
-// isProblem mirrors the UI's Problems tab (web/app.js isProblem): offline, in
-// a conflict, a printer with alerts or a supply that is low, empty or at or
-// below the supply threshold, or a web page that failed or answered with an
-// HTTP error.
+// isProblem is the UI's Problems tab: problems.HostIssues, which the page's
+// isProblem (web/app.js hostIssues) mirrors. A device is on it when it is
+// offline, in a conflict that involves no ignored MAC, a printer with
+// alerts or a supply that is low, empty or at or below the supply
+// threshold, or has a web page that failed or answered with an HTTP error.
 func (fc filterCtx) isProblem(h model.Host) bool {
-	if hostOffline(h) || fc.hasConflict(h) || fc.printerProblem(h) {
-		return true
-	}
-	for _, w := range h.Web {
-		if w.Error != "" || w.Status == 0 || w.Status >= 400 {
-			return true
-		}
-	}
-	return false
+	return len(problems.HostIssues(h, fc.set, fc.conflicts)) > 0
 }
 
 // printerProblem is the printer part of isProblem: a printer with alerts
@@ -429,6 +487,9 @@ type ListOptions struct {
 	// SupplyPct is the low-supply threshold used by filter=problems (the
 	// alerts.supplyThresholdPct setting); <= 0 means the default.
 	SupplyPct int
+	// IgnoredMACs are the conflict MACs the person ignored (Settings):
+	// filter=problems leaves out the conflicts that involve them.
+	IgnoredMACs []string
 }
 
 // ListDevices filters and paginates the hosts of r in stable IP order.
@@ -447,7 +508,7 @@ func ListDevices(r model.ScanResult, o ListOptions) (DevicePage, error) {
 	}
 	limit = min(limit, MaxDeviceLimit)
 	q := strings.ToLower(strings.TrimSpace(o.Query))
-	fc := newFilterCtx(r, o.SupplyPct)
+	fc := newFilterCtx(r, o.SupplyPct, o.IgnoredMACs)
 	var matched []model.Host
 	for _, h := range report.SortHosts(r.Hosts) {
 		if !fc.match(filter, h) {
@@ -487,6 +548,7 @@ func Detail(r model.ScanResult, ip, mac string) (DeviceDetail, error) {
 	if ip == "" && mac == "" {
 		return DeviceDetail{}, errors.New("ip or mac is required")
 	}
+	x := lazyAdviceCtx(r)
 	for _, h := range r.Hosts {
 		if (ip != "" && h.IP != ip) || (ip == "" && !strings.EqualFold(h.MAC, mac)) {
 			continue
@@ -505,6 +567,7 @@ func Detail(r model.ScanResult, ip, mac string) (DeviceDetail, error) {
 				}
 			}
 			if touches {
+				c.Advice = conflictAdvice(c, x)
 				d.Conflicts = append(d.Conflicts, c)
 			}
 		}

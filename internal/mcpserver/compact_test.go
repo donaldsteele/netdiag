@@ -3,6 +3,9 @@ package mcpserver
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -148,7 +151,7 @@ func TestFilters(t *testing.T) {
 		{IP: "10.0.0.4", Alive: true, Online: false},
 		{IP: "10.0.0.5", Alive: true, Online: true, Conflicts: []string{"c"}},
 		{IP: "10.0.0.6", Alive: true, Online: true, IsNew: true, Hostname: "NewBox", Snmp: &model.SnmpInfo{SysName: "SwitchX"}},
-	}}
+	}, Conflicts: []model.Conflict{{ID: "c", Kind: model.ConflictMACMultiIP, IPs: []string{"10.0.0.50"}, MACs: []string{"02:00:5E:00:00:05"}}}}
 	cases := map[string][]string{
 		"all":       {"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5", "10.0.0.6"},
 		"printers":  {"10.0.0.2", "10.0.0.3"},
@@ -202,7 +205,8 @@ func TestProblemsMatchesUI(t *testing.T) {
 		return model.Host{IP: ip, Alive: true, Online: true, Web: []model.WebService{w}}
 	}
 	r := model.ScanResult{ID: "p",
-		Conflicts: []model.Conflict{{ID: "k1", Kind: model.ConflictMACFlap, IPs: []string{"10.0.1.3"}}},
+		Conflicts: []model.Conflict{{ID: "k1", Kind: model.ConflictMACFlap, IPs: []string{"10.0.1.3"}},
+			{ID: "k9", Kind: model.ConflictMACMultiIP, IPs: []string{"10.0.1.40"}, MACs: []string{"02:00:5E:00:01:04"}}},
 		Hosts: []model.Host{
 			{IP: "10.0.1.1", Alive: true, Online: true},                            // healthy
 			{IP: "10.0.1.2", Alive: true, Online: false},                           // offline
@@ -256,6 +260,104 @@ func TestProblemsMatchesUI(t *testing.T) {
 		if strings.Join(got, ",") != want {
 			t.Errorf("%s: got %v want %s", f, got, want)
 		}
+	}
+}
+
+// TestProblemsIgnoredMAC: a conflict that involves a MAC ignored in Settings
+// does not put its devices on filter=problems (problems.HostIssues), while
+// filter=conflicts still lists every conflict the scan found.
+func TestProblemsIgnoredMAC(t *testing.T) {
+	r := model.ScanResult{ID: "p",
+		Conflicts: []model.Conflict{{ID: "k1", Kind: model.ConflictMACMultiIP, IPs: []string{"10.0.1.3", "10.0.1.4"}, MACs: []string{"02:00:5E:00:01:03"}}},
+		Hosts: []model.Host{
+			{IP: "10.0.1.3", Alive: true, Online: true, MAC: "02:00:5E:00:01:03", Conflicts: []string{"k1"}},
+			{IP: "10.0.1.4", Alive: true, Online: true, MAC: "02:00:5E:00:01:03", Conflicts: []string{"k1"}},
+		}}
+	for _, c := range []struct {
+		ignored []string
+		want    int
+	}{{nil, 2}, {[]string{"02-00-5e-00-01-03"}, 0}, {[]string{"02:00:5E:00:01:99"}, 2}} {
+		p, err := ListDevices(r, ListOptions{Filter: "problems", IgnoredMACs: c.ignored})
+		if err != nil || p.Total != c.want {
+			t.Errorf("ignored %v: total %d (err %v), want %d", c.ignored, p.Total, err, c.want)
+		}
+		if p, _ := ListDevices(r, ListOptions{Filter: "conflicts", IgnoredMACs: c.ignored}); p.Total != 2 {
+			t.Errorf("ignored %v: conflicts %d, want 2", c.ignored, p.Total)
+		}
+	}
+}
+
+// TestProblemsFilterGolden: filter=problems lists exactly the devices with
+// issues in every case of the shared golden file, the cases the Problems
+// tab (uitest problems-now.spec) and problems.HostIssues are checked
+// against, threshold and ignored MACs included.
+func TestProblemsFilterGolden(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "problems", "hosts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var g struct {
+		Conflicts []model.Conflict `json:"conflicts"`
+		Hosts     []model.Host     `json:"hosts"`
+		Cases     []struct {
+			Name      string              `json:"name"`
+			Threshold int                 `json:"supplyThresholdPct"`
+			Ignored   []string            `json:"ignoredConflictMACs"`
+			Issues    map[string][]string `json:"issues"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &g); err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Cases) == 0 {
+		t.Fatal("no golden cases")
+	}
+	r := model.ScanResult{ID: "golden", Hosts: g.Hosts, Conflicts: g.Conflicts}
+	for _, c := range g.Cases {
+		p, err := ListDevices(r, ListOptions{Filter: "problems", SupplyPct: c.Threshold, IgnoredMACs: c.Ignored, Limit: MaxDeviceLimit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got, want []string
+		for _, it := range p.Items {
+			got = append(got, it.IP)
+		}
+		for ip := range c.Issues {
+			want = append(want, ip)
+		}
+		slices.Sort(got)
+		slices.Sort(want)
+		if !slices.Equal(got, want) {
+			t.Errorf("%s:\n got %v\nwant %v", c.Name, got, want)
+		}
+	}
+}
+
+// TestSummaryAdvice: the summary's failing checks and conflicts carry
+// netdiag's advice (built for a scan saved without it), without the
+// technical detail; get_device's conflicts carry it in full.
+func TestSummaryAdvice(t *testing.T) {
+	r := model.ScanResult{ID: "a", State: model.StateDone, Gateway: "10.0.0.1",
+		Health: &model.HealthReport{Checks: []model.HealthCheck{
+			{ID: "gateway", Status: model.HealthFail, Detail: "10.0.0.1 did not reply", Data: map[string]any{"reason": model.ReasonNoReply}}}},
+		Conflicts: []model.Conflict{{ID: "c1", Kind: model.ConflictDuplicateName, Name: "printer-2", IPs: []string{"10.0.0.5", "10.0.0.6"}}},
+		Hosts:     []model.Host{{IP: "10.0.0.5", Alive: true, Online: true, Conflicts: []string{"c1"}}}}
+	s := Summarize(r, 0)
+	if len(s.Health.Failing) != 1 || s.Health.Failing[0].Advice == nil || s.Health.Failing[0].Advice.Meaning == "" || s.Health.Failing[0].Advice.Technical != "" {
+		t.Fatalf("failing = %+v", s.Health.Failing)
+	}
+	if len(s.Conflicts) != 1 || s.Conflicts[0].Advice == nil || !strings.Contains(s.Conflicts[0].Advice.Meaning, "printer-2") {
+		t.Fatalf("conflicts = %+v", s.Conflicts)
+	}
+	d, err := Detail(r, "10.0.0.5", "")
+	if err != nil || len(d.Conflicts) != 1 || d.Conflicts[0].Advice == nil || d.Conflicts[0].Advice.Meaning == "" {
+		t.Fatalf("detail = %+v err=%v", d.Conflicts, err)
+	}
+	// Advice the scan holds is passed on as it is.
+	own := &model.Advice{Meaning: "own words"}
+	r.Conflicts[0].Advice = own
+	if s := Summarize(r, 0); s.Conflicts[0].Advice.Meaning != "own words" {
+		t.Fatalf("own advice replaced: %+v", s.Conflicts[0].Advice)
 	}
 }
 

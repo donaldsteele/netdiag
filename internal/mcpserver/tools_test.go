@@ -206,7 +206,7 @@ func TestListToolsExact(t *testing.T) {
 	want := slices.Clone(ToolNames)
 	slices.Sort(got)
 	slices.Sort(want)
-	if !slices.Equal(got, want) || len(got) != 13 {
+	if !slices.Equal(got, want) || len(got) != 16 {
 		t.Fatalf("tools = %v, want %v", got, want)
 	}
 }
@@ -464,6 +464,13 @@ func TestToolOutputsNeverLeakCommunity(t *testing.T) {
 		{"list_history", nil},
 		{"compare_scans", map[string]any{"baseId": s.ScanID, "currentId": s2.ScanID}},
 		{"get_settings", nil},
+		{"get_status", nil},
+		{"list_problems", nil},
+		{"get_runbook", nil},
+		{"get_runbook", map[string]any{"name": "diagnose_printer", "arguments": map[string]any{"ip": "10.0.0.10"}}},
+	}
+	if len(calls) < len(ToolNames)+1 {
+		t.Fatalf("every tool must be called: %d calls for %d tools", len(calls), len(ToolNames))
 	}
 	for _, c := range calls {
 		res := e.call(t, c.name, c.args)
