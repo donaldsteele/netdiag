@@ -14,7 +14,7 @@ import (
 	"netdiag/internal/model"
 )
 
-// The storm guard's network check (v0.6 F9c, D33): another network stops
+// The storm guard's network check (v0.6 F9c, D36): another network stops
 // all alerting until Restart watching, and only another network does.
 
 // movingEnv is this computer on the prefix cidr until Self call from (1 is
