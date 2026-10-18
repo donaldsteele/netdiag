@@ -126,6 +126,7 @@ Pick one of netdiag's prompts from Claude's menu, or just ask in your own words:
 - **IP conflicts:** "Use netdiag to explain the conflict on 192.168.1.23." (`explain_conflict`)
 - **A missing device:** "The FRONTDESK laptop is not showing up. Use netdiag to find out why." (`device_missing`)
 - **What changed:** "What changed on the network since the last scan? Use netdiag to compare them." (`what_changed`)
+- **Check the chat alerts:** "Use netdiag to check its alerts in team chat." (`check_chat_alerts`) Claude re-checks each open alert and closes one only when netdiag says it is fixed and you agree. For this, Claude needs its own connection to bubbles (a chat admin gives it a token of the netdiag app), and netdiag connected with `["mcp", "--attach"]` or Option C so Claude sees the window's team chat. See "Checking chat alerts" in [docs/mcp.md](docs/mcp.md).
 
 ### Safety
 
