@@ -207,9 +207,9 @@ select{padding-right:4px}
 /* health cards */
 .healthpanel{margin:10px 0;background:transparent;border:0;padding:0}
 .healthpanel h2{font-size:18px;margin:4px 0}
-.hcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--s3);margin:var(--s3) 0}
-.hcard{background:var(--bg-elev);border:1px solid var(--line-strong);border-left-width:4px;border-radius:var(--radius);padding:var(--s3) var(--s4)}
-.hcard.hc-ok{border-left-color:var(--ok)}.hcard.hc-warn{border-left-color:var(--warn)}.hcard.hc-fail{border-left-color:var(--bad)}.hcard.hc-info{border-left-color:var(--info)}.hcard.hc-unavailable{border-left-color:var(--fg-muted)}
+.hcards,.tsgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--s3);margin:var(--s3) 0}
+.hcard,.tscard{background:var(--bg-elev);border:1px solid var(--line-strong);border-left-width:4px;border-radius:var(--radius);padding:var(--s3) var(--s4)}
+.hcard.hc-ok,.tscard.hc-ok{border-left-color:var(--ok)}.hcard.hc-warn,.tscard.hc-warn{border-left-color:var(--warn)}.hcard.hc-fail,.tscard.hc-fail{border-left-color:var(--bad)}.hcard.hc-info,.tscard.hc-info{border-left-color:var(--info)}.hcard.hc-unavailable,.tscard.hc-unavailable{border-left-color:var(--fg-muted)}
 .hchead{display:flex;justify-content:space-between;align-items:center;gap:var(--s2)}
 .hchead h3{margin:0;font-size:15px}
 .hdetail{margin:var(--s2) 0 0;font-size:13px;overflow-wrap:anywhere}
@@ -301,7 +301,7 @@ button:has(>.ico){white-space:nowrap}
 .chipbtn>.ico,.hpill>.ico,.badge>.ico,.logchip>.ico{width:14px;height:14px;margin-right:4px}
 .hpill>.ico{margin-right:0}
 .badge>.ico{vertical-align:-2px;color:inherit}
-.hcard h3{display:flex;align-items:center;gap:6px}
+.hcard h3,.tscard h3{display:flex;align-items:center;gap:6px}
 .hs{display:inline-flex;align-items:center;gap:4px}
 .hs .ico{color:inherit}
 .banner>div>.ico{vertical-align:-0.2em}
@@ -410,3 +410,72 @@ details.ptry .advice{margin-top:var(--s1)}
 details.tech .hdetail{margin:var(--s1) 0 0}
 @media (max-height:700px){.banners{position:static}}
 .badge.cnote{border-color:var(--info);color:var(--fg);background:var(--infobg)}
+/* v0.6.1 Tailnet: the Tailscale card on Health, the map and the device list */
+.tsdetail{margin:var(--s2) 0 0;font-size:14px;overflow-wrap:anywhere}
+.tnview h2{font-size:18px;margin:4px 0}
+.tnview h3{font-size:15px;margin:var(--s4) 0 var(--s2)}
+.tnhead p{margin:var(--s2) 0}
+.tnstate{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1) var(--s3)}
+.tnst{display:inline-flex;align-items:center;gap:4px;font-weight:600}
+.tnexplain{max-width:70ch}
+.tnme,.tnmsgs{max-width:900px}
+.tnmsg{display:flex;align-items:center;gap:6px;margin:var(--s1) 0;overflow-wrap:anywhere}
+.tnacts{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2)}
+.tnkv{margin:var(--s2) 0}
+.tnkv>div{display:grid;grid-template-columns:130px minmax(0,1fr);column-gap:var(--s2);margin:2px 0}
+.tnkv dt{min-width:0;font-size:13px;padding-top:2px}
+.tnkv dd{min-width:0;overflow-wrap:anywhere}
+.tnaddrs{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1) var(--s3)}
+.tnaddr{display:inline-flex;align-items:center;gap:var(--s1);min-width:0}
+.tnaddr .mono{overflow-wrap:anywhere}
+.tnaddr .iconbtn{min-height:28px;min-width:28px}
+.tnkey{display:flex;align-items:center;gap:6px}
+.tnmap{display:flex;flex-wrap:wrap;align-items:flex-start;gap:var(--s4);margin:var(--s3) 0}
+.tnbox{position:relative;flex:0 1 520px;min-width:0;aspect-ratio:1/1;background:var(--bg-elev);border:1px solid var(--line);border-radius:8px}
+.tnlines{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.ln{fill:none;stroke-width:2;vector-effect:non-scaling-stroke;stroke-linecap:round}
+.ln-direct{stroke:var(--ok)}
+.ln-relayed{stroke:var(--info);stroke-dasharray:7 5}
+.ln-idle{stroke:var(--fg-muted);stroke-dasharray:1 5}
+.ln-pick{stroke:var(--accent);stroke-width:4}
+.tnspot{position:absolute;width:0;height:0}
+.tnnode{position:absolute;left:-22px;top:-22px;width:44px;height:44px;min-height:0;padding:0;display:grid;place-items:center;border-radius:50%;background:var(--bg);border:2px solid var(--fg-muted);color:var(--fg)}
+.tnnode>.ico{margin:0;width:20px;height:20px;color:inherit}
+.tnnode.self{left:-28px;top:-28px;width:56px;height:56px;border-color:var(--accent);background:var(--bg-elev2)}
+.tnnode.self>.ico{width:24px;height:24px;color:var(--accent)}
+.tnnode[aria-pressed=true]{border:3px solid var(--accent);box-shadow:0 0 0 3px var(--bg-elev),0 0 0 5px var(--accent)}
+.tp-offline .tnnode{border-style:dashed;border-color:var(--line-strong);color:var(--fg-muted);background:var(--bg-elev)}
+.tnmark{position:absolute;pointer-events:none;width:18px;height:18px;display:grid;place-items:center;border-radius:50%;background:var(--bg);border:1px solid var(--line-strong);color:var(--fg)}
+.tnmark>.ico{width:11px;height:11px;margin:0;color:inherit}
+.tm-exit{left:8px;top:-27px}.tm-subnet{left:11px;top:3px}.tm-key{left:-27px;top:-27px;border-color:var(--warn);color:var(--warn)}
+.tnlabel{position:absolute;top:24px;left:0;transform:translateX(-50%);width:max-content;max-width:104px;padding:0 4px;border-radius:4px;background:var(--bg-elev);font-size:12px;line-height:1.25;text-align:center;overflow-wrap:anywhere;color:var(--fg)}
+.tnself .tnlabel{top:30px}.tnself .tnlabel strong{display:block}
+.tp-offline .tnlabel{color:var(--fg-muted)}
+.picked .tnlabel{font-weight:700}
+.tnvia{position:absolute;transform:translate(-50%,-50%);padding:0 5px;border:1px solid var(--info);border-radius:8px;background:var(--bg-elev);font-size:11px;line-height:1.4;white-space:nowrap;color:var(--fg)}
+.tnmap figcaption{flex:1 1 240px;min-width:0}
+.tnlegend li{display:flex;align-items:center;gap:var(--s2);margin:var(--s1) 0;font-size:14px}
+.tnlegend .ico{width:16px;height:16px;color:var(--fg)}
+.lgline{width:32px;height:8px;flex:none;overflow:visible}
+.lgoff{width:16px;height:16px;flex:none;border:2px dashed var(--line-strong);border-radius:50%}
+.tnlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:var(--s3);margin:var(--s2) 0}
+.tnrow{min-width:0;background:var(--bg-elev);border:1px solid var(--line-strong);border-left:4px solid var(--ok);border-radius:var(--radius);padding:var(--s3) var(--s4)}
+.tnrow.off{border-left-color:var(--fg-muted)}
+.tnrow.picked{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.tnrhead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:var(--s2)}
+.tnrhead h4{display:flex;align-items:center;gap:6px;margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}
+.tnrhead h4 .ico{color:var(--fg)}
+.tnnotes li{display:flex;align-items:center;gap:6px;margin:2px 0;font-size:14px}
+.tnping{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin-top:var(--s2)}
+.tnres{margin:0;font-size:14px}
+.tnresin{display:inline-flex;align-items:center;gap:4px}
+@media (max-width:559px){
+.tnnode{left:-18px;top:-18px;width:36px;height:36px}
+.tnnode>.ico{width:18px;height:18px}
+.tnnode.self{left:-23px;top:-23px;width:46px;height:46px}
+.tnlabel{top:20px;max-width:84px;font-size:11px}
+.tnself .tnlabel{top:25px}
+.tnmark{width:16px;height:16px}.tm-exit{left:5px;top:-22px}.tm-subnet{left:9px;top:1px}.tm-key{left:-22px;top:-22px}
+.tnkv>div{grid-template-columns:minmax(0,1fr)}
+}
+@media (prefers-reduced-motion:no-preference){.tnnode{transition:border-color .15s,box-shadow .15s}.tnrow{transition:border-color .15s,box-shadow .15s}}

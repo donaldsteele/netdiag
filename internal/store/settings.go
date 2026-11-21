@@ -34,6 +34,7 @@ func DefaultSettings() model.Settings {
 			Triggers: model.SettingsTriggers{
 				PrinterOffline: true, SupplyLow: true, PrinterAlert: true,
 				NewDevice: true, IPConflict: true, HealthFailed: true,
+				TailscaleDown: true, TailnetDeviceOffline: true, TailnetKeyExpiring: true,
 			},
 		},
 		NoInternetNetworks:  []string{},

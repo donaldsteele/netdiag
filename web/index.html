@@ -19,6 +19,7 @@
       <ul class="plain navlist">
         <li><button type="button" class="navitem" id="tab-devices" :aria-current="view === 'devices' ? 'page' : null" title="Devices" @click="showView('devices')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-layout-dashboard"></use></svg><span class="lbl">Devices</span></button></li>
         <li><button type="button" class="navitem" id="tab-health" :aria-current="view === 'health' ? 'page' : null" title="Health" @click="showView('health')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-heart-pulse"></use></svg><span class="lbl">Health</span></button></li>
+        <li x-show="tailnetShown()"><button type="button" class="navitem" id="tab-tailnet" :aria-current="view === 'tailnet' ? 'page' : null" title="Tailnet" @click="showView('tailnet')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-tailnet"></use></svg><span class="lbl">Tailnet</span></button></li>
         <li><button type="button" class="navitem" id="tab-activity" :aria-current="view === 'activity' ? 'page' : null" title="Activity" @click="showView('activity')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-activity"></use></svg><span class="lbl">Activity</span></button></li>
         <li><button type="button" class="navitem" id="tab-history" :aria-current="view === 'history' ? 'page' : null" title="History" @click="showView('history')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-history"></use></svg><span class="lbl">History</span></button></li>
         <li><button type="button" class="navitem" id="nav-settings" title="Settings" @click="openSettings()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-settings"></use></svg><span class="lbl">Settings</span></button></li>
@@ -93,6 +94,7 @@
         <div class="bacts">
           <button type="button" x-show="bannerDevice(b)" @click="showDevice(b.ip)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-monitor"></use></svg>Show device<span class="sr" x-text="' ' + b.title"></span></button>
           <button type="button" x-show="bannerHealth(b)" @click="openHealth()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-heart-pulse"></use></svg>Open Health<span class="sr" x-text="' ' + b.title"></span></button>
+          <button type="button" x-show="bannerTailnet(b)" @click="openTailnet()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-tailnet"></use></svg>Open Tailnet<span class="sr" x-text="' ' + b.title"></span></button>
           <button type="button" class="brestart" x-show="bannerRestart(b)" aria-haspopup="dialog" @click="restartHere()" :aria-disabled="sessionOff ? 'true' : null"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Restart watching</button>
           <button type="button" @click="dismiss(b.bid)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-x"></use></svg>Dismiss<span class="sr" x-text="' ' + b.title"></span></button>
         </div>
@@ -151,6 +153,7 @@
                 <p class="pacts">
                   <button type="button" x-show="pnDevice(p)" @click="showDevice(p.device.ip)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-monitor"></use></svg>Show device<span class="sr" x-text="' ' + p.title"></span></button>
                   <button type="button" x-show="!p.fixedAt && p.kind === 'healthFailed'" @click="openHealth()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-heart-pulse"></use></svg>Open Health<span class="sr" x-text="' ' + (p.detail || '')"></span></button>
+                  <button type="button" x-show="!p.fixedAt && tnTrigger(p.kind) && tailnetShown()" @click="openTailnet()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-tailnet"></use></svg>Open Tailnet<span class="sr" x-text="' ' + p.title"></span></button>
                   <button type="button" x-show="!!p.fixedAt" @click="pnDismiss(p)"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-x"></use></svg>Dismiss<span class="sr" x-text="' ' + p.title"></span></button>
                 </p>
                 <details class="ptry" x-show="!p.fixedAt && p.advice" @keydown.escape="closeDetails($event, $el)">
@@ -239,6 +242,28 @@
             </li>
           </template>
         </ul>
+        <div class="tsgrid" x-show="tailnetShown() && !!tnCard()">
+          <template x-if="tailnetShown() && tnCard()">
+            <section class="tscard" id="tailscale-card" :class="'hc-' + healthMark(tnCard())" aria-labelledby="ts-card-h">
+              <div class="hchead"><h3 id="ts-card-h"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-tailnet"></use></svg> <span x-text="tnCard().label || 'Tailscale'"></span></h3>
+                <span class="hs" :class="'hs-' + healthMark(tnCard())"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusShape(healthMark(tnCard()))"></use></svg> <span x-text="healthStatusText(tnCard().status)"></span></span></div>
+              <p class="tsdetail" x-text="tnCard().detail"></p>
+              <template x-if="tnCard().advice">
+                <div class="advice">
+                  <p class="meaning"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-lightbulb"></use></svg> <strong>What this means:</strong> <span x-text="tnCard().advice.meaning"></span></p>
+                  <ol class="steps" x-show="(tnCard().advice.steps || []).length">
+                    <template x-for="(s, i) in (tnCard().advice.steps || [])" :key="i"><li x-text="s"></li></template>
+                  </ol>
+                  <details class="tech" x-show="!!tnCard().advice.technical" @keydown.escape="closeDetails($event, $el)"><summary>Technical details</summary><p class="hdetail mono" x-text="tnCard().advice.technical"></p></details>
+                </div>
+              </template>
+              <p class="aacts">
+                <button type="button" id="ts-open" x-show="tnState() === 'running'" @click="openTailnet()"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-tailnet"></use></svg>Open Tailnet</button>
+                <button type="button" id="ts-recheck" @click="recheckTailnet()" :disabled="tnBusy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg><span x-text="tnBusy ? 'Checking...' : 'Check again'"></span><span class="sr"> (Tailscale)</span></button>
+              </p>
+            </section>
+          </template>
+        </div>
         <p class="empty" x-show="!health || !(health.checks || []).length">&gt; no health report yet - press Check again</p>
         <p>
           <button type="button" id="health-run" @click="recheck()" :disabled="healthBusy || sessionOff"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg>Check again</button>
@@ -246,6 +271,104 @@
           <span class="sub" role="status" x-text="healthMsgFor('')"></span>
         </p>
       </div>
+    </section>
+    <section id="tailnet" class="tnview" x-show="view === 'tailnet'" aria-labelledby="tailnet-h" tabindex="-1">
+      <h2 id="tailnet-h">Tailnet</h2>
+      <div class="tnhead">
+        <p class="tnstate" id="tn-state"><span class="tnst"><svg class="ico" :class="statusShapeClass(tnStateMark())" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + statusShape(tnStateMark())"></use></svg> <strong x-text="'Tailscale: ' + tnStateWord(tnState())"></strong></span>
+          <span class="sub" x-show="tailnet && tailnet.suffix" x-text="'Tailnet ' + ((tailnet && tailnet.suffix) || '')"></span>
+          <span class="sub" x-show="tailnet && tailnet.version" x-text="'Tailscale ' + ((tailnet && tailnet.version) || '')"></span>
+          <span class="sub" x-show="tailnet" x-text="'Checked ' + tnChecked()"></span></p>
+        <p class="tnexplain" id="tn-explain" x-show="tnExplain()" x-text="tnExplain()"></p>
+        <p id="tn-summary" x-show="tnState() === 'running'" x-text="tnSummary()"></p>
+        <template x-if="tnSelf()">
+          <div class="tnme" id="tn-self">
+            <h3>This computer</h3>
+            <dl class="tnkv">
+              <div><dt>Name</dt><dd><span x-text="tnSelf().name"></span> <span class="sub mono" x-show="tnDNS(tnSelf())" x-text="tnDNS(tnSelf())"></span></dd></div>
+              <div><dt>Tailscale address</dt><dd class="tnaddrs"><template x-for="a in (tnSelf().ips || [])" :key="a"><span class="tnaddr"><span class="mono" x-text="a"></span><button type="button" class="iconbtn" @click="copy(a, 'Tailscale address')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-copy"></use></svg><span class="sr" x-text="'Copy Tailscale address ' + a"></span></button></span></template></dd></div>
+              <div x-show="tnSelf().keyExpiresSoon"><dt>Key</dt><dd class="tnkey"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-key"></use></svg><span x-text="tnKeyText(tnSelf())"></span></dd></div>
+            </dl>
+          </div>
+        </template>
+        <div class="tnmsgs" id="tn-health" x-show="tnHealth().length">
+          <h3>Messages from Tailscale</h3>
+          <ul class="plain">
+            <template x-for="(m, i) in tnHealth()" :key="i"><li class="tnmsg"><svg class="ico s-info" aria-hidden="true" focusable="false"><use href="icons.svg#i-info"></use></svg><span><strong>Note</strong> <span x-text="m"></span></span></li></template>
+          </ul>
+        </div>
+        <p class="tnacts" x-show="tailnetShown()">
+          <a class="btnlink" id="tn-admin" x-show="tnAdmin()" :href="tnAdmin() || null" target="_blank" rel="noopener noreferrer"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-external-link"></use></svg>Open Tailscale admin console<span class="sr"> (opens in a new tab)</span></a>
+          <button type="button" id="tn-recheck" @click="recheckTailnet()" :disabled="tnBusy"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-refresh-cw"></use></svg><span x-text="tnBusy ? 'Checking...' : 'Check again'"></span></button>
+        </p>
+      </div>
+      <template x-if="tnState() === 'running'">
+        <div class="tnbody">
+          <figure class="tnmap" aria-labelledby="tn-map-cap">
+            <div class="tnbox">
+              <svg class="tnlines" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+                <path class="ln ln-idle" :d="tnLines('idle')"></path>
+                <path class="ln ln-relayed" :d="tnLines('relayed')"></path>
+                <path class="ln ln-direct" :d="tnLines('direct')"></path>
+                <path class="ln ln-pick" :class="'ln-' + tnPickKind()" :d="tnPickLine()"></path>
+              </svg>
+              <template x-for="v in tnVias()" :key="'via-' + v.id"><span class="tnvia" aria-hidden="true" :style="v.style" x-text="v.text"></span></template>
+              <div class="tnspot tnself" style="left:50%;top:50%">
+                <span class="tnnode self"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + (tnSelf() ? tnOSIcon(tnSelf()) : 'type-self')"></use></svg></span>
+                <span class="tnlabel"><strong>This computer</strong> <span x-text="tnSelf() ? tnSelf().name : ''"></span></span>
+              </div>
+              <template x-for="n in tnNodes()" :key="n.d.id">
+                <div class="tnspot" :class="['tp-' + tnPath(n.d), tnPick === n.d.id ? 'picked' : '']" :style="tnSpot(n)">
+                  <button type="button" class="tnnode" :aria-pressed="tnPick === n.d.id ? 'true' : 'false'" :aria-controls="tnRowId(n.d)" @click="tnPickDevice(n.d, true)"><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + tnOSIcon(n.d)"></use></svg><span class="sr" x-text="tnNodeName(n.d)"></span></button>
+                  <span aria-hidden="true" class="tnmark tm-exit" x-show="n.d.exitNode || n.d.exitNodeOption"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-exit-node"></use></svg></span><span aria-hidden="true" class="tnmark tm-subnet" x-show="(n.d.subnetRoutes || []).length"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-network"></use></svg></span><span aria-hidden="true" class="tnmark tm-key" x-show="n.d.keyExpiresSoon"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-key"></use></svg></span>
+                  <span class="tnlabel" aria-hidden="true" x-text="n.d.name"></span>
+                </div>
+              </template>
+            </div>
+            <figcaption id="tn-map-cap">
+              <span class="sr">Map of your tailnet: this computer in the middle and the other devices around it. The list below says the same in words.</span>
+              <ul class="plain tnlegend" aria-label="What the map shows">
+                <li><svg class="lgline" viewBox="0 0 32 8" aria-hidden="true" focusable="false"><path class="ln ln-direct" d="M1 4H31"></path></svg><span><strong>Direct:</strong> straight to the device</span></li>
+                <li><svg class="lgline" viewBox="0 0 32 8" aria-hidden="true" focusable="false"><path class="ln ln-relayed" d="M1 4H31"></path></svg><span><strong>Relayed:</strong> through a Tailscale relay, such as "via fra"</span></li>
+                <li><svg class="lgline" viewBox="0 0 32 8" aria-hidden="true" focusable="false"><path class="ln ln-idle" d="M1 4H31"></path></svg><span><strong>Idle:</strong> online, no traffic yet</span></li>
+                <li><span class="lgoff" aria-hidden="true"></span><span><strong>Offline:</strong> no line, faded</span></li>
+                <li><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-exit-node"></use></svg><span>Exit node</span></li>
+                <li><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-network"></use></svg><span>Subnet router</span></li>
+                <li><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-key"></use></svg><span>Key expires soon</span></li>
+              </ul>
+              <p class="sub" id="tn-more" x-show="tnMore() > 0" x-text="'+' + tnMore() + ' more in the list below'"></p>
+            </figcaption>
+          </figure>
+          <h3 id="tn-list-h">Devices on this tailnet</h3>
+          <p class="empty" x-show="!tnDevices().length">&gt; no other devices on this tailnet yet</p>
+          <ul class="plain tnlist" aria-labelledby="tn-list-h">
+            <template x-for="d in tnDevices()" :key="d.id">
+              <li class="tnrow" :id="tnRowId(d)" :class="{picked: tnPick === d.id, off: !d.online}" @click="tnRowClick($event, d)">
+                <div class="tnrhead">
+                  <h4><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + tnOSIcon(d)"></use></svg><span x-text="d.name"></span></h4>
+                  <span class="tnst"><svg class="ico" :class="tnStatusClass(d)" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + tnStatusIcon(d)"></use></svg><span x-text="tnStatus(d)"></span></span>
+                </div>
+                <dl class="tnkv">
+                  <div x-show="tnDNS(d)"><dt>Name</dt><dd class="mono" x-text="tnDNS(d)"></dd></div>
+                  <div><dt>System</dt><dd x-text="tnOSName(d)"></dd></div>
+                  <div x-show="(d.ips || []).length"><dt>Tailscale address</dt><dd class="tnaddrs"><template x-for="a in (d.ips || [])" :key="a"><span class="tnaddr"><span class="mono" x-text="a"></span><button type="button" class="iconbtn" @click="copy(a, 'Tailscale address')"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-copy"></use></svg><span class="sr" x-text="'Copy Tailscale address ' + a"></span></button></span></template></dd></div>
+                  <div x-show="tnPathText(d)"><dt>Path</dt><dd class="tnpath" x-text="tnPathText(d)"></dd></div>
+                  <div x-show="!d.online && pnClock(d.lastSeen)"><dt>Last seen</dt><dd x-text="pnClock(d.lastSeen)"></dd></div>
+                  <div x-show="(d.tags || []).length"><dt>Tags</dt><dd class="mono" x-text="(d.tags || []).join(', ')"></dd></div>
+                </dl>
+                <ul class="plain tnnotes" x-show="d.keyExpiresSoon || tnNotes(d).length">
+                  <li class="tnkey" x-show="d.keyExpiresSoon"><svg class="ico s-warn" aria-hidden="true" focusable="false"><use href="icons.svg#i-key"></use></svg><span x-text="tnKeyText(d)"></span></li>
+                  <template x-for="t in tnNotes(d)" :key="t.icon"><li><svg class="ico" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + t.icon"></use></svg><span x-text="t.text"></span></li></template>
+                </ul>
+                <div class="tnping" x-show="d.online">
+                  <button type="button" class="tncheck" @click="tnCheckPath(d)" :disabled="sessionOff" :aria-disabled="tnPing(d) && tnPing(d).busy ? 'true' : null"><svg class="ico" aria-hidden="true" focusable="false"><use href="icons.svg#i-route"></use></svg>Check path<span class="sr" x-text="' to ' + d.name"></span></button>
+                  <p class="tnres" role="status"><template x-if="tnPing(d) && tnPing(d).text"><span class="tnresin"><svg class="ico" x-show="tnPing(d).kind" :class="tnPing(d).kind === 'ok' ? 's-ok' : 's-warn'" aria-hidden="true" focusable="false"><use :href="'icons.svg#i-' + (tnPing(d).kind === 'ok' ? 'circle-check' : 'triangle-alert')"></use></svg><span x-text="tnPing(d).text"></span></span></template></p>
+                </div>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </template>
     </section>
     <div x-show="view === 'devices'">
     <div class="tabs" role="group" aria-label="Filter hosts">
@@ -610,6 +733,9 @@
           <label class="check"><input type="checkbox" x-model="draft.alerts.triggers.newDevice"> New device</label>
           <label class="check"><input type="checkbox" x-model="draft.alerts.triggers.ipConflict"> IP or name conflict</label>
           <label class="check"><input type="checkbox" x-model="draft.alerts.triggers.healthFailed"> Health check fails</label>
+          <label class="check"><input type="checkbox" id="set-tailscaledown" x-model="draft.alerts.triggers.tailscaleDown"> Tailscale stops on this computer</label>
+          <label class="check"><input type="checkbox" id="set-tailnetoffline" x-model="draft.alerts.triggers.tailnetDeviceOffline"> A tailnet computer goes offline (not phones)</label>
+          <label class="check"><input type="checkbox" id="set-tailnetkey" x-model="draft.alerts.triggers.tailnetKeyExpiring"> A Tailscale key is about to expire</label>
           <label>Supply threshold (%, 1-100) <input type="number" min="1" max="100" x-model="draft.alerts.supplyThresholdPct"></label>
           <label>Repeat-alert cooldown (seconds, 30-3600) <input type="number" min="30" max="3600" x-model="draft.alerts.cooldownSec"></label>
         </fieldset>

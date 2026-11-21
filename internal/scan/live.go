@@ -187,6 +187,7 @@ func (r *runner) liveCycle(ctx context.Context, targets []netip.Addr) (found, un
 	var bg sync.WaitGroup
 	defer bg.Wait()
 	r.startHealth(ctx, &bg)
+	r.startTailnet(ctx, &bg)
 	mdnsDone := r.startMDNS(ctx, MDNSRoundsLive)
 
 	if len(cands) > 0 {

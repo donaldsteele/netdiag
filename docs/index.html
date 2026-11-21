@@ -27,6 +27,7 @@
       <a href="#features">Features</a>
       <a href="#live">Live</a>
       <a href="#chat">Team chat</a>
+      <a href="#tailnet">Tailscale</a>
       <a href="#tour">Tour</a>
       <a href="#claude">Claude</a>
       <a href="#download" class="persist">Download</a>
@@ -41,7 +42,7 @@
 <main id="main">
   <section class="hero" id="top">
     <div class="wrap narrow">
-      <p class="pill"><span class="pulse" aria-hidden="true"></span> v0.6.0 · Windows &amp; macOS · one binary</p>
+      <p class="pill"><span class="pulse" aria-hidden="true"></span> v0.6.1 · Windows &amp; macOS · one binary</p>
       <h1>Know what is on your network in <em>ten&nbsp;seconds</em>.</h1>
       <p class="capability">Printers, web pages, IP conflicts, and the health of the gateway, DHCP, DNS and Wi-Fi, in one window.</p>
       <p class="lede">netdiag sweeps the local subnet with ping, ARP, port probes, SNMP, mDNS and IPP, then shows what answered, what it is, and what is wrong with it. Built for whoever gets the call when the printer stops or the Wi-Fi “is down”.</p>
@@ -67,7 +68,7 @@
       <div class="stat"><b>~10 s</b><span>to sweep a /24</span></div>
       <div class="stat"><b>~5 s</b><span>to flag a printer jam in live mode</span></div>
       <div class="stat"><b>1 file</b><span>nothing to install</span></div>
-      <div class="stat"><b>16 tools</b><span>for Claude over MCP</span></div>
+      <div class="stat"><b>18 tools</b><span>for Claude over MCP</span></div>
     </div>
   </section>
 
@@ -184,6 +185,34 @@
         </div>
         <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">bubbles · #netdiag-alerts</span></div>
           <button type="button" class="zoom" aria-label="Enlarge screenshot: the chat card resolved by netdiag"><img src="assets/shots/bubbles-resolved.png" width="2560" height="1600" loading="lazy" alt="bubbles, channel #netdiag-alerts: netdiag's card Printer alert: ZD621 (192.168.68.76), Door or cover open, with what to try and the device's details, marked Resolved; its thread has netdiag's reply: Resolved by netdiag: Fixed at 12:54 (lasted less than a minute). Zebra Technologies ZD621 (192.168.68.76): cleared Door or cover open."></button></div></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="tailnet">
+    <div class="wrap">
+      <p class="eyebrow">New in v0.6.1 · Tailscale</p>
+      <h2>See your whole tailnet, and how you reach each device.</h2>
+      <p class="sub">If you use <a href="https://tailscale.com/">Tailscale</a>, netdiag shows your tailnet next to the local network: every device, whether it is online, and whether traffic goes straight to it or through a Tailscale relay. It reads all of this from the Tailscale app on this computer and never changes its settings.</p>
+
+      <div class="feature">
+        <div class="copy">
+          <p class="reading-label">The tailnet map</p>
+          <h3>Direct, relayed, or asleep, at a glance.</h3>
+          <p>This computer sits in the middle and every other device around it. A solid line means traffic goes directly to the device, a dashed line that it goes through a Tailscale relay (named by region, such as "via fra"), and a faint line that there was no traffic lately. Exit nodes, subnet routers and keys about to expire are marked, and every state is also written out in words. <b>Check path</b> pings one device through Tailscale and says how fast it answered and by which path.</p>
+          <ul class="readings"><li class="r-ok">Direct, 1 ms</li><li class="r-warn">Relayed via fra</li><li>No traffic yet</li></ul>
+        </div>
+        <figure class="shot"><div class="window"><div class="chrome" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">Tailnet · tail1234.ts.net</span></div>
+          <button type="button" class="zoom" aria-label="Enlarge screenshot: the Tailnet view">
+            <img class="t-dark" src="assets/shots/tailnet-dark.png" width="2560" height="2000" loading="lazy" alt="The Tailnet view: Tailscale connected to tail1234.ts.net, 5 of 7 other devices online, a map with this computer in the middle, chat-pi, nas and print-hub on direct lines, cloud-vm relayed via fra, laptop idle, and an offline phone and desktop, with a legend in words">
+            <img class="t-light" src="assets/shots/tailnet-light.png" width="2560" height="2000" loading="lazy" alt="The same Tailnet view in the light theme"></button></div></figure>
+      </div>
+
+      <div class="cards">
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-heart-pulse"></use></svg><h3>A Tailscale card on Health</h3><p>Connected or not, how many devices are online, and a warning when this computer's key is about to expire or Tailscale itself reports a problem, with what to try.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-bell-ring"></use></svg><h3>Alerts in live mode</h3><p><b>Tailscale stopped</b> on this computer, <b>a tailnet computer went offline</b> (never phones, they sleep) and <b>a key about to expire</b>, with a <b>Fixed</b> message when it is sorted, and to your team chat if it is connected.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-sparkles"></use></svg><h3>Claude sees it too</h3><p><code>get_tailnet</code> reads every device and its path, and <code>ping_tailnet_device</code> checks one. Claude can look, never change anything.</p></article>
+        <article class="card"><svg class="ico" aria-hidden="true"><use href="assets/icons.svg#i-shield-alert"></use></svg><h3>Private by design</h3><p>Read from the Tailscale app through its local connection: no program started, nothing sent on the network except <b>Check path</b>. The tailnet is named by its MagicDNS name, never by your account's email address.</p></article>
       </div>
     </div>
   </section>

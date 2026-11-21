@@ -24,6 +24,7 @@ var ToolNames = []string{
 	"get_device", "get_events", "get_health", "run_health_check", "probe_host",
 	"list_history", "compare_scans", "get_settings",
 	"get_status", "list_problems", "get_runbook",
+	"get_tailnet", "ping_tailnet_device", // v0.6.1
 }
 
 const (
@@ -255,6 +256,8 @@ func registerTools(s *mcp.Server, svc *service.Service, opts Options) {
 	mcp.AddTool(s, &mcp.Tool{Name: "get_runbook", Title: "Get a runbook",
 		Description: "netdiag's runbooks, the same as its prompts. Without a name it lists them; with a name (and its arguments) it returns the steps to follow. When the person describes a problem in their own words, pick the best match and follow it.",
 		Annotations: readAnn("Get a runbook")}, t.getRunbook)
+
+	registerTailnetTools(s, t)
 }
 
 // ---- handlers ----

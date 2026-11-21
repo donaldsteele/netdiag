@@ -48,7 +48,7 @@ for (const type of DEFICIENCIES) {
 
       // Health view: pills (header strip) and health cards must map status -> shape.
       await page.getByRole('button', { name: 'Health', exact: true }).click();
-      const marks = await page.locator('.hpill, .hcard .hs').evaluateAll((els) => els.map((el) => {
+      const marks = await page.locator('.hpill, .hcard .hs, .tscard .hs').evaluateAll((els) => els.map((el) => {
         const cls = [...el.classList].find((c) => /^hs-/.test(c)) || '';
         const uses = el.querySelectorAll('svg use');
         return { status: cls.replace(/^hs-/, ''), shape: uses[uses.length - 1].getAttribute('href') };

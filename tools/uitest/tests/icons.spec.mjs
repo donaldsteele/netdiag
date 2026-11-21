@@ -32,7 +32,7 @@ test('status, badge, tile, health pill and nav elements carry sprite icons', asy
   await expectIcons(page.locator('.badge.printer:visible'));
   await expectIcons(page.locator('.tile'), 6);
   await expectIcons(page.locator('.hpill'), 6);
-  await expectIcons(page.locator('.navitem'), 5);
+  await expectIcons(page.locator('.navitem'), 6);
   await expectIcons(page.locator('.chipbtn[class*=" h-"], .hdrtools .chipbtn'));
   // Status shape differs by state (not colour alone).
   const shapes = await page.locator('#hosts tbody tr.host th svg.sico use').evaluateAll((els) => [...new Set(els.map((e) => e.getAttribute('href')))]);
@@ -42,7 +42,7 @@ test('status, badge, tile, health pill and nav elements carry sprite icons', asy
 
 test('nav buttons keep accessible names', async ({ page }) => {
   await setup(page);
-  for (const name of ['Devices', 'Health', 'Activity', 'History', 'Settings']) {
+  for (const name of ['Devices', 'Health', 'Tailnet', 'Activity', 'History', 'Settings']) {
     await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
   }
 });

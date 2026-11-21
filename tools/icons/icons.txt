@@ -100,3 +100,9 @@ i-send send
 i-plug plug
 i-unplug unplug
 i-fingerprint fingerprint
+
+# Tailnet (Tailscale), v0.6.1
+i-tailnet waypoints
+i-route route
+i-key key-round
+i-exit-node log-out

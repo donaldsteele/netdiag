@@ -116,6 +116,9 @@ type Deps struct {
 	IPP      IPPClient      // IPP Get-Printer-Attributes when 631 is open
 	Store    HistoryStore   // history auto-save on done and live checkpoints
 	Settings SettingsSource // community, health, alert and conflict settings
+	// Tailnet reads this computer's Tailscale service at start and every
+	// live cycle (v0.6.1); nil: no tailnet readings or alerts.
+	Tailnet TailnetReader
 	// CheckpointInterval overrides CheckpointInterval when > 0 (tests).
 	CheckpointInterval time.Duration
 	// LocalPrefixes lists the local interface subnets ProbeHost accepts. When
@@ -646,6 +649,11 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 		s.header.Health, s.header.Conflicts, s.header.Notices = h, c, n
 		s.mu.Unlock()
 	}
+	r.st.onTailnet = func(t *model.TailnetSnapshot) {
+		s.mu.Lock()
+		s.header.Tailnet = t
+		s.mu.Unlock()
+	}
 	stateDone := make(chan struct{})
 	go func() { r.st.run(); close(stateDone) }()
 	s.mu.Lock()
@@ -656,6 +664,7 @@ func (o *Orchestrator) run(ctx context.Context, s *Scan, req model.ScanRequest, 
 	// the state goroutine.
 	var bg sync.WaitGroup
 	r.startHealth(ctx, &bg)
+	r.startTailnet(ctx, &bg)
 	mdnsDone := r.startMDNS(ctx, MDNSRoundsScan)
 
 	// Probe pool runs concurrently with the sweep (pipeline, not barrier).

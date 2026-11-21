@@ -25,8 +25,14 @@ for (const theme of THEMES) {
     await scanToFinish(page);
     await page.locator('#tab-health').click();
     await expect(page.locator('.hcard').first()).toBeVisible();
+    await expect(page.locator('#tailscale-card')).toBeVisible();
     await shot(page, `health-${theme}`);
     await runAxe(page, `health-${theme}`, testInfo);
+
+    await page.locator('#tab-tailnet').click();
+    await expect(page.locator('#tailnet .tnrow')).toHaveCount(7);
+    await shot(page, `tailnet-view-${theme}`);
+    await runAxe(page, `tailnet-view-${theme}`, testInfo);
 
     await page.locator('#tab-history').click();
     await page.getByRole('button', { name: 'Compare', exact: true }).click();

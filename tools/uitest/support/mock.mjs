@@ -83,11 +83,20 @@ const matchId = (re, p) => {
 // change rec.problems while the page runs; rec.problemsCalls counts reads
 // and rec.problemsAt holds when each came (Date.now()), as rec.sseAt does
 // for each event stream served.
+// tailnet: what GET /api/tailnet reports (v0.6.1): a state for fx.tailnet
+// ('running', 'stopped', 'needs-login', 'not-installed' or 'error'), an
+// options object for fx.tailnet ({state, health, devices}) or a function
+// returning the view. Specs may change rec.tailnet while the page runs;
+// rec.tailnetCalls counts reads. POST /api/tailnet/ping answers like
+// handleTailnetPing: 429 for the same device within 5 s or any ping within
+// 1 s, 400 for an address not on the tailnet; rec.pings lists the addresses
+// asked, and rec.pingAnswer ({status, body}) overrides the next answers.
 export async function installMocks(page, { scenario = 'scan', settings: initialSettings, frames: customFrames, web = 'unset', webURL, repaired, health: healthState = 'default', osOpen = 204, running = false, identity = 'ok', session = SESSION, stale = false,
-  chat = 'off', chatExtra = {}, found = {}, pairStates = ['pending', 'approved'], channels = [fx.CHAT_CHANNEL], pairError = '', testResult = null, problems } = {}) {
+  chat = 'off', chatExtra = {}, found = {}, pairStates = ['pending', 'approved'], channels = [fx.CHAT_CHANNEL], pairError = '', testResult = null, problems, tailnet = 'running' } = {}) {
   const rec = { requests: [], unmatched: [], unauthorized: [], external: [], sse: [], running, identity, frames: null, identityCalls: 0, runningCalls: 0, scanId: fx.SCAN_ID, session,
     chat: fx.bubblesStatus(chat, chatExtra), pairError, channels: [...channels], pairStates: [...pairStates], pairPolls: -1, testResult, chatCalls: [], chatReads: 0,
-    problems, problemsCalls: 0, problemsAt: [], sseAt: [], scanned: false };
+    problems, problemsCalls: 0, problemsAt: [], sseAt: [], scanned: false,
+    tailnet, tailnetCalls: 0, pings: [], pingAnswer: null, pingAt: {}, lastPing: 0 };
   const origin = new URL(BASE_URL).origin;
   const MCP_URL = 'http://127.0.0.1:8787/mcp';
   let settings = { ...(initialSettings || fx.settings()), mcpUrl: MCP_URL };
@@ -114,6 +123,13 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     if (p === 'some' || (p !== 'fine' && (rec.scanned || rec.running))) open.push(...fx.problemItems());
     return fx.problemsView({ open, fixed: p === 'fixed' ? fx.fixedItems() : [],
       source: rec.running ? 'live' : 'latest', watching: !!rec.running, hasHealth: (h.checks || []).length > 0 });
+  };
+
+  const tailnetNow = () => {
+    const t = rec.tailnet;
+    if (typeof t === 'function') return t();
+    if (typeof t === 'string') return fx.tailnet({ state: t });
+    return fx.tailnet(t || {});
   };
 
   const json = (route, status, body) =>
@@ -153,6 +169,22 @@ export async function installMocks(page, { scenario = 'scan', settings: initialS
     if (method === 'GET' && p === '/api/health') return json(route, 200, health());
     if (method === 'POST' && p === '/api/health/run') return json(route, 200, health());
     if (method === 'GET' && p === '/api/problems') { rec.problemsCalls++; rec.problemsAt.push(Date.now()); return json(route, 200, problemsNow()); }
+    if (method === 'GET' && p === '/api/tailnet') { rec.tailnetCalls++; return json(route, 200, tailnetNow()); }
+    if (method === 'POST' && p === '/api/tailnet/ping') {
+      const ip = String((JSON.parse(body || '{}') || {}).ip || '');
+      rec.pings.push(ip);
+      if (rec.pingAnswer) return json(route, rec.pingAnswer.status, rec.pingAnswer.body);
+      const view = tailnetNow();
+      if (view.state !== 'running') return json(route, 409, { error: "Tailscale isn't connected on this computer" });
+      const res = fx.tailnetPing(view, ip);
+      if (!res) return json(route, 400, { error: "that is not one of this tailnet's addresses" });
+      const now = Date.now();
+      if (now - (rec.pingAt[ip] || 0) < 5000 || now - rec.lastPing < 1000) {
+        return json(route, 429, { error: 'wait a few seconds before checking this device again' });
+      }
+      rec.pingAt[ip] = now; rec.lastPing = now;
+      return json(route, 200, res);
+    }
     if (method === 'GET' && p === '/api/history') return json(route, 200, history);
     if (method === 'GET' && p === '/api/compare') {
       const base = url.searchParams.get('base') || fx.BASE_ID;

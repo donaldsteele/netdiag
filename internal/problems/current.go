@@ -235,6 +235,8 @@ func Current(r model.ScanResult, set model.Settings) []Problem {
 		}
 	}
 
+	addTailnet(r.Tailnet, tr, add)
+
 	for _, h := range r.Hosts {
 		if h.IsSelf {
 			continue

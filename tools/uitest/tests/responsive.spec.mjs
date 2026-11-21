@@ -42,10 +42,11 @@ for (const width of WIDTHS) {
     await page.getByRole('button', { name: 'Close details' }).click();
     await expect(page.locator('#drawer')).toBeHidden();
 
-    for (const tab of ['#tab-health', '#tab-activity', '#tab-history']) {
+    for (const tab of ['#tab-health', '#tab-tailnet', '#tab-activity', '#tab-history']) {
       await navTo(page, tab);
       await expect(page.locator(tab)).toHaveAttribute('aria-current', 'page');
       if (tab === '#tab-history') await expect(page.locator('#history tbody tr').first()).toBeVisible();
+      if (tab === '#tab-tailnet') await expect(page.locator('#tailnet .tnrow')).toHaveCount(7);
       expect(await pageOverflow(page), 'view ' + tab).toBeLessThanOrEqual(0);
     }
 

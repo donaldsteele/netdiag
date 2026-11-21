@@ -128,6 +128,12 @@ func problemsOut(v problems.View, in listProblemsIn) ProblemsOut {
 // recheckFor is the check an agent may run again for p: the health checks
 // for a health problem, else a probe of its device.
 func recheckFor(p problems.Problem) Recheck {
+	switch p.Kind {
+	case model.TriggerTailscaleDown, model.TriggerTailnetDeviceOffline, model.TriggerTailnetKeyExpiring:
+		// Tailnet problems (v0.6.1): read the tailnet again; probe_host
+		// refuses tailnet addresses.
+		return Recheck{Tool: "get_tailnet", Args: map[string]string{}}
+	}
 	if p.Check != "" || p.Device == nil {
 		return Recheck{Tool: "run_health_check", Args: map[string]string{}}
 	}

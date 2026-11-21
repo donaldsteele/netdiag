@@ -86,7 +86,7 @@ func TestMCPEnableAndUse(t *testing.T) {
 	}
 	cs := mcpConnect(t, base)
 	tl, err := cs.ListTools(context.Background(), &mcp.ListToolsParams{})
-	if err != nil || len(tl.Tools) != 16 {
+	if err != nil || len(tl.Tools) != 18 {
 		t.Fatalf("tools %v %v", tl, err)
 	}
 	gs := callJSON(t, cs, "get_settings", nil)

@@ -45,6 +45,11 @@ type Config struct {
 	// use): Start puts its alert router on every scan, and Close gives its
 	// outbox a last chance to send. nil: no team chat.
 	Chat *chat.Manager
+	// Tailnet reads this computer's Tailscale service (v0.6.1); nil: the
+	// real one (tailscale.Client).
+	Tailnet TailnetSource
+	// Now is the clock for the tailnet reads; nil: time.Now.
+	Now func() time.Time
 }
 
 // chatFlush is how long Close waits for the team chat outbox (v0.6 4.9).
@@ -70,6 +75,9 @@ type Service struct {
 	// the netdiag window's (SetWindow).
 	windowMu   sync.Mutex
 	windowPort func() int
+
+	// ts caches the tailnet reads and limits pings (tailnet.go).
+	ts tailnetState
 
 	logsMu   sync.Mutex
 	logs     map[string]*EventLog

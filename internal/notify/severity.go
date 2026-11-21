@@ -46,7 +46,8 @@ func ConflictSeverity(c model.Conflict) string {
 // Everything level.
 func severityFor(trigger string, ctx sevCtx) string {
 	switch trigger {
-	case model.TriggerPrinterOffline, model.TriggerSupplyLow, model.TriggerNetdiagLink:
+	case model.TriggerPrinterOffline, model.TriggerSupplyLow, model.TriggerNetdiagLink,
+		model.TriggerTailscaleDown, model.TriggerTailnetDeviceOffline, model.TriggerTailnetKeyExpiring:
 		return sevWarn
 	case model.TriggerPrinterAlert:
 		if ctx.printer == "critical" || ctx.printer == "error" {

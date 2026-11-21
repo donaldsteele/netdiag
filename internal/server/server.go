@@ -36,8 +36,11 @@ type Config struct {
 	Health     scan.HealthChecker              // defaults to health.NewRunner()
 	Gateway    func() (string, error)          // defaults to the OS default route
 	Service    *service.Service                // optional; built from the fields above when nil
-	Version    string                          // reported to MCP clients; default "dev"
-	Remote     remote.Opener                   // opens remote desktop and screen sharing; defaults to remote.System
+	// Tailnet reads the Tailscale service for GET /api/tailnet (v0.6.1);
+	// nil: the real one. Used only when Service is nil.
+	Tailnet service.TailnetSource
+	Version string        // reported to MCP clients; default "dev"
+	Remote  remote.Opener // opens remote desktop and screen sharing; defaults to remote.System
 	// OpenOSPage opens a page of this computer's settings from the fixed
 	// list (POST /api/os/open); defaults to remote.OpenOSPage.
 	OpenOSPage func(page string) error
@@ -102,7 +105,7 @@ func New(cfg Config) *Server {
 	svc := cfg.Service
 	if svc == nil {
 		svc = service.New(service.Config{Registry: cfg.Registry, Store: cfg.Store, Health: cfg.Health,
-			Interfaces: cfg.Interfaces, Gateway: cfg.Gateway, BaseCtx: ctx, Ledger: cfg.Ledger, Chat: cfg.Chat})
+			Interfaces: cfg.Interfaces, Gateway: cfg.Gateway, BaseCtx: ctx, Ledger: cfg.Ledger, Chat: cfg.Chat, Tailnet: cfg.Tailnet})
 	}
 	if cfg.Remote == nil {
 		cfg.Remote = remote.System{}
@@ -256,6 +259,8 @@ func (s *Server) routes() []route {
 		f("POST /api/bubbles/channel", s.handleChatChannel),
 		f("POST /api/bubbles/test", s.handleChatTest),
 		f("POST /api/bubbles/retry", s.handleChatRetry),
+		f("GET /api/tailnet", s.handleTailnet),
+		f("POST /api/tailnet/ping", s.handleTailnetPing),
 	}
 	for _, m := range []string{"GET", "POST", "DELETE"} {
 		rs = append(rs, route{m + " /mcp", s.mcpGate(s.mcpHandler)})

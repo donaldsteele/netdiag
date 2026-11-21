@@ -18,6 +18,7 @@ import (
 	"netdiag/internal/scan"
 	"netdiag/internal/server"
 	"netdiag/internal/store"
+	"netdiag/internal/tailscale"
 	"netdiag/web"
 )
 
@@ -70,6 +71,8 @@ func runUI(args []string, stdout, stderr io.Writer) int {
 	// `netdiag mcp` over stdio does read open-problems.json (MCP
 	// list_problems), and a save waits briefly for such a read to end.
 	deps := scan.DefaultDeps()
+	// The tailnet (v0.6.1): read from the local Tailscale service only.
+	deps.Tailnet = tailscale.New()
 	var ledger *problems.Ledger
 	if st != nil {
 		if ledger, err = problems.OpenLedger(st); err != nil {

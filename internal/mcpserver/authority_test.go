@@ -23,6 +23,7 @@ var allowList = []string{
 	"get_device", "get_events", "get_health", "run_health_check", "probe_host",
 	"list_history", "compare_scans", "get_settings",
 	"get_status", "list_problems", "get_runbook", // v0.6: reads
+	"get_tailnet", "ping_tailnet_device", // v0.6.1: a read and a probe of one tailnet device (MCP-3)
 }
 
 func TestToolSetMatchesAllowList(t *testing.T) {

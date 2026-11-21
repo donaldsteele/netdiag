@@ -4,6 +4,7 @@ This is the master plan from v0.5.7 to v0.9, and on to the v1.0.0 Microsoft Stor
 
 Each release from v0.6 on has its own detailed plan:
 - [v0.6 "Chat alerts you can trust"](v0.6.md)
+- [v0.6.1 "Tailnet"](v0.6.1.md)
 - [v0.7 "Device toolkit"](v0.7.md)
 - [v0.8 "Always watching"](v0.8.md)
 - [v0.9 "Fix it yourself"](v0.9.md). Its section 13 covers the rest of 0.9.x: Microsoft Store readiness, ending in the **v1.0.0** Store release.
@@ -97,6 +98,7 @@ Sizes are per milestone: S is up to 2 dev-days, M is 3-5 and L is 6-10. A releas
 | v0.5.7 | Honest checks (part 1) and Remote access | Refused connections detected on Windows. DNS check asks this computer's DNS servers. "Local network" wording. **Remote access**: RDP, VNC and SSH detected, Remote Desktop opens in one click | F1, the DNS part of F3, remote access (R1) | S (patch) | None | **Released** (2026-10-17, tag `v0.5.7`) |
 | v0.5.8 | Honest checks | Gateway that ignores ping, Web server redirects and **Trust this certificate**, the scanned interface for Recheck. SNMP community hidden everywhere, saved scans exportable. Port cap, **Ignore this MAC** asks first, Apache-2.0 licence and CI | Rest of F3; first slices of F11 (`model.RedactScan`) and F13 (`scan.MaxPorts`, `portprobe.PortWorkers`) | S (patch, 14 small fixes) | v0.5.7 tagged (met) | **Released** (2026-10-17, tag `v0.5.8`; see [4.2](#42-v058-honest-checks-released-2026-10-17)) |
 | v0.6 | Chat alerts you can trust | Team chat connect by clicks. #1 Problems right now and "Fixed". #2 What this means / What to try. #3 Never lose netdiag | Session token, F2, F6, F7, F9, F10, F11, F14, severity map, runbook registry | L: 14 milestones (2 L, 7 M, 2 S-M, 3 S) | v0.5.8 tagged (met). Test rig ready before M10 (not met: waived for development, v0.6-D50, and for the release, v0.6-D58). v0.6-D15 answered before M7 (met: decided 2026-10-17) | **Released** (2026-10-18, tag `v0.6.0`; field checklist 6.2 to 6.5 not run, v0.6-D58) |
+| v0.6.1 | Tailnet | **Tailnet** view with a map of this computer's Tailscale tailnet (direct or relayed path per device), Tailscale card on Health, three tailnet alerts, `get_tailnet` and `ping_tailnet_device` for Claude | `internal/tailscale` (LocalAPI over the Windows named pipe or the macOS socket; no child process) | M: 4 milestones | v0.6.0 tagged (met) | **Released** (2026-11-21, tag `v0.6.1`; PO-8) |
 | v0.7 | Device toolkit | **Check open ports**. #4 quick actions. #5 names and rooms. #6 **Check my connection**. #8 **Why won't it print?** and **Make it beep**. #10 **Send to chat**. **Wake this computer** | F4, F5, F8 (devices.json v1), F12, F13, `names.Best`, Wake-on-LAN sender (`internal/wol`) | L: 11 milestones (9 M, 1 S-M, 1 S), about 7-8 dev-weeks | v0.6 shipped (v0.6.0 tagged). V7-D1 to V7-D13 confirmed before M1. The plan is re-based on the v0.6 branch head ([5.2](#52-v07-device-toolkit)) | Planned |
 | v0.8 | Always watching | #7 Watch this device. #11 Keep watching this network. #17 Pause alerts and quiet hours. #19 "Still not fixed" reminders. #9 Get help report. #14 What changed | `internal/alertpolicy`, devices.json v2, server-owned settings fields, held items and reminder counts in the ledger | L: 9 milestones (1 L, 6 M, 2 S) | v0.7 shipped. Clean Windows 11 VM ready for the Defender gate | Planned |
 | v0.9 | Fix it yourself | #12 Help home and welcome. #13 This computer's printers. #15 Can I reach it?. #16 Is this ours?. #18 Is it dropping?. #20 Find my new device | New F4 job kinds, netinfo interface kinds, Windows ICMP pinger, devices.json v3 | L: 10 milestones (2 L, 4 M, 2 S-M, 2 S), about 6-7 dev-weeks | v0.8 shipped | Planned |
@@ -844,6 +846,7 @@ Tick a feature when it has shipped. Each line gives the source ids, the version 
 - [x] **Remote access**: RDP, VNC and SSH detected; **Open remote desktop**, **Open screen sharing**, **Copy SSH command**, **Download connection file** (decision R1). v0.5.7, done ([4.1](#41-v057-released-2026-10-17)).
 - [x] **Team chat connect** (the planned bubbles connect: wizard, test alert, status tool, reconnect and disconnect). v0.6, [v0.6 §4.10][v06-410]. Shipped in v0.6.0; pairing with a bubbles server on another computer is not yet field-tested (v0.6-D58).
 - [ ] **Port check: Check open ports** (the planned port scan: one device; presets Common services, Printer, Camera, Remote access, File sharing, First 1,024 ports; 'All ports' waits for signing). v0.7, [v0.7 §4.7][v07-47].
+- [x] **Tailnet** (product-owner request PO-8): the Tailnet view and map, the Tailscale card, the tailnet alerts and the two MCP tools. v0.6.1, [v0.6.1](v0.6.1.md). Shipped in v0.6.1.
 - [x] **#1 Problems right now and "Fixed" messages** (C31). v0.6, [v0.6 §4.11][v06-411]. Shipped in v0.6.0.
 - [x] **#2 What this means / What to try**, phase 1, with the honest conflict view (C04, C21). v0.6, [v0.6 §4.12][v06-412]. Shipped in v0.6.0.
 - [x] **#3 Never lose netdiag** (C27 and the single-instance part of C29). v0.6, [v0.6 §4.13][v06-413]. Shipped in v0.6.0.
@@ -879,6 +882,7 @@ Each shared contract has one canonical name. Every plan uses these. A plan that 
 - **`notify.HealthKey`** (v0.6, M5): `healthFailed||<check id>`.
 - **`notify.LinkKey`** (v0.6, M6): `netdiagLink||<network id>`, the storm guard's local problem on the network being watched (the fingerprint id, `model.NetworkID`; empty when the router's MAC is unknown). One key per hold: a stronger reason is a second notice under the same key (v0.6-D36). Never in the ledger or team chat (v0.6-D16).
 - **Parts and devices behind one MAC** (v0.6, M5): `newDevice|<MAC>|<IP>` keeps the IP; a second supply with the same description gets `<hash>.2`; while one device behind a shared MAC (a range extender) has a key open, another device's problem opens under its `ip:` key. A problem belongs to the device at its IP, so `Seed`/`Reconcile` and `HostIssues` match on key and IP.
+- **Tailnet keys** (v0.6.1): `tailscaleDown||`, `tailnetDeviceOffline||<Tailscale node id>` and `tailnetKeyExpiring||<node id or self>` (`notify.TailscaleDownKey`, `TailnetDeviceKey`, `TailnetKeyKey`). The first-pass `Reconcile` keeps them open; `ObserveTailnet` closes them on the first reading that shows them gone.
 - **Later triggers:**
   - `expectedMissing|<MAC>|` (v0.8)
   - `unknownDevice|<MAC>|` (v0.9)
@@ -900,6 +904,9 @@ There is one function, `notify.severityFor(trigger, ctx)`, owned by [v0.6 §4.7]
 | newDevice | info | v0.6 |
 | netdiagLink | warning, local only (never sent to chat) | v0.6 |
 | `netdiag:test` | info, chat only | v0.6 |
+| tailscaleDown | warning (the Problems card lists "Tailscale not connected" as a note: it may be off on purpose) | v0.6.1 |
+| tailnetDeviceOffline (never for phones and tablets) | warning | v0.6.1 |
+| tailnetKeyExpiring (within 7 days) | warning | v0.6.1 |
 | expectedMissing | critical for Important devices, warning for Normal ones (v0.8-D1) | v0.8 |
 | unknownDevice | info (v0.9-D5) | v0.9 |
 
@@ -1049,9 +1056,10 @@ Token: Y means the session token is required (from v0.6). Every route is mocked 
 
 | Version | Tools added | Total |
 |---|---|---|
+| v0.6.1 | `get_tailnet` (read), `ping_tailnet_device` (probe, MCP-3) | 18 |
 | today (v0.5.7, v0.5.8) | `list_interfaces`, `start_scan`, `get_scan`, `cancel_scan`, `list_devices`, `get_device`, `get_events`, `get_health`, `run_health_check`, `probe_host`, `list_history`, `compare_scans`, `get_settings` (`ToolNames`, `internal/mcpserver/tools.go:22-27` on the v0.6 branch head) | 13 |
 | v0.6 | `get_status`, `list_problems`, `get_runbook` | 16 |
-| v0.7 | `check_internet`, `check_printer` (both probe class, allowed) | 18 |
+| v0.7 | `check_internet`, `check_printer` (both probe class, allowed) | 20 (18 before v0.6.1 added two) |
 | v0.8 | `get_report` | 19 |
 | v0.9 | `test_connection`, `start_connection_watch` (2 or 10 min), `get_check`, `cancel_check` (only jobs the agent started), `list_local_printers` | 24 |
 | after signing | `check_ports` (Common preset only, behind the MCP switch) | 25 |
@@ -1315,6 +1323,10 @@ The IDs match each plan's own list, with a version prefix: v0.6-D1 is D1 in v0.6
 | PO-3 | Claude MCP runbooks | Decided | Add runbooks in every version, alongside the tools they use (section 9) | every version |
 | PO-4 | Feature #19 | Decided | C34 "Still not fixed" reminders replaces the C36 daily team summary, which moves to the backlog | v0.8 |
 | PO-5 | Which version gets what | Decided | As in the brief, plus v0.5.8 (PO-6). Every move needs an entry here | always |
+| PO-8 | Tailscale support | Decided (2026-11-21) | Ships as v0.6.1 "Tailnet" before v0.7: the Tailnet view and map, the Tailscale card, three tailnet alerts and two MCP tools ([v0.6.1](v0.6.1.md)). Read from the local Tailscale service over its named pipe (Windows) or socket (macOS), so netdiag still starts no child process on Windows. Read-only: netdiag never changes Tailscale. The tailnet is named by its MagicDNS suffix only (a personal tailnet's own name is an email address) | v0.6.1 |
+| X-10 | The Tailnet nav item | Decided (2026-11-21) | A sixth nav item, shown only while Tailscale is on this computer, so people without it still see five. The counts in 8.12 for later versions move up by one when Tailscale is present (v0.8 Get help makes seven) | v0.6.1 |
+| X-11 | The Tailscale card | Decided (2026-11-21) | A card on the Health view below the six checks, not a seventh pill: the strip stays at six and the health summary, "Everything looks fine" and the Problems card's health items count only the six checks. Tailnet problems reach the Problems card through their own items (`problems/tailnet.go`) | v0.6.1 |
+| MCP-3 | `ping_tailnet_device` | Decided (2026-11-21) | A probe agents may start: one target (a Tailscale address of a listed device), a 10-second cap, at most every 5 s per device and once a second overall, nothing saved, no physical effect. The traffic is Tailscale's own ping to that one device, sent by the Tailscale service | v0.6.1 |
 | PO-6 | Where the remaining "Honest checks" fixes go | Decided | They ship as v0.5.8, before v0.6 starts | v0.5.8 |
 | PO-7 | The Microsoft Store | Decided (2026-10-17) | netdiag goes to the Store as an MSIX package. The work is the rest of 0.9.x (v0.9.1 to v0.9.3), and the first Store release is v1.0.0, with GitHub moving to v1.0.0 at the same time. This moves the windowless app and its quit path (the rest of C29) from "after code signing" to v0.9.1 | v0.9.1 |
 | R1 | Remote access | Decided, shipped in v0.5.7 | Scans probe 22, 3389 and 5900 by default. netdiag starts Remote Desktop Connection itself on Windows (ShellExecute of mstsc.exe), the one accepted child process. On macOS it uses Windows App or Screen Sharing. Local targets only, never this computer. `presencePort` skips remote ports. Follow-ups: v0.6 gates the POST route and bans `internal/remote` from mcpserver; v0.7 adds no remote route, section or port; v0.8 `diff.Describe` names the ports; v0.9 #15 reuses **Open remote desktop** | done |

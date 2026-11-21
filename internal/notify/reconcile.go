@@ -281,6 +281,11 @@ func (e *Engine) gone(f *fault, hosts []model.Host, cs []model.Conflict, rep *mo
 	case model.TriggerNetdiagLink:
 		// About a run that is over: this computer is on the network now.
 		return linkBackTitle, linkBackMessage, true
+	case model.TriggerTailscaleDown, model.TriggerTailnetDeviceOffline, model.TriggerTailnetKeyExpiring:
+		// The first pass does not read the tailnet: these stay open and
+		// ObserveTailnet closes them on the first reading that shows them
+		// gone (v0.6.1).
+		return "", "", false
 	}
 	return "", "", false
 }

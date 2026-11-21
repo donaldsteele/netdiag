@@ -229,6 +229,9 @@ var v06Items = []string{
 	"Claude Code explains the problems.", "Claude checks the chat alerts.", "Claude Desktop sees the window.",
 	// §7.6
 	"Release candidate scan.", "Release build scan.",
+	// v0.6.1 Tailnet (6.7)
+	"The Tailnet view.", "Check path.", "The Tailscale card.", "Tailscale stops, then comes back.",
+	"A tailnet computer goes offline.", "No Tailscale.", "No child process (Windows).",
 }
 
 // item is one checklist entry: "- [ ] **Title.** Steps: …" followed by its

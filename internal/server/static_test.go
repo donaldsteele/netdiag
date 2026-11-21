@@ -461,9 +461,9 @@ func TestAppShellUI(t *testing.T) {
 	}
 	for _, want := range []string{
 		`<aside class="sidebar"`, `aria-label="Main"`, `id="tab-devices"`, `id="tab-health"`,
-		`id="tab-activity"`, `id="tab-history"`, `id="nav-settings"`, `class="menubtn"`,
+		`id="tab-tailnet"`, `id="tab-activity"`, `id="tab-history"`, `id="nav-settings"`, `class="menubtn"`,
 		`:aria-expanded="navOpen"`, `class="topbar bar"`, `id="activity"`, `class="menu"`,
-		`view === 'devices'`, `view === 'health'`, `view === 'history'`,
+		`view === 'devices'`, `view === 'health'`, `view === 'tailnet'`, `view === 'history'`,
 	} {
 		if !strings.Contains(string(html), want) {
 			t.Errorf("index.html missing shell hook %q", want)
@@ -473,7 +473,7 @@ func TestAppShellUI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"'netdiag.view'", "views: ['devices', 'health', 'activity', 'history']"} {
+	for _, want := range []string{"'netdiag.view'", "views: ['devices', 'health', 'tailnet', 'activity', 'history']"} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("app.js missing %q", want)
 		}
@@ -557,7 +557,9 @@ func TestIconSpriteBudgetAndRefs(t *testing.T) {
 		// actionIcon (advice buttons, v0.6 M7).
 		"i-refresh-cw", "i-settings", "i-monitor", "i-map-pin", "i-external-link",
 		// chatIcon: the team chat status tool's three shapes (v0.6 M10).
-		"i-chat", "i-chat-warn", "i-chat-off", "i-chat-paused"}
+		"i-chat", "i-chat-warn", "i-chat-off", "i-chat-paused",
+		// Tailnet view (v0.6.1): tnOSIcon, tnStatusIcon and tnNotes.
+		"i-smartphone", "i-laptop", "i-circle-dot", "i-exit-node", "i-key", "i-tailnet", "i-route", "i-type-self"}
 	for _, id := range dynamic {
 		if !has(id) {
 			t.Errorf("icons.svg missing dynamically referenced symbol %s", id)

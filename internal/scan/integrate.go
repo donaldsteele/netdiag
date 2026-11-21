@@ -108,13 +108,16 @@ func notifyConfig(s model.Settings) notify.Config {
 	t := s.Alerts.Triggers
 	cfg := notify.Config{
 		Triggers: map[string]bool{
-			model.TriggerPrinterOffline: t.PrinterOffline,
-			model.TriggerDeviceOffline:  t.DeviceOffline,
-			model.TriggerSupplyLow:      t.SupplyLow,
-			model.TriggerPrinterAlert:   t.PrinterAlert,
-			model.TriggerNewDevice:      t.NewDevice,
-			model.TriggerIPConflict:     t.IPConflict,
-			model.TriggerHealthFailed:   t.HealthFailed,
+			model.TriggerPrinterOffline:       t.PrinterOffline,
+			model.TriggerDeviceOffline:        t.DeviceOffline,
+			model.TriggerSupplyLow:            t.SupplyLow,
+			model.TriggerPrinterAlert:         t.PrinterAlert,
+			model.TriggerNewDevice:            t.NewDevice,
+			model.TriggerIPConflict:           t.IPConflict,
+			model.TriggerHealthFailed:         t.HealthFailed,
+			model.TriggerTailscaleDown:        t.TailscaleDown,
+			model.TriggerTailnetDeviceOffline: t.TailnetDeviceOffline,
+			model.TriggerTailnetKeyExpiring:   t.TailnetKeyExpiring,
 		},
 		SupplyThresholdPct: s.Alerts.SupplyThresholdPct,
 		Cooldown:           time.Duration(s.Alerts.CooldownSec) * time.Second,

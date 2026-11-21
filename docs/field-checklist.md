@@ -264,6 +264,25 @@ When testing, stop only the netdiag you started, by its process ID or its path, 
 - [ ] **Release build scan.** Steps: the same scan on the release build's `netdiag.exe`, then submit it to Microsoft as a false positive (until code signing lands).
   Date: 2026-10-18 · OS: Windows 11 Pro 26300 (administrator account, Ethernet) · Result: v0.6.0 release netdiag.exe (from netdiag-windows-amd64.zip, SHA-256 CAE6F984…6DEA): MpCmdRun custom scan found no threats (definitions 1.461.89.0, engine 1.1.26090.9). Microsoft false-positive submission not filed yet (the exe is staged in `dist\wdsi-v0.6.0` on the build PC).
 
+### 6.7 Tailnet (v0.6.1)
+
+Set up first: a Windows 11 PC and a Mac with Tailscale installed and signed in to the same tailnet, MagicDNS on, and at least two other tailnet devices (one of them a phone). Screenshots for the site come from mock data only (`site-shots.spec`): never capture a real tailnet's names.
+
+- [ ] **The Tailnet view.** Steps: start netdiag. The sidebar shows **Tailnet**. Open it: this computer is in the middle of the map, every other device is around it, offline ones are dimmed, and the list below names each one with its OS, addresses, online state and path in words. The header names the tailnet by its MagicDNS suffix, not by an email address.
+  Date: 2026-11-21 · OS: Windows 11 Pro 26300 (administrator account, Ethernet, Tailscale 1.90) · Result: not yet opened in the real window. On the real tailnet GET /api/tailnet showed state running, the MagicDNS suffix (no email address anywhere in the answer), this computer, one online Linux device and an Android phone marked as a phone and offline. The view itself is checked with mock data by tailnet.spec (map, list, words, both themes, 360 px).
+- [ ] **Check path.** Steps: click **Check path** on an online device. Within about 10 seconds it says "Direct" with the address it reached, or "Relayed via <region>", and the time in milliseconds. Click it again at once: it asks you to wait a few seconds.
+  Date: 2026-11-21 · OS: Windows 11 Pro 26300 (administrator account, Ethernet, Tailscale 1.90) · Result: through the API with the session token on the real tailnet: direct, endpoint on the local network, 1 ms (52 ms on an earlier run); 401 without the token. The wait message on a second click is covered by the route test and tailnet.spec, not run in the real window.
+- [ ] **The Tailscale card.** Steps: open **Health**. Below the six check cards a **Tailscale** card says "Connected to <suffix>" with the number of devices online. The pill strip still has six pills.
+  Date: 2026-11-21 · OS: Windows 11 Pro 26300 (administrator account, Ethernet, Tailscale 1.90) · Result: the card from the real tailnet read "Connected to <suffix>. 1 of 2 other devices online." with status ok; not looked at in the real window. Pill count 6 is checked by tailnet.spec.
+- [x] **Tailscale stops, then comes back.** Steps: start a live scan and wait for the first scan to finish. In the Tailscale app, disconnect. After two live cycles "Tailscale stopped" appears (banner, Problems right now, and team chat when connected). Connect again: after two cycles it turns into **Fixed**.
+  Date: 2026-11-21 · OS: Windows 11 Pro 26300 (administrator account, Ethernet, Tailscale 1.90) · Result: v0.6.1 branch build, live scan of a /28 every 5 s. `tailscale down` at 20 s: "Tailscale stopped" (warning, "Tailscale is no longer connected on this computer.") at 33 s. `tailscale up` at 33 s: "Tailscale connected again" (Fixed) at 49 s, and the Problems card listed it under Fixed. Team chat was not connected for this run.
+- [ ] **A tailnet computer goes offline.** Steps: in live mode, shut down another tailnet computer (not a phone). After two cycles "Tailnet device offline" names it; start it again and it turns into **Fixed**. Put the phone in flight mode: nothing is reported for it.
+  Date: 2026-11-21 · OS: Windows 11 Pro 26300 (administrator account, Ethernet, Tailscale 1.90) · Result: not run (needs another tailnet computer shut down); covered by notify and problems tests.
+- [ ] **No Tailscale.** Steps: on a computer without Tailscale, start netdiag: there is no **Tailnet** item and no Tailscale card, and nothing about Tailscale in the Problems card.
+  Date: 2026-11-21 · OS: Windows 11 Pro 26300 (administrator account, Ethernet, Tailscale 1.90) · Result: not run on a computer without Tailscale; covered by tailnet.spec (nav item and card hidden) and the service test (state not-installed).
+- [x] **No child process (Windows).** Steps: with Process Explorer or Task Manager's details view open, open the Tailnet view and click **Check path**: netdiag starts no tailscale.exe or other program.
+  Date: 2026-11-21 · OS: Windows 11 Pro 26300 (administrator account, Ethernet, Tailscale 1.90) · Result: netdiag (PID checked with Win32_Process) read the tailnet three times and ran Check path: no child process. The Windows code opens the Tailscale pipe with CreateFile and has no exec.
+
 ## Results
 
 | Date | Tester | Build version | Machine / OS | Router model | Printer model | Notes |

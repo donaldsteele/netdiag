@@ -70,7 +70,7 @@ for (const [vpName, vp] of Object.entries(VIEWPORTS)) for (const theme of ['dark
     await expect(page.locator('#drawer-remote')).toBeVisible();
     all.push(...await measure(page, 'drawer-remote'));
     await page.keyboard.press('Escape');
-    for (const tab of ['health', 'activity', 'history']) {
+    for (const tab of ['health', 'tailnet', 'activity', 'history']) {
       const t = page.locator('#tab-' + tab);
       if (await t.isVisible()) { await t.click(); } else { await page.evaluate((tab) => document.querySelector('#tab-' + tab)?.click(), tab); }
       await page.waitForTimeout(200);

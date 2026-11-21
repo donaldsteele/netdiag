@@ -103,6 +103,10 @@ type SettingsTriggers struct {
 	NewDevice      bool `json:"newDevice"`
 	IPConflict     bool `json:"ipConflict"`
 	HealthFailed   bool `json:"healthFailed"`
+	// Tailnet alerts (v0.6.1).
+	TailscaleDown        bool `json:"tailscaleDown"`
+	TailnetDeviceOffline bool `json:"tailnetDeviceOffline"`
+	TailnetKeyExpiring   bool `json:"tailnetKeyExpiring"`
 }
 
 // HistoryEntry is the index record of one saved scan.

@@ -78,7 +78,8 @@ func Reasons() map[string][]string {
 func Triggers() []string {
 	return []string{model.TriggerPrinterOffline, model.TriggerDeviceOffline, model.TriggerSupplyLow,
 		model.TriggerPrinterAlert, model.TriggerNewDevice, model.TriggerIPConflict, model.TriggerHealthFailed,
-		model.TriggerNetdiagLink, model.TriggerChatTest}
+		model.TriggerNetdiagLink, model.TriggerChatTest,
+		model.TriggerTailscaleDown, model.TriggerTailnetDeviceOffline, model.TriggerTailnetKeyExpiring}
 }
 
 // ConflictKinds lists every conflict kind the catalogue has advice for.
@@ -427,6 +428,22 @@ func notice(n model.Notice, h *model.Host) *model.Advice {
 			steps("Check this computer's network cable or Wi-Fi."))
 	case model.TriggerChatTest:
 		return adv("This is a test alert from netdiag. Nothing needs fixing.", nil)
+	case model.TriggerTailscaleDown:
+		return adv("Tailscale stopped on this computer, so it can't reach the other computers on your tailnet, and they can't reach it.",
+			steps("Open the Tailscale app on this computer and connect.",
+				"If it asks you to sign in, sign in with your tailnet account."))
+	case model.TriggerTailnetDeviceOffline:
+		name := n.Name
+		if name == "" {
+			name = "A computer"
+		}
+		return adv(name+" dropped off your tailnet: it is switched off, asleep, or lost its internet connection.",
+			steps("Check that it is switched on and connected to the internet.",
+				"Check that Tailscale is running on it."))
+	case model.TriggerTailnetKeyExpiring:
+		return adv("When a Tailscale key expires, that device drops off your tailnet until someone signs in on it again.",
+			steps("Sign in to Tailscale again on that device.",
+				"Or turn off key expiry for it in the Tailscale admin console."))
 	}
 	return nil
 }

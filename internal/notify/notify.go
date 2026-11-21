@@ -61,13 +61,16 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Triggers: map[string]bool{
-			model.TriggerPrinterOffline: true,
-			model.TriggerDeviceOffline:  false,
-			model.TriggerSupplyLow:      true,
-			model.TriggerPrinterAlert:   true,
-			model.TriggerNewDevice:      true,
-			model.TriggerIPConflict:     true,
-			model.TriggerHealthFailed:   true,
+			model.TriggerPrinterOffline:       true,
+			model.TriggerDeviceOffline:        false,
+			model.TriggerSupplyLow:            true,
+			model.TriggerPrinterAlert:         true,
+			model.TriggerNewDevice:            true,
+			model.TriggerIPConflict:           true,
+			model.TriggerHealthFailed:         true,
+			model.TriggerTailscaleDown:        true,
+			model.TriggerTailnetDeviceOffline: true,
+			model.TriggerTailnetKeyExpiring:   true,
 		},
 		SupplyThresholdPct: DefaultSupplyThresholdPct,
 		Cooldown:           DefaultCooldown,
@@ -132,6 +135,8 @@ type Engine struct {
 	waiting  []model.Notice
 	// stopped drops every notice from now on (see Stop).
 	stopped bool
+	// tn remembers the tailnet between readings (ObserveTailnet).
+	tn tailnetWatch
 }
 
 // New creates an engine. A nil clock uses time.Now.

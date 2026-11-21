@@ -599,7 +599,7 @@ export function settings() {
     alerts: {
       sound: false, desktop: false, cooldownSec: 300, supplyThresholdPct: 15,
       triggers: { printerOffline: true, deviceOffline: true, supplyLow: true, printerAlert: true,
-        newDevice: true, ipConflict: true, healthFailed: true },
+        newDevice: true, ipConflict: true, healthFailed: true, tailscaleDown: true, tailnetDeviceOffline: true, tailnetKeyExpiring: true },
     },
     noInternetNetworks: [],
     ignoredConflictMACs: [],
@@ -801,4 +801,72 @@ export function discover({ servers = 1, tray = false } = {}) {
 // POST /api/bubbles/inspect for an address.
 export function inspection(address = CHAT_SERVER.host + ':28225') {
   return { address, fingerprint: CHAT_FP, groups: [...CHAT_GROUPS], serverName: 'Office', thisComputer: SELF_IP, fpPrefixMatches: true };
+}
+
+// ---- Tailnet (v0.6.1): GET /api/tailnet and POST /api/tailnet/ping ----
+// Invented names only (v0.6.1 §3): the tailnet is named by its MagicDNS
+// suffix, never by an account. Devices come online first, then by name,
+// as TailnetViewOf sends them.
+export const TAILNET_SUFFIX = 'tail1234.ts.net';
+export const TAILNET_ADMIN = 'https://login.tailscale.com/admin/machines';
+const tnDev = (id, name, os, ips, extra = {}) => ({
+  id, name, dnsName: name + '.' + TAILNET_SUFFIX + '.', os, ips, online: true, active: true, path: 'direct',
+  keyExpiresSoon: false, exitNode: false, exitNodeOption: false, subnetRoutes: [], tags: [], phone: false, ...extra,
+});
+export function tailnetDevices(now = Date.now()) {
+  return [
+    tnDev('nPI1CNTRL', 'chat-pi', 'linux', ['100.101.1.2', 'fd7a:115c:a1e0::a1:2'], { endpoint: '192.168.1.40:41641' }),
+    tnDev('nVM2CNTRL', 'cloud-vm', 'linux', ['100.101.1.3', 'fd7a:115c:a1e0::a1:3'], { path: 'relayed', relay: 'fra', exitNodeOption: true, tags: ['tag:server'] }),
+    tnDev('nLT3CNTRL', 'laptop', 'macOS', ['100.101.1.4', 'fd7a:115c:a1e0::a1:4'], { active: false, path: 'idle' }),
+    tnDev('nNS4CNTRL', 'nas', 'linux', ['100.101.1.5', 'fd7a:115c:a1e0::a1:5'], { endpoint: '192.168.1.41:41641', subnetRoutes: ['192.168.10.0/24'] }),
+    tnDev('nPH5CNTRL', 'print-hub', 'windows', ['100.101.1.6', 'fd7a:115c:a1e0::a1:6'], { endpoint: '203.0.113.7:41641',
+      keyExpiry: new Date(now + 3 * 86400000 + 3600000).toISOString(), keyExpiresSoon: true }),
+    tnDev('nOD6CNTRL', 'old-desktop', 'windows', ['100.101.1.7', 'fd7a:115c:a1e0::a1:7'], { online: false, active: false, path: 'offline', lastSeen: '2026-11-18T08:15:00Z' }),
+    tnDev('nPN7CNTRL', 'phone', 'android', ['100.101.1.8', 'fd7a:115c:a1e0::a1:8'], { online: false, active: false, path: 'offline', lastSeen: '2026-11-20T21:40:00Z', phone: true }),
+  ];
+}
+export const TAILNET_ONLINE = 5;
+// state: running | stopped | needs-login | not-installed | error (stopped,
+// the service answered with an error). health: Tailscale's own warnings.
+// devices: replaces the device list (online first).
+export function tailnet({ state = 'running', health = [], devices } = {}) {
+  const v = { state: state === 'error' ? 'stopped' : state, version: state === 'not-installed' ? '' : '1.90.0',
+    suffix: state === 'running' ? TAILNET_SUFFIX : '', magicDNS: state === 'running', self: null, devices: [], health: [],
+    checkedAt: new Date().toISOString(), adminTarget: TAILNET_ADMIN };
+  const card = { id: 'tailscale', label: 'Tailscale' };
+  if (state === 'not-installed') return { ...v, card: { ...card, status: 'info', detail: "Tailscale isn't on this computer." } };
+  if (state === 'needs-login') {
+    return { ...v, card: { ...card, status: 'warn', detail: 'Tailscale needs you to sign in.',
+      advice: advice("This computer isn't signed in to your tailnet, so the other computers on it can't be reached through Tailscale.",
+        ['Open the Tailscale app on this computer and sign in.', 'Sign in with the same account as your other devices.']) } };
+  }
+  if (state === 'error') {
+    return { ...v, error: 'connect: the Tailscale service did not answer', card: { ...card, status: 'unavailable', detail: "netdiag couldn't read Tailscale on this computer.",
+      advice: advice("Tailscale is on this computer, but it didn't answer netdiag.", ['Check that the Tailscale app is running.', 'Click Check again in a moment.'],
+        [], 'raw: connect: the Tailscale service did not answer') } };
+  }
+  if (state === 'stopped') {
+    return { ...v, card: { ...card, status: 'warn', detail: 'Tailscale is installed but not connected.',
+      advice: advice("This computer isn't connected to your tailnet, so the other computers on it can't be reached through Tailscale.",
+        ['Open the Tailscale app on this computer and connect.', 'If it asks you to sign in, sign in with your tailnet account.']) } };
+  }
+  const list = devices || tailnetDevices();
+  const self = tnDev('nOF0CNTRL', 'office-pc', 'windows', ['100.101.102.103', 'fd7a:115c:a1e0::1'], { endpoint: '' });
+  const on = list.filter((d) => d.online).length;
+  let c = { ...card, status: 'ok', detail: `Connected to ${TAILNET_SUFFIX}. ${on} of ${list.length} other devices online.` };
+  if (health.length) {
+    c = { ...card, status: 'warn', detail: 'Tailscale reports a problem: ' + health[0],
+      advice: advice('Tailscale itself noticed something that may stop it from working well.',
+        ['Read the message below and open the Tailscale app.', 'Restart Tailscale if the message stays.'], [], 'raw: ' + health.join('; ')) };
+  }
+  return { ...v, self, devices: list, health: [...health], card: c };
+}
+// What POST /api/tailnet/ping answers for a device of tailnet().
+export function tailnetPing(view, ip) {
+  const d = (view.devices || []).find((x) => (x.ips || []).includes(ip));
+  if (!d) return null;
+  const base = { ip, name: d.name };
+  if (!d.online) return { ...base, ok: false, error: 'no answer within 10 seconds' };
+  if (d.path === 'relayed') return { ...base, ok: true, latencyMs: 42.3, path: 'relayed', relay: d.relay };
+  return { ...base, ok: true, latencyMs: d.path === 'idle' ? 3.4 : 1.2, path: 'direct', endpoint: d.endpoint || '192.168.1.44:41641' };
 }

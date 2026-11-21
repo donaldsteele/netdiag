@@ -55,6 +55,19 @@ test('site: health', async ({ page }) => {
   await shot(page, 'health');
 });
 
+// v0.6.1: the Tailnet view with its map, from mock data only (tail1234.ts.net):
+// never a real tailnet's names.
+for (const theme of ['dark', 'light']) {
+  test(`site: tailnet ${theme}`, async ({ page }) => {
+    await prepare(page, theme);
+    await page.locator('#tab-tailnet').click();
+    await expect(page.locator('#tailnet svg').first()).toBeVisible();
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.setViewportSize({ width: 1280, height: 1000 });
+    await shot(page, 'tailnet-' + theme);
+  });
+}
+
 test('site: activity', async ({ page }) => {
   // The scan's toner-low notice, then the OK notice that closes it, now
   // (so the Fixed time matches the log's), 12 minutes after it opened.

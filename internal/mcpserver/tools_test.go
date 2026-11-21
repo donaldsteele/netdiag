@@ -145,7 +145,7 @@ func setupWith(t *testing.T, transport string, withStore bool, p fakePinger, win
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	e.svc = service.New(service.Config{
-		Registry: reg, Store: e.st, Health: fakeHealth{}, BaseCtx: ctx,
+		Registry: reg, Store: e.st, Health: fakeHealth{}, BaseCtx: ctx, Tailnet: fakeTailnet{},
 		Interfaces: func() ([]netinfo.Iface, error) {
 			return []netinfo.Iface{{Name: "eth0", IP: "10.0.0.5", CIDR: "10.0.0.5/28", MAC: "aa:bb:cc:00:00:01", IsDefault: true}}, nil
 		},
@@ -240,7 +240,7 @@ func TestListToolsExact(t *testing.T) {
 	want := slices.Clone(ToolNames)
 	slices.Sort(got)
 	slices.Sort(want)
-	if !slices.Equal(got, want) || len(got) != 16 {
+	if !slices.Equal(got, want) || len(got) != 18 {
 		t.Fatalf("tools = %v, want %v", got, want)
 	}
 }
@@ -251,7 +251,8 @@ func TestToolAnnotations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mutating := map[string]bool{"start_scan": true, "run_health_check": true, "probe_host": true, "cancel_scan": true}
+	mutating := map[string]bool{"start_scan": true, "run_health_check": true, "probe_host": true, "cancel_scan": true,
+		"ping_tailnet_device": true} // v0.6.1: a probe of one tailnet device
 	for _, tl := range res.Tools {
 		a := tl.Annotations
 		if mutating[tl.Name] {
@@ -501,6 +502,8 @@ func TestToolOutputsNeverLeakCommunity(t *testing.T) {
 		{"get_status", nil},
 		{"list_problems", nil},
 		{"get_runbook", nil},
+		{"get_tailnet", nil},
+		{"ping_tailnet_device", map[string]any{"ip": "100.64.12.34"}},
 		{"get_runbook", map[string]any{"name": "diagnose_printer", "arguments": map[string]any{"ip": "10.0.0.10"}}},
 	}
 	if len(calls) < len(ToolNames)+1 {

@@ -236,8 +236,11 @@ type ScanResult struct {
 	// Warnings holds non-fatal scan-level problems (e.g. ICMP unavailable).
 	Warnings []string `json:"warnings,omitempty"`
 	// Health is the latest health report (nil when not run).
-	Health    *HealthReport `json:"health"`
-	Conflicts []Conflict    `json:"conflicts,omitempty"`
+	Health *HealthReport `json:"health"`
+	// Tailnet is the last reading of this computer's tailnet (v0.6.1); nil
+	// when it was not read.
+	Tailnet   *TailnetSnapshot `json:"tailnet,omitempty"`
+	Conflicts []Conflict       `json:"conflicts,omitempty"`
 	// Notices holds the last 100 alert notices.
 	Notices []Notice `json:"notices,omitempty"`
 	// SchemaVersion is HistorySchemaVersion for v0.2 results.

@@ -43,6 +43,10 @@ type state struct {
 	// onChange mirrors health/conflicts/notices to the scan header. The
 	// slices passed are never mutated afterwards.
 	onChange func(*model.HealthReport, []model.Conflict, []model.Notice)
+	// tailnet is the last tailnet reading (v0.6.1) and onTailnet mirrors it
+	// to the scan header.
+	tailnet   *model.TailnetSnapshot
+	onTailnet func(*model.TailnetSnapshot)
 
 	cmu    sync.RWMutex // guards closed for trySend vs close
 	closed bool

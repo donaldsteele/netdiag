@@ -45,7 +45,9 @@ func TestLoadV056SettingsRepairsThreshold(t *testing.T) {
 		Alerts: model.SettingsAlerts{
 			Sound: false, Desktop: true, CooldownSec: 600, SupplyThresholdPct: 15,
 			Triggers: model.SettingsTriggers{PrinterOffline: true, DeviceOffline: true, SupplyLow: false,
-				PrinterAlert: true, NewDevice: false, IPConflict: true, HealthFailed: false},
+				PrinterAlert: true, NewDevice: false, IPConflict: true, HealthFailed: false,
+				// Added in v0.6.1: an older file gets them on.
+				TailscaleDown: true, TailnetDeviceOffline: true, TailnetKeyExpiring: true},
 		},
 		IgnoredConflictMACs: []string{"AA:BB:CC:DD:EE:01", "AA:BB:CC:DD:EE:02"},
 		MCP:                 model.SettingsMCP{Enabled: true},
@@ -160,6 +162,7 @@ func TestRepairPaths(t *testing.T) {
 		"alerts.triggers", "alerts.triggers.printerOffline", "alerts.triggers.deviceOffline",
 		"alerts.triggers.supplyLow", "alerts.triggers.printerAlert", "alerts.triggers.newDevice",
 		"alerts.triggers.ipConflict", "alerts.triggers.healthFailed",
+		"alerts.triggers.tailscaleDown", "alerts.triggers.tailnetDeviceOffline", "alerts.triggers.tailnetKeyExpiring",
 		"ignoredConflictMACs", "mcp", "mcp.enabled", "chat", "chat.enabled", "chat.minSeverity"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("RepairPaths\n%v\nwant\n%v", got, want)

@@ -28,9 +28,10 @@ for (const width of [390, 768, 1100, 1440]) {
       }), 'header sticks under banners').toBe(true);
     }
 
-    for (const tab of ['health', 'activity', 'history']) {
+    for (const tab of ['health', 'tailnet', 'activity', 'history']) {
       await page.evaluate((t) => document.querySelector('#tab-' + t).click(), tab);
       await expect(page.locator('#tab-' + tab)).toHaveAttribute('aria-current', 'page');
+      if (tab === 'tailnet') await expect(page.locator('#tailnet .tnrow')).toHaveCount(7);
       if (tab === 'activity') {
         await page.evaluate(() => {
           const a = window.Alpine.$data(document.querySelector('.shell'));

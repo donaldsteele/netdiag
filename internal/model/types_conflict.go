@@ -16,6 +16,11 @@ const (
 	TriggerNewDevice      = "newDevice"
 	TriggerIPConflict     = "ipConflict"
 	TriggerHealthFailed   = "healthFailed"
+	// Tailnet alerts (v0.6.1): Tailscale stopped on this computer, a tailnet
+	// device offline, a Tailscale key about to expire.
+	TriggerTailscaleDown        = "tailscaleDown"
+	TriggerTailnetDeviceOffline = "tailnetDeviceOffline"
+	TriggerTailnetKeyExpiring   = "tailnetKeyExpiring"
 	// TriggerNetdiagLink is the storm guard's "netdiag lost the network"
 	// notice. It is local only and never sent to team chat (v0.6-D16).
 	TriggerNetdiagLink = "netdiagLink"

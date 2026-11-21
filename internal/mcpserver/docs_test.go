@@ -17,6 +17,7 @@ import (
 // toolSince is the version that added each tool (master roadmap §8.9).
 var toolSince = map[string]string{
 	"get_status": since060, "list_problems": since060, "get_runbook": since060,
+	"get_tailnet": "0.6.1", "ping_tailnet_device": "0.6.1",
 }
 
 // mcpDoc is docs/mcp.md.

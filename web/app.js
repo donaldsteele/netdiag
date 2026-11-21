@@ -9,6 +9,7 @@ let wizEpoch = 0; // counts team chat wizard openings and closings
 let pairAsking = 0; // team chat pairing requests on their way
 let pnTimer = 0; // pending re-read of the Problems right now card
 let drawerOpener = null; // element that opened the device drawer (a banner's or card's Show device, a row)
+let tnTimer = 0; // re-reads GET /api/tailnet while the Tailnet view is shown
 document.addEventListener('alpine:init', () => {
   Alpine.data('app', () => ({
     ifaces: [], ifaceName: '', cidr: '', community: 'public',
@@ -18,7 +19,7 @@ document.addEventListener('alpine:init', () => {
     filter: 'all', sortKey: 'ip', sortDir: 1, drawerIP: '', search: '',
     live: true, liveStatus: null, nowMs: Date.now(), announce: '', announced: {}, liveSynced: false,
     theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
-    view: 'devices', navOpen: false, views: ['devices', 'health', 'activity', 'history'], health: null, healthOpen: true, healthBusy: false, healthMsg: '', healthAt: '',
+    view: 'devices', navOpen: false, views: ['devices', 'health', 'tailnet', 'activity', 'history'], health: null, healthOpen: true, healthBusy: false, healthMsg: '', healthAt: '',
     conflicts: [], banners: [], seenNotices: {},
     settings: null, draft: null, draftLoaded: false, noInternetHere: false, settingsError: '', storeDown: false, desktopNote: '', audio: null, repairedNote: '', repairedPending: [], repairedShown: [],
     history: [], historyError: '', baseId: '', currentId: '', diff: null, diffError: '', diffBusy: false,
@@ -28,6 +29,7 @@ document.addEventListener('alpine:init', () => {
     chat: null, chatMsg: '', chatMsgKind: '', chatMsgState: '', chatBusy: false, chatNoteSeen: 0, chatNoteRun: '', wiz: {step: 'closed', mode: 'connect', wait: '', servers: [], tray: null, address: '', connString: '', insp: null, error: '', busy: false,
       code: '', expiresAt: '', adminUrl: '', channels: [], channelId: '', channel: null, testMsg: '', testKind: '', title: 'Connect to team chat', fresh: false, stopped: '', retry: ''},
     problems: null, pnAll: false, pnLimit: 5, pnDismissed: {},
+    tailnet: null, tnPick: '', tnPings: {}, tnBusy: false,
     watching: null, watchedCidr: '', restartStale: false, backend: 'ok', instanceId: '', hbFails: 0, sseErr: false, tabId: '', beeper: null, focusAt: 0, starting: false,
     log: [], logSeq: 0, logHidden: {}, logStick: true, logSeen: {},
     logKinds: [{id: 'scan', label: 'Scan'}, {id: 'host', label: 'New host'}, {id: 'offline', label: 'Offline'}, {id: 'online', label: 'Online'},
@@ -113,6 +115,8 @@ document.addEventListener('alpine:init', () => {
       try { const v = localStorage.getItem('netdiag.live'); if (v !== null) this.live = v === '1'; } catch (e) {}
       try { const sv = localStorage.getItem('netdiag.view'); if (this.views.includes(sv)) this.view = sv; } catch (e) {}
       if (this.view === 'history') this.loadHistory();
+      this.loadTailnet();
+      this.tailnetWatch();
       setInterval(() => { this.nowMs = Date.now(); }, 1000);
       try { for (const k of JSON.parse(localStorage.getItem('netdiag.fixedDismissed') || '[]')) this.pnDismissed[k] = true; } catch (e) {}
       this.loadProblems();
@@ -606,7 +610,9 @@ document.addEventListener('alpine:init', () => {
       'alerts.triggers.printerOffline': 'Printer goes offline', 'alerts.triggers.deviceOffline': 'Any device goes offline',
       'alerts.triggers.supplyLow': 'Printer supply low', 'alerts.triggers.printerAlert': 'Printer alert',
       'alerts.triggers.newDevice': 'New device', 'alerts.triggers.ipConflict': 'IP or name conflict',
-      'alerts.triggers.healthFailed': 'Health check fails', ignoredConflictMACs: 'Ignored conflict MACs',
+      'alerts.triggers.healthFailed': 'Health check fails',
+      'alerts.triggers.tailscaleDown': 'Tailscale stops on this computer', 'alerts.triggers.tailnetDeviceOffline': 'A tailnet computer goes offline',
+      'alerts.triggers.tailnetKeyExpiring': 'A Tailscale key is about to expire', ignoredConflictMACs: 'Ignored conflict MACs',
       mcp: 'Agent access', 'mcp.enabled': 'Allow AI agents to connect',
       chat: 'Team chat', 'chat.enabled': 'Send alerts to team chat', 'chat.minSeverity': 'Team chat alert level',
     },
@@ -1415,6 +1421,185 @@ document.addEventListener('alpine:init', () => {
       } catch (e) { this.error = 'Could not ignore MAC: ' + e.message; }
     },
 
+    // ---- Tailnet (v0.6.1) ----
+    // GET /api/tailnet is read when the page loads, when Health or the
+    // Tailnet view opens, and every 15 s while the Tailnet view is shown
+    // (not while the browser tab is hidden). The Tailnet nav item and the
+    // Tailscale card on Health show only while Tailscale is on this computer.
+    async loadTailnet() {
+      try {
+        const r = await fetch('/api/tailnet', {cache: 'no-store'});
+        if (!r.ok) return;
+        const v = await r.json();
+        this.logTailnet(this.tailnet, v);
+        this.tailnet = v;
+      } catch (e) {}
+    },
+    tailnetWatch() {
+      clearInterval(tnTimer); tnTimer = 0;
+      if (this.view !== 'tailnet') return;
+      tnTimer = setInterval(() => {
+        if (this.view !== 'tailnet') { clearInterval(tnTimer); tnTimer = 0; return; }
+        if (document.visibilityState !== 'hidden') this.loadTailnet();
+      }, 15000);
+    },
+    async recheckTailnet() {
+      this.tnBusy = true;
+      await this.loadTailnet();
+      this.tnBusy = false;
+    },
+    openTailnet() {
+      this.showView('tailnet');
+      this.$nextTick(() => { const s = document.getElementById('tailnet'); if (s) s.focus(); });
+    },
+    // What changed between two reads goes to the activity log: Tailscale's
+    // own state under Health, a device coming or going under Online or Offline.
+    logTailnet(prev, cur) {
+      if (!prev || !cur) return;
+      if (prev.state !== cur.state) this.logPush('health', 'Tailscale: ' + this.tnStateWord(prev.state) + ' -> ' + this.tnStateWord(cur.state));
+      const was = {};
+      for (const d of prev.devices || []) was[d.id] = d.online;
+      for (const d of cur.devices || []) {
+        if (was[d.id] === undefined || was[d.id] === d.online) continue;
+        this.logPush(d.online ? 'online' : 'offline', d.name + ' is ' + (d.online ? 'online' : 'offline') + ' on the tailnet', (d.ips || [])[0]);
+      }
+    },
+    tailnetShown() { return !!this.tailnet && this.tailnet.state !== 'not-installed'; },
+    tnState() { return this.tailnet ? this.tailnet.state : ''; },
+    tnStateWord(s) { return {running: 'Connected', stopped: 'Not connected', 'needs-login': 'Needs sign-in', 'not-installed': 'Not on this computer'}[s] || 'Checking'; },
+    tnStateMark() { return {running: 'ok', stopped: 'warn', 'needs-login': 'warn'}[this.tnState()] || 'unavailable'; },
+    tnCard() { return (this.tailnet && this.tailnet.card) || null; },
+    tnSelf() { return (this.tailnet && this.tailnet.state === 'running' && this.tailnet.self) || null; },
+    tnDevices() { return (this.tailnet && this.tailnet.state === 'running' && this.tailnet.devices) || []; },
+    tnHealth() { return (this.tailnet && this.tailnet.state === 'running' && this.tailnet.health) || []; },
+    tnSummary() {
+      const all = this.tnDevices(), on = all.filter(d => d.online).length;
+      if (!all.length) return 'No other devices on this tailnet yet.';
+      return on + ' of ' + all.length + (all.length === 1 ? ' other device' : ' other devices') + ' online.';
+    },
+    tnChecked() { return this.clock(this.tailnet && this.tailnet.checkedAt) || 'just now'; },
+    // The admin console link comes from the server (no URL in app.js).
+    tnAdmin() { const t = this.tailnet && this.tailnet.adminTarget; return /^https?:/i.test(t || '') ? t : ''; },
+    // The map: this computer in the middle and up to tnMax devices on a
+    // ring (online first, as the server sends them), in a 100 x 100 box.
+    tnMax: 24,
+    tnNodes() {
+      const list = this.tnDevices().slice(0, this.tnMax), n = list.length, r = n > 12 ? 39 : 35;
+      return list.map((d, i) => {
+        const a = -Math.PI / 2 + 2 * Math.PI * i / Math.max(n, 1);
+        return {d, x: +(50 + r * Math.cos(a)).toFixed(2), y: +(50 + r * Math.sin(a)).toFixed(2)};
+      });
+    },
+    tnMore() { return Math.max(0, this.tnDevices().length - this.tnMax); },
+    tnPath(d) { return !d.online ? 'offline' : ['direct', 'relayed'].includes(d.path) ? d.path : 'idle'; },
+    // One SVG path per line style, from the middle to each device: solid
+    // for direct, dashed for relayed, dotted for idle, none for offline.
+    tnLines(kind) { return this.tnNodes().filter(n => this.tnPath(n.d) === kind).map(n => 'M50 50L' + n.x + ' ' + n.y).join(''); },
+    tnPickLine() { const n = this.tnNodes().find(x => x.d.id === this.tnPick && x.d.online); return n ? 'M50 50L' + n.x + ' ' + n.y : ''; },
+    // "via fra" halfway along each relayed line.
+    tnVias() {
+      return this.tnNodes().filter(n => this.tnPath(n.d) === 'relayed' && n.d.relay)
+        .map(n => ({id: n.d.id, style: 'left:' + (50 + n.x) / 2 + '%;top:' + (50 + n.y) / 2 + '%', text: 'via ' + n.d.relay}));
+    },
+    tnPickKind() { const d = this.tnDevices().find(x => x.id === this.tnPick); return d ? this.tnPath(d) : ''; },
+    // What to do when Tailscale is not connected (no map then).
+    tnExplain() {
+      const t = this.tailnet;
+      if (!t) return 'netdiag is checking Tailscale on this computer.';
+      if (t.state === 'not-installed') return "Tailscale isn't on this computer. Once Tailscale is installed and connected, this page shows the other devices on your tailnet.";
+      if (t.state === 'needs-login') return 'Tailscale needs you to sign in. Open the Tailscale app on this computer and sign in with the same account as your other devices. Your tailnet shows here once you are signed in.';
+      if (t.state === 'stopped' && t.error) return "netdiag couldn't read Tailscale on this computer. Check that the Tailscale app is running, then click Check again.";
+      if (t.state === 'stopped') return "Tailscale is on this computer, but it isn't connected. Open the Tailscale app and connect. Your tailnet shows here once it is connected.";
+      return '';
+    },
+    tnSpot(n) { return 'left:' + n.x + '%;top:' + n.y + '%'; },
+    // A status is a shape plus a word: Online, Idle (online, no traffic
+    // lately) or Offline.
+    tnStatus(d) { return !d.online ? 'Offline' : this.tnPath(d) === 'idle' ? 'Idle' : 'Online'; },
+    tnStatusIcon(d) { return {Online: 'circle-check', Idle: 'circle-dot', Offline: 'wifi-off'}[this.tnStatus(d)]; },
+    tnStatusClass(d) { return {Online: 's-ok', Idle: 's-info', Offline: 's-unknown'}[this.tnStatus(d)]; },
+    tnPathText(d) {
+      const p = this.tnPath(d);
+      if (p === 'direct') return 'Direct' + (d.endpoint ? ' (' + d.endpoint + ')' : '');
+      if (p === 'relayed') return 'Relayed' + (d.relay ? ' via ' + d.relay : '');
+      return p === 'idle' ? 'No traffic yet' : '';
+    },
+    tnOS(d) { return String((d && d.os) || '').toLowerCase(); },
+    tnOSIcon(d) {
+      const os = this.tnOS(d);
+      if (d.phone || os === 'ios' || os === 'ipados' || os === 'android') return 'smartphone';
+      return {windows: 'monitor', macos: 'laptop', linux: 'server', freebsd: 'server', openbsd: 'server'}[os] || 'device';
+    },
+    tnOSName(d) { return {windows: 'Windows', macos: 'macOS', linux: 'Linux', ios: 'iOS', ipados: 'iPadOS', android: 'Android', freebsd: 'FreeBSD', openbsd: 'OpenBSD'}[this.tnOS(d)] || d.os || 'Unknown system'; },
+    tnDNS(d) { return String((d && d.dnsName) || '').replace(/\.$/, ''); },
+    // A map node's name for screen readers: the same words as its list row.
+    tnNodeName(d) {
+      const p = this.tnPathText(d), k = d.keyExpiresSoon ? ', ' + this.tnKeyText(d) : '';
+      const r = (d.exitNode || d.exitNodeOption ? ', exit node' : '') + ((d.subnetRoutes || []).length ? ', subnet router' : '');
+      return d.name + ': ' + this.tnStatus(d) + (p ? ', ' + p : '') + k + r + '. Show it in the list';
+    },
+    tnRowId(d) { return 'tnd-' + String(d.id || d.name).replace(/[^A-Za-z0-9_-]/g, '_'); },
+    // "Key expires in 3 days", "Key expires within a day", "Key expired".
+    tnKeyText(d) {
+      const t = new Date((d && d.keyExpiry) || ''), now = this.nowMs || Date.now();
+      if (isNaN(t)) return 'Key expires soon';
+      if (t <= now) return 'Key expired';
+      const days = Math.floor((t - now) / 86400000);
+      return days < 1 ? 'Key expires within a day' : 'Key expires in ' + days + (days === 1 ? ' day' : ' days');
+    },
+    tnLastSeen(d) { const c = this.pnClock(d.lastSeen); return !d.online && c ? 'Last seen ' + c : ''; },
+    tnNotes(d) {
+      const out = [];
+      if (d.exitNode) out.push({icon: 'exit-node', text: 'This computer sends its internet traffic through it (exit node)'});
+      else if (d.exitNodeOption) out.push({icon: 'exit-node', text: 'Can be an exit node'});
+      if ((d.subnetRoutes || []).length) out.push({icon: 'network', text: 'Gives access to ' + d.subnetRoutes.join(', ') + ' (subnet router)'});
+      return out;
+    },
+    // A map node (scroll) or a list row picks a device: its row and its
+    // line stand out, and a node's row scrolls into view if it isn't.
+    tnPickDevice(d, scroll) {
+      this.tnPick = this.tnPick === d.id && scroll ? '' : d.id;
+      if (!scroll || !this.tnPick) return;
+      this.$nextTick(() => {
+        const row = document.getElementById(this.tnRowId(d));
+        if (!row) return;
+        let smooth = false;
+        try { smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+        row.scrollIntoView({block: 'nearest', behavior: smooth ? 'smooth' : 'auto'});
+      });
+    },
+    tnRowClick(ev, d) { if (!ev.target.closest('a, button, input')) this.tnPickDevice(d, false); },
+    tnPingIP(d) { const ips = d.ips || []; return ips.find(a => !a.includes(':')) || ips[0] || ''; },
+    tnPing(d) { return this.tnPings[d.id] || null; },
+    // Check path: POST /api/tailnet/ping for one device, the result in words
+    // next to the button ("Direct, 1 ms", "Relayed via fra, 42 ms").
+    async tnCheckPath(d) {
+      const ip = this.tnPingIP(d);
+      if (!ip || (this.tnPing(d) || {}).busy) return;
+      this.tnPings[d.id] = {busy: true, kind: '', text: 'Checking...'};
+      let res = {busy: false, kind: 'warn', text: ''};
+      try {
+        const r = await this.api('POST', '/api/tailnet/ping', {ip: ip});
+        let b = {};
+        try { b = (await r.json()) || {}; } catch (e) {}
+        if (r.status === 401) res.text = '';
+        else if (r.status === 429) res.text = 'Wait a few seconds before checking again.';
+        else if (!r.ok) res.text = b.error ? this.tnSentence(b.error) : 'netdiag could not check the path (HTTP ' + r.status + ').';
+        else if (!b.ok) res.text = 'No answer' + (b.error ? ': ' + this.tnSentence(b.error) : '. The device may be asleep or offline.');
+        else { res = {busy: false, kind: 'ok', text: this.tnPingText(b)}; this.loadTailnet(); }
+      } catch (e) { res.text = 'netdiag could not check the path: ' + e.message; }
+      this.tnPings[d.id] = res;
+    },
+    tnSentence(t) { t = String(t).trim(); t = t.charAt(0).toUpperCase() + t.slice(1); return /[.?]$/.test(t) ? t : t + '.'; },
+    tnPingText(b) {
+      const ms = b.latencyMs > 0 ? (b.latencyMs < 1 ? 'under 1 ms' : Math.round(b.latencyMs) + ' ms') : '';
+      const how = b.path === 'direct' ? 'Direct' : b.path === 'relayed' ? 'Relayed' + (b.relay ? ' via ' + b.relay : '') : 'It answered';
+      return how + (ms ? ', ' + ms : '');
+    },
+    // Open Tailnet next to a Tailscale alert (banner or Problems right now item).
+    tnTrigger(k) { return ['tailscaleDown', 'tailnetDeviceOffline', 'tailnetKeyExpiring'].includes(k); },
+    bannerTailnet(b) { return !b.ok && this.tnTrigger(b.trigger) && this.tailnetShown(); },
+
     // ---- history & compare ----
     async showView(v) {
       if (!this.views.includes(v)) v = 'devices';
@@ -1423,6 +1608,8 @@ document.addEventListener('alpine:init', () => {
       try { localStorage.setItem('netdiag.view', v); } catch (e) {}
       if (v === 'history') await this.loadHistory();
       if (v === 'activity') { this.logStick = true; this.logFollow(); }
+      if (v === 'health' || v === 'tailnet') this.loadTailnet();
+      this.tailnetWatch();
     },
     async loadHistory() {
       this.historyError = '';
