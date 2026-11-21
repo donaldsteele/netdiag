@@ -187,8 +187,9 @@ test('the tray server, a connection string, and a choice of channels', async ({ 
   // tray card does not touch the list.
   await expect(w.locator('#wiz-list .chatlist li')).toHaveCount(1);
   await expect(w.locator('#wiz-list .chatlist li')).toHaveText(/Warehouse · 192\.168\.2\.21/);
-  const gap = await page.evaluate(() => document.querySelector('.chatlist').getBoundingClientRect().top - document.querySelector('#wiz-tray').getBoundingClientRect().bottom);
-  expect(gap).toBeGreaterThanOrEqual(8);
+  // Measured once the list has settled: on a slow runner the tray card and
+  // the list can still be laying out right after they appear.
+  await expect.poll(() => page.evaluate(() => document.querySelector('.chatlist').getBoundingClientRect().top - document.querySelector('#wiz-tray').getBoundingClientRect().bottom)).toBeGreaterThanOrEqual(8);
   await w.getByRole('button', { name: 'Paste a connection string' }).click();
   await w.locator('#chat-string').fill('hello');
   await w.getByRole('button', { name: 'Connect', exact: true }).click();

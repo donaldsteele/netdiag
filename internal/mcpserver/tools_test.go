@@ -432,16 +432,31 @@ func TestStartScanAlreadyRunning(t *testing.T) {
 func TestStartScanStillRunningAfterWait(t *testing.T) {
 	gate := make(chan struct{})
 	e := setup(t, "stdio", true, fakePinger{gate: gate})
-	defer close(gate)
 	start := time.Now()
 	var out startScanOut
 	// waitSec is clamped to whole seconds, so use 1.
 	e.ok(t, "start_scan", map[string]any{"waitSec": 1}, &out)
 	if !out.StillRunning || time.Since(start) < 900*time.Millisecond {
+		close(gate)
 		t.Fatalf("out = %+v after %v", out, time.Since(start))
 	}
 	if !strings.Contains(out.NextStep, "get_scan") {
 		t.Errorf("nextStep = %q", out.NextStep)
+	}
+	// Let the scan finish before the test ends, so it is not still saving
+	// its history into the data folder while the folder is removed.
+	close(gate)
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var s ScanSummary
+		e.ok(t, "get_scan", map[string]any{"scanId": out.ScanID}, &s)
+		if s.State != model.StateRunning && s.State != model.StateLive {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("scan still %s after 15 s", s.State)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

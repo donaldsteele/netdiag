@@ -422,3 +422,19 @@ func TestDataFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestSettingPath: a bad list element is reported as its field, whether
+// encoding/json names the element by index (Go 1.27) or not (earlier).
+func TestSettingPath(t *testing.T) {
+	for in, want := range map[string]string{
+		"ignoredConflictMACs":       "ignoredConflictMACs",
+		"ignoredConflictMACs.0":     "ignoredConflictMACs",
+		"noInternetNetworks.12":     "noInternetNetworks",
+		"alerts.cooldownSec":        "alerts.cooldownSec",
+		"alerts.triggers.newDevice": "alerts.triggers.newDevice",
+	} {
+		if got := settingPath(in); got != want {
+			t.Errorf("settingPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -256,13 +256,29 @@ func (s *Store) readSettings() (model.Settings, []string, error) {
 		if !errors.As(err, &te) || te.Field == "" {
 			return def, nil, nil
 		}
-		fixed = append(wrongTypes(data), te.Field)
+		fixed = append(wrongTypes(data), settingPath(te.Field))
 	}
 	if cur.IgnoredConflictMACs == nil {
 		cur.IgnoredConflictMACs = []string{}
 	}
 	n, more := RepairSettings(cur)
 	return n, repairOrder(append(fixed, more...)), nil
+}
+
+// settingPath is the settings path of a json.UnmarshalTypeError Field:
+// the field itself, without list indexes. Go 1.27's encoding/json names a
+// bad list element by its index ("ignoredConflictMACs.0"); earlier versions
+// named only the field. The repaired list names fields, so both mean
+// "ignoredConflictMACs".
+func settingPath(field string) string {
+	parts := strings.Split(field, ".")
+	out := parts[:0]
+	for _, p := range parts {
+		if p != "" && strings.Trim(p, "0123456789") != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, ".")
 }
 
 // RepairPaths returns, in field order, every JSON path a settings load can
