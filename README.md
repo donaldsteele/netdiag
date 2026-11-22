@@ -1,5 +1,8 @@
 # netdiag
 
+**Website: [donaldsteele.github.io/netdiag](https://donaldsteele.github.io/netdiag/)** ·
+[Download](https://github.com/donaldsteele/netdiag/releases/latest)
+
 netdiag is a single-binary diagnostic tool for local networks. It discovers devices on the local subnet (ICMP, ARP, port probes, SNMP, mDNS, IPP) and reports printers, web services and the health of the network through a local browser UI.
 
 It answers, within about 10 seconds: what is alive on the network, which devices are printers and what state they are in (toner, paper, alerts), which devices offer a web page you can open, whether the gateway, DHCP, DNS and your web server are working, and whether two devices are fighting over the same IP address.
